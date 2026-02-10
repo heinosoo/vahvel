@@ -9,3 +9,5 @@ crate-type = ["cdylib"]
 
 [dependencies]
 rustler = "0.37"
+faer = "0.19"
+bytemuck = "1.21"

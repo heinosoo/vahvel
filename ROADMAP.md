@@ -39,27 +39,26 @@ Goal: Define the core Matrix type in pure Gleam. No NIF needed.
 
 ---
 
-## Step 2 — faer solver NIF
+## Step 2 — ~faer solver NIF~ ✅
 
 Goal: Solve `Ax = b` via LU decomposition in Rust, callable from Gleam.
 
-- [ ] Add `faer` to `native/waffle/Cargo.toml`
-- [ ] Implement `solve_linear_system` NIF in `lib.rs`:
+- [x] Add `faer` to `native/waffle/Cargo.toml`
+- [x] Implement `solve_linear_system` NIF in `lib.rs`:
   - `#[rustler::nif(schedule = "DirtyCpu")]`
   - Accept: rows, cols, matrix binary, rhs binary
   - Validate binary lengths
-  - Zero-copy view as `&[f64]`
-  - Create `faer::MatRef` (column-major)
+  - Build matrices from column-major binary data
   - LU decomposition with partial pivoting
   - Wrap in `catch_unwind` for singular matrix safety
   - Return `{ok, result_binary}` or `{error, reason}`
-- [ ] Register NIF in `rustler::init!`
-- [ ] Update `waffle_ffi.erl` with the new function stub
-- [ ] Create `src/waffle/solver.gleam`:
+- [x] Register NIF in `rustler::init!`
+- [x] Update `waffle_ffi.erl` with the new function stub
+- [x] Create `src/waffle/solver.gleam`:
   - `pub fn solve(a: Matrix, b: Matrix) -> Result(Matrix, SolverError)`
   - Validate dimensions (`a` is square, `b` rows match `a` rows)
   - Call NIF, wrap result in `Matrix`
-- [ ] Tests with known solutions:
+- [x] Tests with known solutions:
   - Identity matrix: `Ix = b` → `x = b`
   - Simple 2x2 and 3x3 systems
   - Singular matrix → error
@@ -71,19 +70,22 @@ Goal: Solve `Ax = b` via LU decomposition in Rust, callable from Gleam.
 
 ## Step 3 — Smart build script
 
-Goal: Users run `gleam run -m waffle/build` and get a working native library without installing Rust.
+Goal: Users run `gleam run -m waffle/setup` and get a working native library without installing Rust.
 
-- [ ] Create `src/waffle/build.gleam` with `main()` entry point
-- [ ] Detect OS and architecture (via Erlang FFI)
-- [ ] Construct download URL from OS/arch/version
-- [ ] Attempt HTTP download of precompiled binary
-- [ ] On success: save to `priv/waffle.so` (or `.dylib`/`.dll`)
-- [ ] On failure: check if `cargo` is available
-- [ ] If cargo available: run `cargo build --release`, copy artifact to `priv/`
-- [ ] If no cargo: print clear error message with instructions
-- [ ] Test the script manually on at least one platform
+- [ ] Create `src/waffle/compile.gleam` with `main()` entry point and `pub fn do_compile()` function
+  - Check if `cargo` is available
+  - Run `cargo build --release` in `native/waffle/`
+  - Copy artifact to `priv/waffle.so` (or `.dylib`/`.dll`)
+  - Print clear error message with instructions if cargo not available
+- [ ] Create `src/waffle/setup.gleam` with `main()` entry point
+  - Detect OS and architecture (via Erlang FFI)
+  - Construct download URL from OS/arch/version
+  - Attempt HTTP download of precompiled binary
+  - On success: save to `priv/waffle.so` (or `.dylib`/`.dll`)
+  - On failure: fall back to `compile.do_compile()`
+- [ ] Test both scripts manually on at least one platform
 
-**Milestone:** `gleam run -m waffle/build` produces a working `priv/waffle.so`.
+**Milestone:** `gleam run -m waffle/setup` produces a working `priv/waffle.so`. `gleam run -m waffle/compile` always builds from source (useful for CI, development, or users who prefer local builds).
 
 ---
 
@@ -91,10 +93,16 @@ Goal: Users run `gleam run -m waffle/build` and get a working native library wit
 
 Goal: Automated builds and releases for all platforms.
 
-- [ ] GitHub Actions workflow: build NIF on Linux (x86_64), macOS (x86_64, aarch64), Windows (x86_64)
+> **Note:** Basic Linux x86_64 build was added to CI earlier (after Step 2) to keep tests passing. This step will expand that to full multi-platform support and release artifacts.
+
+- [ ] Expand GitHub Actions workflow to build NIF on multiple platforms:
+  - Linux (x86_64)
+  - macOS (x86_64, aarch64)
+  - Windows (x86_64)
 - [ ] Upload compiled binaries as release assets on tagged releases
-- [ ] CI workflow: `gleam test`, `gleam format --check`, `cargo fmt --check`, `cargo clippy`
-- [ ] Test that the build script can download from the release artifacts
+- [ ] Enhance CI workflow with additional checks: `cargo fmt --check`, `cargo clippy`
+- [ ] Update CI to use `gleam run -m waffle/compile` instead of direct cargo commands
+- [ ] Test that `gleam run -m waffle/setup` can download from the release artifacts
 
 **Milestone:** Push a tag, binaries are built and uploaded. CI catches formatting and test failures.
 

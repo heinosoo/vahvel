@@ -17,17 +17,24 @@ fn nth_rec(list: List(a), index: Int, current: Int) -> Result(a, Nil) {
   }
 }
 
+/// Errors that can occur when creating or manipulating matrices.
 pub type MatrixError {
+  /// Input was an empty list `[]`.
   EmptyInput
+  /// Matrix contained an empty row `[[]]`.
   EmptyRow
+  /// Matrix rows had different lengths (ragged array).
   RaggedRows
+  /// Invalid matrix dimensions.
   InvalidDimensions(String)
 }
 
+/// A matrix stored in column-major order as f64 values.
 pub opaque type Matrix {
   Matrix(rows: Int, cols: Int, data: BitArray)
 }
 
+/// Create a matrix from a nested list. Input is row-major.
 pub fn from_list(data: List(List(Float))) -> Result(Matrix, MatrixError) {
   case data {
     [] -> Error(EmptyInput)
@@ -90,6 +97,7 @@ fn float_to_bytes(f: Float) -> BitArray
 @external(erlang, "waffle_ffi", "bytes_to_float")
 fn bytes_to_float(b: BitArray) -> Float
 
+/// Convert matrix to nested list. Output is row-major.
 pub fn to_list(matrix: Matrix) -> List(List(Float)) {
   let floats = unpack_floats(matrix.data)
   from_column_major(floats, matrix.rows, matrix.cols)
@@ -136,14 +144,17 @@ fn build_row(
   list.map(list.range(0, cols - 1), list_fn)
 }
 
+/// Get the number of rows in a matrix.
 pub fn rows(matrix: Matrix) -> Int {
   matrix.rows
 }
 
+/// Get the number of columns in a matrix.
 pub fn cols(matrix: Matrix) -> Int {
   matrix.cols
 }
 
+/// Create an n x n identity matrix.
 pub fn identity(n: Int) -> Result(Matrix, MatrixError) {
   case n {
     _ if n < 1 -> Error(InvalidDimensions("Matrix size must be at least 1"))
@@ -161,4 +172,16 @@ pub fn identity(n: Int) -> Result(Matrix, MatrixError) {
       Ok(Matrix(rows: n, cols: n, data: pack_floats(values)))
     }
   }
+}
+
+/// Create a matrix from binary data.
+@internal
+pub fn from_binary(rows: Int, cols: Int, data: BitArray) -> Matrix {
+  Matrix(rows: rows, cols: cols, data: data)
+}
+
+/// Get the binary data from a matrix.
+@internal
+pub fn to_binary(matrix: Matrix) -> BitArray {
+  matrix.data
 }

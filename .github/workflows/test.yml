@@ -18,6 +18,16 @@ jobs:
           gleam-version: "1.14.0"
           rebar3-version: "3"
           # elixir-version: "1"
+      - uses: dtolnay/rust-toolchain@stable
+      # Minimal build step for Linux x86_64 to make tests pass.
+      # This will be expanded in Step 4 to build for multiple platforms
+      # and upload release artifacts.
+      - name: Build Rust NIF
+        run: |
+          cd native/waffle
+          cargo build --release
+          mkdir -p ../../priv
+          cp target/release/libwaffle.so ../../priv/waffle.so
       - run: gleam deps download
       - run: gleam test
       - run: gleam format --check src test

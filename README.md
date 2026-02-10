@@ -23,12 +23,12 @@ import waffle/matrix
 import waffle/solver
 
 pub fn main() {
-  // Solve: 2x + y = 5, x + 3y = 7
+  // Solve: 2x + y = 7, x + 3y = 9
   let assert Ok(a) = matrix.from_list([[2.0, 1.0], [1.0, 3.0]])
-  let assert Ok(b) = matrix.from_list([[5.0], [7.0]])
+  let assert Ok(b) = matrix.from_list([[7.0], [9.0]])
 
   let assert Ok(x) = solver.solve(a, b)
-  // x ≈ [[1.6], [1.8]]
+  // x = [[2.4], [2.2]]
 }
 ```
 

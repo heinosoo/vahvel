@@ -30,7 +30,7 @@ Write idiomatic Gleam. Concretely:
 - **No panics, no `let assert` in production paths.** Return `Result` types. Propagate errors. `let assert` is fine in tests.
 - **Type annotations on all public functions.** Format: `pub fn name(args) -> ReturnType`.
 - **Minimal comments.** Write self-documenting code. Public interfaces may be documented if it aids clarity.
-- **Gleam language docs.** https://tour.gleam.run/everything
+- **Document public interfaces.** This is a library - use `///` docstrings on all public types and functions to enable `gleam docs` generation.
 
 ### Software Design
 
