@@ -107,6 +107,9 @@ jobs:
           gleam-version: "1.14.0"
           rebar3-version: "3"
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native/waffle
 
       - run: gleam deps download
       - name: Build NIF

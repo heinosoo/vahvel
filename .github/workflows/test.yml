@@ -20,6 +20,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native/waffle
       - name: Check Rust formatting
         run: cargo fmt --check
         working-directory: native/waffle
