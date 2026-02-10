@@ -32,6 +32,33 @@ Write idiomatic Gleam. Concretely:
 - **Minimal comments.** Write self-documenting code. Public interfaces may be documented if it aids clarity.
 - **Document public interfaces.** This is a library - use `///` docstrings on all public types and functions to enable `gleam docs` generation.
 
+### Avoiding Deep Nesting
+
+Deeply nested case expressions (4+ levels) harm readability. Flatten control flow:
+
+- **`use` bindings for sequential Results.** Replace nested `case` with `use x <- result.try(...)`.
+  ```gleam
+  use _ <- result.try(validate(x))
+  use result <- result.try(compute(x))
+  use _ <- result.try(save(result))
+  Ok(Nil)
+  ```
+
+- **Use stdlib over explicit cases.** Prefer `result.map_error(fn)`, `result.unwrap(default)`, `result.replace(value)`.
+  ```gleam
+  do_thing() |> result.map_error(classify)
+  ```
+
+- **Remove unnecessary Result wrappers.** If a function never fails (uses `unwrap` with fallback), return the value directly instead of wrapping in `Result`.
+
+- **Remove thin wrapper functions.** Inline functions that just delegate or add a single side effect, unless they serve a clear architectural purpose.
+
+- **Boolean operators over case.** Use `force || should_rebuild()` instead of matching on booleans.
+
+- **Multi-pattern case expressions.** Match on multiple values: `case row, list.length(row) { [], _ -> ..., _, n if n != expected -> ... }`.
+
+See also: [Gleam language tour - Everything](https://tour.gleam.run/everything) for idiomatic patterns. 
+
 ### Software Design
 
 - **Deep modules.** A module's public interface should be small and meaningful. Hide complexity.
@@ -42,14 +69,14 @@ Write idiomatic Gleam. Concretely:
 
 ```
 src/
-  waffle.gleam              # Main entry point
-  waffle/
-    matrix.gleam            # Matrix type, constructors, conversions
-    solver.gleam            # Linear solver (Gleam wrapper around NIF)
-    compile.gleam           # Build NIF from source (gleam run -m waffle/compile)
-    setup.gleam             # Build if needed, skip if up to date (gleam run -m waffle/setup)
-    version.gleam           # Package version constant + NIF version check
-  waffle_ffi.erl            # Erlang NIF loader
+  matrix.gleam              # Matrix type, constructors, conversions
+  solver.gleam              # Linear solver (Gleam wrapper around NIF)
+  build.gleam               # Build NIF from source (gleam run -m build)
+  setup.gleam               # Build if needed, skip if up to date (gleam run -m setup)
+  version.gleam             # Package version constant + NIF version check
+  ffi/
+    nif.erl                 # NIF loader and stubs
+    platform.erl            # Platform detection (pure Erlang)
 
 native/waffle/
   Cargo.toml                # Rust dependencies (rustler, faer)
@@ -58,7 +85,10 @@ native/waffle/
 priv/                       # Compiled .so/.dll/.dylib (gitignored)
 
 test/
-  waffle_test.gleam         # Tests
+  matrix_test.gleam         # Matrix tests
+  solver_test.gleam         # Solver tests
+  version_test.gleam        # Version tests
+  waffle_test.gleam         # Main test entry
 ```
 
 ---
@@ -109,7 +139,7 @@ cargo clippy                # Lint Rust code
 ### Full build cycle
 
 ```sh
-gleam run -m waffle/compile   # Build NIF from source, copy to priv/
+gleam run -m build   # Build NIF from source, copy to priv/
 gleam test
 ```
 
@@ -164,7 +194,7 @@ Use [docs.rs](https://docs.rs) for Rust crate documentation. Key crates:
 
 ### NIF not loaded
 
-If the NIF shared library is missing from `priv/`, all NIF calls crash. The error message should tell the user to run `gleam run -m waffle/setup`. Check this first when debugging test failures.
+If the NIF shared library is missing from `priv/`, all NIF calls crash. The error message should tell the user to run `gleam run -m setup`. Check this first when debugging test failures.
 
 ### Binary alignment
 
@@ -195,8 +225,8 @@ Gleam/user input is naturally row-major (`[[1, 2], [3, 4]]`). faer expects colum
 
 1. **Rust:** Add the function in `native/waffle/src/lib.rs` with `#[rustler::nif(schedule = "DirtyCpu")]`. Return tagged tuples.
 2. **Rust:** Register it in the `rustler::init!` macro.
-3. **Erlang:** Add the function stub in `src/waffle_ffi.erl` that raises `nif_not_loaded`.
-4. **Gleam:** Add the `@external(erlang, "waffle_ffi", "function_name")` binding.
+3. **Erlang:** Add the function stub in `src/ffi/nif.erl` that raises `nif_not_loaded`.
+4. **Gleam:** Add the `@external(erlang, "nif", "function_name")` binding.
 5. **Test:** Write a Gleam test that calls the public API and verifies the result.
 
 ### Adding a pure Gleam function
@@ -208,7 +238,7 @@ Gleam/user input is naturally row-major (`[[1, 2], [3, 4]]`). faer expects colum
 ### Modifying the build scripts
 
 Two build entry points:
-- `src/waffle/compile.gleam` — always builds from source (`gleam run -m waffle/compile`). Used by CI.
-- `src/waffle/setup.gleam` — builds only if NIF is missing or version mismatches (`gleam run -m waffle/setup`). Used by end users.
+- `src/build.gleam` — always builds from source (`gleam run -m build`). Used by CI.
+- `src/setup.gleam` — builds only if NIF is missing or version mismatches (`gleam run -m setup`). Used by end users.
 
 Changes here affect how users install the native library.

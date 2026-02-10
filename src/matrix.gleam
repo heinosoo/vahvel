@@ -36,6 +36,20 @@ pub opaque type Matrix {
 
 /// Create a matrix from a nested list. Input is row-major.
 pub fn from_list(data: List(List(Float))) -> Result(Matrix, MatrixError) {
+  // Validate and get dimensions
+  use #(rows, cols) <- result.try(validate_and_get_dimensions(data))
+
+  // Validate all rows have correct length
+  use _ <- result.try(validate_all_rows(data, cols))
+
+  // Construct matrix
+  let column_major = to_column_major(data, rows, cols)
+  Ok(Matrix(rows: rows, cols: cols, data: column_major))
+}
+
+fn validate_and_get_dimensions(
+  data: List(List(Float)),
+) -> Result(#(Int, Int), MatrixError) {
   case data {
     [] -> Error(EmptyInput)
     _ -> {
@@ -45,26 +59,26 @@ pub fn from_list(data: List(List(Float))) -> Result(Matrix, MatrixError) {
 
       case cols {
         0 -> Error(EmptyRow)
-        _ -> {
-          let validate_row = fn(row: List(Float)) {
-            case row, list.length(row) {
-              [], _ -> Error(EmptyRow)
-              _, n if n != cols -> Error(RaggedRows)
-              _, _ -> Ok(Nil)
-            }
-          }
-
-          case list.try_map(data, validate_row) {
-            Ok(_) -> {
-              let column_major = to_column_major(data, rows, cols)
-              Ok(Matrix(rows: rows, cols: cols, data: column_major))
-            }
-            Error(e) -> Error(e)
-          }
-        }
+        _ -> Ok(#(rows, cols))
       }
     }
   }
+}
+
+fn validate_all_rows(
+  data: List(List(Float)),
+  expected_cols: Int,
+) -> Result(Nil, MatrixError) {
+  let validate_row = fn(row: List(Float)) {
+    case row, list.length(row) {
+      [], _ -> Error(EmptyRow)
+      _, n if n != expected_cols -> Error(RaggedRows)
+      _, _ -> Ok(Nil)
+    }
+  }
+
+  list.try_map(data, validate_row)
+  |> result.replace(Nil)
 }
 
 fn to_column_major(data: List(List(Float)), rows: Int, cols: Int) -> BitArray {
@@ -91,10 +105,10 @@ fn pack_floats(floats: List(Float)) -> BitArray {
   }
 }
 
-@external(erlang, "waffle_ffi", "float_to_bytes")
+@external(erlang, "nif", "float_to_bytes")
 fn float_to_bytes(f: Float) -> BitArray
 
-@external(erlang, "waffle_ffi", "bytes_to_float")
+@external(erlang, "nif", "bytes_to_float")
 fn bytes_to_float(b: BitArray) -> Float
 
 /// Convert matrix to nested list. Output is row-major.

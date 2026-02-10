@@ -1,5 +1,5 @@
 import gleeunit/should
-import waffle/matrix
+import matrix
 
 pub fn from_list_round_trip_2x2_test() {
   let input = [[1.0, 2.0], [3.0, 4.0]]

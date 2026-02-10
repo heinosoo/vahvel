@@ -2,6 +2,12 @@
 
 Step-by-step implementation plan. Each step builds on the previous one. Do not skip ahead.
 
+> **Note:** This roadmap shows the original implementation path. The current codebase has been reorganized for clarity:
+> - Modules moved from `src/waffle/*.gleam` to `src/*.gleam` (flat structure)
+> - `compile.gleam` renamed to `build.gleam` (Erlang module name collision)
+> - FFI files consolidated into `src/ffi/` directory (`nif.erl` and `platform.erl`)
+> - Module references updated (`waffle/module` → `module`, `waffle_ffi` → `nif`)
+
 ---
 
 ## Step 0 — ~Skeleton~ (Gleam + Rust interop without faer) ✅

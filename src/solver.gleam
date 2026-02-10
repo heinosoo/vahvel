@@ -1,5 +1,6 @@
+import gleam/result
 import gleam/string
-import waffle/matrix
+import matrix
 
 /// Errors that can occur when solving linear systems.
 pub type SolverError {
@@ -18,30 +19,35 @@ pub fn solve(
   a: matrix.Matrix,
   b: matrix.Matrix,
 ) -> Result(matrix.Matrix, SolverError) {
+  // Validate dimensions first
+  use Nil <- result.try(validate_dimensions(a, b))
+
+  do_solve(a, b) |> result.map_error(classify_solver_error)
+}
+
+fn validate_dimensions(
+  a: matrix.Matrix,
+  b: matrix.Matrix,
+) -> Result(Nil, SolverError) {
   let a_rows = matrix.rows(a)
   let a_cols = matrix.cols(a)
   let b_rows = matrix.rows(b)
-
   let b_cols = matrix.cols(b)
 
   case a_rows != a_cols {
     True -> Error(MatrixNotSquare)
-    False -> {
+    False ->
       case b_rows != a_rows || b_cols != 1 {
         True -> Error(DimensionMismatch)
-        False -> {
-          case do_solve(a, b) {
-            Ok(result_matrix) -> Ok(result_matrix)
-            Error(msg) -> {
-              case string.contains(msg, "singular") {
-                True -> Error(SingularMatrix)
-                False -> Error(InvalidSolution(msg))
-              }
-            }
-          }
-        }
+        False -> Ok(Nil)
       }
-    }
+  }
+}
+
+fn classify_solver_error(msg: String) -> SolverError {
+  case string.contains(msg, "singular") {
+    True -> SingularMatrix
+    False -> InvalidSolution(msg)
   }
 }
 
@@ -60,7 +66,7 @@ fn do_solve(a: matrix.Matrix, b: matrix.Matrix) -> Result(matrix.Matrix, String)
   }
 }
 
-@external(erlang, "waffle_ffi", "solve_linear_system")
+@external(erlang, "nif", "solve_linear_system")
 fn solve_linear_system(
   rows: Int,
   cols: Int,

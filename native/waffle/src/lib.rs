@@ -2,11 +2,6 @@ use rustler::{Atom, Binary, Encoder, Env, NifResult, OwnedBinary, Term};
 use std::panic::catch_unwind;
 
 #[rustler::nif]
-fn add_floats(a: f64, b: f64) -> f64 {
-    a + b
-}
-
-#[rustler::nif]
 fn nif_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
@@ -91,4 +86,4 @@ fn solve_linear_system<'a>(
     }
 }
 
-rustler::init!("waffle_ffi");
+rustler::init!("nif");

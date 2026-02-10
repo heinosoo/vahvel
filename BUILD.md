@@ -3,7 +3,7 @@
 ## Quick Start
 
 ```bash
-gleam run -m waffle/setup
+gleam run -m setup
 ```
 
 This will automatically:
@@ -13,7 +13,7 @@ This will automatically:
 
 ## Commands
 
-### `gleam run -m waffle/setup`
+### `gleam run -m setup`
 User-facing setup command. Automatically handles:
 - Building the NIF if it doesn't exist
 - Rebuilding if the version doesn't match
@@ -22,7 +22,7 @@ User-facing setup command. Automatically handles:
 Options:
 - `--force`: Force rebuild even if NIF exists and versions match
 
-### `gleam run -m waffle/compile`
+### `gleam run -m build`
 Always builds from source, regardless of current state.
 Useful for development or CI.
 
@@ -35,9 +35,9 @@ If versions don't match, the NIF is automatically rebuilt. This ensures the nati
 **When bumping the version**, update all three places:
 1. `version` in `gleam.toml`
 2. `version` in `native/waffle/Cargo.toml`
-3. `package_version` in `src/waffle/version.gleam`
+3. `package_version` in `src/version.gleam`
 
-`gleam test` will fail if `gleam.toml` and `version.gleam` drift apart, and `waffle/setup` will automatically rebuild the NIF if it doesn't match `Cargo.toml`.
+`gleam test` will fail if `gleam.toml` and `version.gleam` drift apart, and `setup` will automatically rebuild the NIF if it doesn't match `Cargo.toml`.
 
 ## Requirements
 
@@ -56,7 +56,7 @@ The build scripts automatically detect the OS and use the correct file extension
 
 In CI, use the compile script directly:
 ```bash
-gleam run -m waffle/compile
+gleam run -m build
 ```
 
 This ensures a clean build every time.

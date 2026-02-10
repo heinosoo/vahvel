@@ -1,4 +1,4 @@
--module(waffle_build_ffi).
+-module(platform).
 -export([os_family/0]).
 
 os_family() ->

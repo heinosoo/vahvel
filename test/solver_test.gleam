@@ -1,6 +1,6 @@
 import gleeunit/should
-import waffle/matrix
-import waffle/solver
+import matrix
+import solver
 
 pub fn identity_matrix_test() {
   let assert Ok(id_2x2) = matrix.identity(2)

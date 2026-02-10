@@ -1,0 +1,30 @@
+-module(nif).
+-on_load(init/0).
+-export([init/0, float_to_bytes/1, bytes_to_float/1, solve_linear_system/4, nif_version/0, nif_version_result/0]).
+
+init() ->
+    SoName = code:priv_dir(waffle) ++ "/waffle",
+    erlang:load_nif(SoName, 0).
+
+%% Pure Erlang helpers for float/binary conversion
+float_to_bytes(F) when is_float(F) ->
+    <<F:64/little-float>>.
+
+bytes_to_float(<<F:64/little-float>>) ->
+    F.
+
+%% NIF stubs
+solve_linear_system(_Rows, _Cols, _A, _B) ->
+    erlang:nif_error(nif_not_loaded).
+
+nif_version() ->
+    erlang:nif_error(nif_not_loaded).
+
+%% Safe wrapper that returns {ok, Version} or {error, nil}
+nif_version_result() ->
+    try
+        {ok, nif_version()}
+    catch
+        error:nif_not_loaded ->
+            {error, nil}
+    end.

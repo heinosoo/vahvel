@@ -113,7 +113,7 @@ jobs:
 
       - run: gleam deps download
       - name: Build NIF
-        run: gleam run -m waffle/compile
+        run: gleam run -m build
       - run: gleam test
 
       - name: Commit version bump

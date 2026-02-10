@@ -61,7 +61,7 @@ Gleam (public API) -> Erlang (NIF loader) -> Rust (faer computation)
 Gleam provides the `@external` attribute for target-specific implementations:
 
 ```gleam
-@external(erlang, "waffle_ffi", "solve_linear_system")
+@external(erlang, "nif", "solve_linear_system")
 @external(javascript, "./waffle_wasm.mjs", "solveLinearSystem")
 pub fn solve(a: Matrix, b: Matrix) -> Result(Matrix, SolverError)
 ```
@@ -82,12 +82,14 @@ pub fn solve(a: Matrix, b: Matrix) -> Result(Matrix, SolverError)
 #### Current Architecture (Erlang-only)
 
 ```
-src/waffle/
+src/
   matrix.gleam              # Pure Gleam (works on all targets)
   solver.gleam              # Calls Erlang NIF
   build.gleam               # Downloads/builds .so/.dylib
+  ffi/
+    nif.erl                 # Erlang NIF loader
+    platform.erl            # Platform detection
 
-src/waffle_ffi.erl          # Erlang NIF loader
 native/waffle/              # Rust crate with rustler
   src/lib.rs                # NIF implementation
 ```
@@ -95,12 +97,12 @@ native/waffle/              # Rust crate with rustler
 #### Proposed Dual-Target Architecture
 
 ```
-src/waffle/
+src/
   matrix.gleam              # Pure Gleam (unchanged)
   solver.gleam              # Uses @external for both targets
   build.gleam               # Updated for dual-target builds
-
-src/waffle_ffi.erl          # Erlang NIF loader (Erlang target only)
+  ffi/
+    nif.erl                 # Erlang NIF loader (Erlang target only)
 
 native/waffle_nif/          # Rust NIF for Erlang
   Cargo.toml                # rustler dependencies
@@ -121,7 +123,7 @@ src/waffle_wasm.mjs         # JavaScript glue layer
 
 2. **Dual `@external` declarations** (at the FFI boundary, not the public API):
    ```gleam
-   @external(erlang, "waffle_ffi", "solve_linear_system")
+   @external(erlang, "nif", "solve_linear_system")
    @external(javascript, "./waffle_wasm.mjs", "solveLinearSystem")
    fn solve_ffi(rows: Int, cols: Int, mat: BitArray, rhs: BitArray)
      -> Result(BitArray, String)
@@ -304,7 +306,7 @@ target = "erlang"  # Explicitly Erlang-only
 For JavaScript target, call a server endpoint that runs the Erlang version:
 
 ```gleam
-@external(erlang, "waffle_ffi", "solve_linear_system")
+@external(erlang, "nif", "solve_linear_system")
 @external(javascript, "./waffle_api.mjs", "solveLinearSystemRemote")
 pub fn solve(a: Matrix, b: Matrix) -> Result(Matrix, SolverError)
 ```
