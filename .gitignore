@@ -1,0 +1,12 @@
+*.beam
+*.ez
+/build
+erl_crash.dump
+
+# Rust build artifacts
+native/*/target/
+
+# Compiled NIF libraries (platform-specific)
+priv/*.so
+priv/*.dylib
+priv/*.dll
