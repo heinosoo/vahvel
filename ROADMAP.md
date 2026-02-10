@@ -22,17 +22,18 @@ Goal: Prove that a Gleam project can call a Rust NIF and get a result back.
 
 ---
 
-## Step 1 — Matrix type
+## Step 1 — ~Matrix type~ ✅
 
 Goal: Define the core Matrix type in pure Gleam. No NIF needed.
 
-- [ ] Create `src/waffle/matrix.gleam`
-- [ ] Define opaque `Matrix` type: rows, cols, data as `BitArray` (column-major f64)
-- [ ] Implement `from_list(List(List(Float))) -> Result(Matrix, MatrixError)` — validates dimensions, transposes row-major input to column-major
-- [ ] Implement `to_list(Matrix) -> List(List(Float))` — reverse conversion
-- [ ] Implement `rows(Matrix) -> Int`, `cols(Matrix) -> Int`
-- [ ] Implement `identity(n: Int) -> Matrix`
-- [ ] Write tests: round-trip `from_list` → `to_list`, dimension helpers, identity matrix, error cases (ragged lists, empty input)
+- [x] Create `src/waffle/matrix.gleam`
+- [x] Define opaque `Matrix` type: rows, cols, data as `BitArray` (column-major f64)
+- [x] Implement `from_list(List(List(Float))) -> Result(Matrix, MatrixError)` — validates dimensions, transposes row-major input to column-major
+- [x] Implement `to_list(Matrix) -> List(List(Float))` — reverse conversion
+- [x] Implement `rows(Matrix) -> Int`, `cols(Matrix) -> Int`
+- [x] Implement `identity(n: Int) -> Result(Matrix, MatrixError)`
+- [x] Add helper functions to `waffle_ffi.erl` for float ↔ binary conversion
+- [x] Write tests: round-trip `from_list` → `to_list`, dimension helpers, identity matrix, error cases (ragged lists, empty input)
 
 **Milestone:** Matrix type is usable from Gleam. All tests pass without any NIF.
 
