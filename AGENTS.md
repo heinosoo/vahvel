@@ -46,7 +46,9 @@ src/
   waffle/
     matrix.gleam            # Matrix type, constructors, conversions
     solver.gleam            # Linear solver (Gleam wrapper around NIF)
-    build.gleam             # Smart build script
+    compile.gleam           # Build NIF from source (gleam run -m waffle/compile)
+    setup.gleam             # Build if needed, skip if up to date (gleam run -m waffle/setup)
+    version.gleam           # Package version constant + NIF version check
   waffle_ffi.erl            # Erlang NIF loader
 
 native/waffle/
@@ -107,8 +109,7 @@ cargo clippy                # Lint Rust code
 ### Full build cycle
 
 ```sh
-cd native/waffle && cargo build --release && cd ../..
-cp native/waffle/target/release/libwaffle.so priv/waffle.so  # Linux
+gleam run -m waffle/compile   # Build NIF from source, copy to priv/
 gleam test
 ```
 
@@ -163,7 +164,7 @@ Use [docs.rs](https://docs.rs) for Rust crate documentation. Key crates:
 
 ### NIF not loaded
 
-If the NIF shared library is missing from `priv/`, all NIF calls crash. The error message should tell the user to run `gleam run -m waffle/build`. Check this first when debugging test failures.
+If the NIF shared library is missing from `priv/`, all NIF calls crash. The error message should tell the user to run `gleam run -m waffle/setup`. Check this first when debugging test failures.
 
 ### Binary alignment
 
@@ -204,6 +205,10 @@ Gleam/user input is naturally row-major (`[[1, 2], [3, 4]]`). faer expects colum
 2. Write tests in `test/`.
 3. No Rust or Erlang changes needed.
 
-### Modifying the build script
+### Modifying the build scripts
 
-The build script lives in `src/waffle/build.gleam`. It runs as `gleam run -m waffle/build`. Changes here affect how users install the native library. Test on all three platforms (Linux, macOS, Windows) before merging.
+Two build entry points:
+- `src/waffle/compile.gleam` — always builds from source (`gleam run -m waffle/compile`). Used by CI.
+- `src/waffle/setup.gleam` — builds only if NIF is missing or version mismatches (`gleam run -m waffle/setup`). Used by end users.
+
+Changes here affect how users install the native library.

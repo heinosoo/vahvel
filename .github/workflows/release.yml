@@ -1,0 +1,156 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g. 0.2.0). Leave blank to auto-increment patch."
+        required: false
+        default: ""
+
+# Multi-platform builds (future):
+# When ready, replace the single `release` job with a matrix strategy:
+#
+# jobs:
+#   build:
+#     strategy:
+#       matrix:
+#         include:
+#           - os: ubuntu-latest
+#             target: x86_64-unknown-linux-gnu
+#             artifact: waffle.so
+#             asset_suffix: linux-x86_64.so
+#           - os: macos-latest
+#             target: x86_64-apple-darwin
+#             artifact: libwaffle.dylib
+#             asset_suffix: macos-x86_64.dylib
+#           - os: macos-latest
+#             target: aarch64-apple-darwin
+#             artifact: libwaffle.dylib
+#             asset_suffix: macos-aarch64.dylib
+#           - os: windows-latest
+#             target: x86_64-pc-windows-msvc
+#             artifact: waffle.dll
+#             asset_suffix: windows-x86_64.dll
+#     runs-on: ${{ matrix.os }}
+#     steps:
+#       - uses: actions/checkout@v4
+#       - uses: dtolnay/rust-toolchain@stable
+#         with:
+#           targets: ${{ matrix.target }}
+#       - run: cargo build --release --target ${{ matrix.target }}
+#         working-directory: native/waffle
+#       ... upload each artifact, then collect in a final release job
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine version
+        id: version
+        run: |
+          CURRENT=$(grep '^version' gleam.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            TARGET="${{ github.event.inputs.version }}"
+          else
+            # Auto-increment patch
+            MAJOR=$(echo "$CURRENT" | cut -d. -f1)
+            MINOR=$(echo "$CURRENT" | cut -d. -f2)
+            PATCH=$(echo "$CURRENT" | cut -d. -f3)
+            PATCH=$((PATCH + 1))
+            TARGET="${MAJOR}.${MINOR}.${PATCH}"
+          fi
+          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
+
+      - name: Check for conflicts
+        run: |
+          TARGET="${{ steps.version.outputs.target }}"
+          CURRENT="${{ steps.version.outputs.current }}"
+
+          if [ "$TARGET" = "$CURRENT" ]; then
+            echo "::error::Target version $TARGET is the same as current version"
+            exit 1
+          fi
+
+          if git rev-parse "v${TARGET}" >/dev/null 2>&1; then
+            echo "::error::Tag v${TARGET} already exists"
+            exit 1
+          fi
+
+      - name: Update version in gleam.toml
+        run: |
+          TARGET="${{ steps.version.outputs.target }}"
+          sed -i "s/^version = \".*\"/version = \"${TARGET}\"/" gleam.toml
+
+      - name: Update version in Cargo.toml
+        run: |
+          TARGET="${{ steps.version.outputs.target }}"
+          sed -i "s/^version = \".*\"/version = \"${TARGET}\"/" native/waffle/Cargo.toml
+
+      - name: Update version in version.gleam
+        run: |
+          TARGET="${{ steps.version.outputs.target }}"
+          sed -i "s/^pub const package_version = \".*\"/pub const package_version = \"${TARGET}\"/" src/waffle/version.gleam
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          gleam-version: "1.14.0"
+          rebar3-version: "3"
+      - uses: dtolnay/rust-toolchain@stable
+
+      - run: gleam deps download
+      - name: Build NIF
+        run: gleam run -m waffle/compile
+      - run: gleam test
+
+      - name: Commit version bump
+        run: |
+          TARGET="${{ steps.version.outputs.target }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add gleam.toml native/waffle/Cargo.toml src/waffle/version.gleam
+          git commit -m "release: v${TARGET}"
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            LOG=$(git log "${PREV_TAG}..HEAD~1" --pretty=format:"- %s (%h)" --no-merges)
+          else
+            LOG=$(git log HEAD~1 --pretty=format:"- %s (%h)" --no-merges)
+          fi
+          # Write to file to avoid delimiter issues
+          echo "$LOG" > /tmp/changelog.txt
+          echo "file=/tmp/changelog.txt" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        run: |
+          TARGET="${{ steps.version.outputs.target }}"
+          git tag "v${TARGET}"
+          git push origin main --tags
+
+      - name: Package NIF binary
+        run: |
+          TARGET="${{ steps.version.outputs.target }}"
+          cp priv/waffle.so "waffle-v${TARGET}-linux-x86_64.so"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TARGET="${{ steps.version.outputs.target }}"
+          gh release create "v${TARGET}" \
+            "waffle-v${TARGET}-linux-x86_64.so" \
+            --title "v${TARGET}" \
+            --notes-file "${{ steps.changelog.outputs.file }}"

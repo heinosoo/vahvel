@@ -90,22 +90,20 @@ Goal: Users run `gleam run -m waffle/setup` and get a working native library wit
 
 ---
 
-## Step 4 — CI and precompiled binaries
+## Step 4 — ~CI lanes~ ✅
 
-Goal: Automated builds and releases for all platforms.
+Goal: Automated test and release CI lanes.
 
-> **Note:** Basic Linux x86_64 build was added to CI earlier (after Step 2) to keep tests passing. This step will expand that to full multi-platform support and release artifacts.
+> **Note:** Multi-platform builds (macOS, Windows) are deferred — a commented-out matrix placeholder is in `release.yml`.
 
-- [ ] Expand GitHub Actions workflow to build NIF on multiple platforms:
-  - Linux (x86_64)
-  - macOS (x86_64, aarch64)
-  - Windows (x86_64)
-- [ ] Upload compiled binaries as release assets on tagged releases
-- [ ] Enhance CI workflow with additional checks: `cargo fmt --check`, `cargo clippy`
-- [ ] Update CI to use `gleam run -m waffle/compile` instead of direct cargo commands
-- [ ] Test that `gleam run -m waffle/setup` can download from the release artifacts
+- [x] Update CI test workflow to use `gleam run -m waffle/compile` instead of direct cargo commands
+- [x] Add Rust quality checks to test lane: `cargo fmt --check`, `cargo clippy -- -D warnings`
+- [x] Create release workflow (`workflow_dispatch`) that bumps version in all 3 files, runs tests, tags, and creates a GitHub Release
+- [x] Upload Linux x86_64 NIF binary as release asset
+- [ ] Expand to multi-platform matrix (macOS, Windows) — placeholder added, deferred
+- [ ] Update `waffle/setup` to download precompiled binaries from release assets — deferred
 
-**Milestone:** Push a tag, binaries are built and uploaded. CI catches formatting and test failures.
+**Milestone:** Test lane catches formatting/lint/test failures. Release lane bumps version, tags, and publishes a GitHub Release with NIF binary.
 
 ---
 

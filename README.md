@@ -14,7 +14,7 @@ There is no linear algebra library in the Gleam ecosystem. faer is fast (often o
 
 - **Dirty NIFs** — matrix operations run on the DirtyCpu scheduler, never blocking the BEAM
 - **Zero-copy input** — Erlang binaries are viewed directly as f64 slices
-- **Smart build** — precompiled binaries downloaded automatically, with cargo fallback
+- **Smart build** — `gleam run -m waffle/setup` builds the NIF, skipping if already up to date
 
 ## Usage
 
@@ -36,16 +36,16 @@ pub fn main() {
 
 ```sh
 gleam add waffle
-gleam run -m waffle/build
+gleam run -m waffle/setup
 ```
 
-The build script downloads a precompiled native library for your platform. If no precompiled binary is available, it falls back to `cargo build --release` (requires Rust).
+The setup script builds the native library from source using Cargo. It skips the build if the NIF is already present and the version matches. Precompiled binary downloads are planned but not yet implemented.
 
 ## Requirements
 
 - Gleam
 - Erlang/OTP
-- Rust (only if no precompiled binary is available for your platform)
+- Rust (required for building the native library)
 
 ## Status
 
