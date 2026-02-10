@@ -34,8 +34,26 @@ pub fn main() {
 
 ## Installation
 
+### From Hex (when published)
+
 ```sh
 gleam add waffle
+gleam run -m waffle/setup
+```
+
+### As a local dependency
+
+Until published to Hex, add waffle to your `gleam.toml`:
+
+```toml
+[dependencies]
+waffle = { path = "../waffle" }  # adjust path as needed
+```
+
+Then build the native library:
+
+```sh
+cd path/to/waffle
 gleam run -m waffle/setup
 ```
 
