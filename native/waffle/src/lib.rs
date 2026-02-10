@@ -6,6 +6,11 @@ fn add_floats(a: f64, b: f64) -> f64 {
     a + b
 }
 
+#[rustler::nif]
+fn nif_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
 #[rustler::nif(schedule = "DirtyCpu")]
 fn solve_linear_system<'a>(
     env: Env<'a>,

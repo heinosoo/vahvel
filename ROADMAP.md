@@ -68,22 +68,23 @@ Goal: Solve `Ax = b` via LU decomposition in Rust, callable from Gleam.
 
 ---
 
-## Step 3 — Smart build script
+## Step 3 — ~Smart build script~ ✅
 
 Goal: Users run `gleam run -m waffle/setup` and get a working native library without installing Rust.
 
-- [ ] Create `src/waffle/compile.gleam` with `main()` entry point and `pub fn do_compile()` function
+- [x] Create `src/waffle/compile.gleam` with `main()` entry point and `pub fn do_compile()` function
   - Check if `cargo` is available
   - Run `cargo build --release` in `native/waffle/`
   - Copy artifact to `priv/waffle.so` (or `.dylib`/`.dll`)
   - Print clear error message with instructions if cargo not available
-- [ ] Create `src/waffle/setup.gleam` with `main()` entry point
-  - Detect OS and architecture (via Erlang FFI)
-  - Construct download URL from OS/arch/version
-  - Attempt HTTP download of precompiled binary
-  - On success: save to `priv/waffle.so` (or `.dylib`/`.dll`)
-  - On failure: fall back to `compile.do_compile()`
-- [ ] Test both scripts manually on at least one platform
+- [x] Create `src/waffle/setup.gleam` with `main()` entry point
+  - Check if NIF exists and version matches (via `waffle/version`)
+  - If missing or version mismatch: fall back to `compile.do_compile()`
+  - Support `--force` flag for manual rebuilds
+  - (HTTP download of precompiled binaries deferred to Step 4)
+- [x] Add NIF version embedding (`nif_version` NIF returns `CARGO_PKG_VERSION`)
+- [x] Add version tests to catch drift between `gleam.toml`, `version.gleam`, and `Cargo.toml`
+- [x] Test both scripts manually on at least one platform
 
 **Milestone:** `gleam run -m waffle/setup` produces a working `priv/waffle.so`. `gleam run -m waffle/compile` always builds from source (useful for CI, development, or users who prefer local builds).
 
