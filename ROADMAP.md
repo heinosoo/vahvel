@@ -4,19 +4,19 @@ Step-by-step implementation plan. Each step builds on the previous one. Do not s
 
 ---
 
-## Step 0 — Skeleton (Gleam + Rust interop without faer)
+## Step 0 — ~Skeleton~ (Gleam + Rust interop without faer) ✅
 
 Goal: Prove that a Gleam project can call a Rust NIF and get a result back.
 
-- [ ] `gleam new waffle` — create the project
-- [ ] Create `native/waffle/Cargo.toml` with `rustler` as the only dependency
-- [ ] Create `native/waffle/src/lib.rs` with a trivial NIF: `add_floats(a: f64, b: f64) -> f64`
-- [ ] Create `src/waffle_ffi.erl` — Erlang module that loads the NIF shared library from `priv/`
-- [ ] Create `src/waffle.gleam` with `@external(erlang, "waffle_ffi", "add_floats")` binding
-- [ ] Build Rust: `cd native/waffle && cargo build --release`
-- [ ] Copy the shared library to `priv/`
-- [ ] Write a test that calls `waffle.add_floats(1.0, 2.0)` and asserts `3.0`
-- [ ] Verify `gleam test` passes
+- [x] `gleam new waffle` — create the project
+- [x] Create `native/waffle/Cargo.toml` with `rustler` as the only dependency
+- [x] Create `native/waffle/src/lib.rs` with a trivial NIF: `add_floats(a: f64, b: f64) -> f64`
+- [x] Create `src/waffle_ffi.erl` — Erlang module that loads the NIF shared library from `priv/`
+- [x] Create `src/waffle.gleam` with `@external(erlang, "waffle_ffi", "add_floats")` binding
+- [x] Build Rust: `cd native/waffle && cargo build --release`
+- [x] Copy the shared library to `priv/`
+- [x] Write a test that calls `waffle.add_floats(1.0, 2.0)` and asserts `3.0`
+- [x] Verify `gleam test` passes
 
 **Milestone:** NIF round-trip works. Gleam calls Rust and gets a result.
 
