@@ -1,21 +1,7 @@
 import gleam/bit_array
+import gleam/int
 import gleam/list
 import gleam/result
-
-fn nth(list: List(a), index: Int) -> Result(a, Nil) {
-  nth_rec(list, index, 0)
-}
-
-fn nth_rec(list: List(a), index: Int, current: Int) -> Result(a, Nil) {
-  case list {
-    [] -> Error(Nil)
-    [x, ..rest] ->
-      case current == index {
-        True -> Ok(x)
-        False -> nth_rec(rest, index, current + 1)
-      }
-  }
-}
 
 /// Errors that can occur when creating or manipulating matrices.
 pub type MatrixError {
@@ -42,8 +28,9 @@ pub fn from_list(data: List(List(Float))) -> Result(Matrix, MatrixError) {
   // Validate all rows have correct length
   use _ <- result.try(validate_all_rows(data, cols))
 
-  // Construct matrix
-  let column_major = to_column_major(data, rows, cols)
+  // Pack row-major into a flat BitArray, then rearrange to column-major
+  let row_major = pack_floats(list.flatten(data))
+  let column_major = row_major_to_column_major(row_major, rows, cols)
   Ok(Matrix(rows: rows, cols: cols, data: column_major))
 }
 
@@ -69,93 +56,50 @@ fn validate_all_rows(
   data: List(List(Float)),
   expected_cols: Int,
 ) -> Result(Nil, MatrixError) {
-  let validate_row = fn(row: List(Float)) {
-    case row, list.length(row) {
-      [], _ -> Error(EmptyRow)
-      _, n if n != expected_cols -> Error(RaggedRows)
-      _, _ -> Ok(Nil)
+  list.try_each(data, fn(row) {
+    case list.length(row) != expected_cols {
+      True -> Error(RaggedRows)
+      False -> Ok(Nil)
     }
-  }
-
-  list.try_map(data, validate_row)
-  |> result.replace(Nil)
-}
-
-fn to_column_major(data: List(List(Float)), rows: Int, cols: Int) -> BitArray {
-  let row_data = list.flatten(data)
-  build_column_major(row_data, rows, cols)
-}
-
-fn build_column_major(row_data: List(Float), rows: Int, cols: Int) -> BitArray {
-  let list_fn = fn(i: Int) {
-    let col_index = i / rows
-    let row_index = i % rows
-    result.unwrap(nth(row_data, row_index * cols + col_index), or: 0.0)
-  }
-
-  let values = list.map(list.range(0, rows * cols - 1), list_fn)
-  pack_floats(values)
+  })
 }
 
 fn pack_floats(floats: List(Float)) -> BitArray {
-  case floats {
-    [] -> <<>>
-    [x, ..rest] ->
-      bit_array.append(to: float_to_bytes(x), suffix: pack_floats(rest))
+  list.fold(floats, <<>>, fn(acc, x) { <<acc:bits, x:float-little-size(64)>> })
+}
+
+fn read_float_at(data: BitArray, index: Int) -> Float {
+  let offset = index * 8
+  case bit_array.slice(data, offset, 8) {
+    Ok(<<x:float-little-size(64)>>) -> x
+    _ -> 0.0
   }
 }
 
-@external(erlang, "nif", "float_to_bytes")
-fn float_to_bytes(f: Float) -> BitArray
-
-@external(erlang, "nif", "bytes_to_float")
-fn bytes_to_float(b: BitArray) -> Float
+fn row_major_to_column_major(
+  row_major: BitArray,
+  rows: Int,
+  cols: Int,
+) -> BitArray {
+  list.fold(list.range(0, rows * cols - 1), <<>>, fn(acc, i) {
+    let col = i / rows
+    let row = i % rows
+    let value = read_float_at(row_major, row * cols + col)
+    <<acc:bits, value:float-little-size(64)>>
+  })
+}
 
 /// Convert matrix to nested list. Output is row-major.
 pub fn to_list(matrix: Matrix) -> List(List(Float)) {
-  let floats = unpack_floats(matrix.data)
-  from_column_major(floats, matrix.rows, matrix.cols)
-}
+  let data = matrix.data
+  let rows = matrix.rows
+  let cols = matrix.cols
 
-fn unpack_floats(data: BitArray) -> List(Float) {
-  let byte_size = bit_array.byte_size(data)
-  case byte_size {
-    0 -> []
-    _ -> {
-      let first =
-        result.unwrap(bit_array.slice(from: data, at: 0, take: 8), or: <<>>)
-      let rest =
-        result.unwrap(
-          bit_array.slice(from: data, at: 8, take: byte_size - 8),
-          or: <<>>,
-        )
-      [bytes_to_float(first), ..unpack_floats(rest)]
-    }
-  }
-}
-
-fn from_column_major(
-  floats: List(Float),
-  rows: Int,
-  cols: Int,
-) -> List(List(Float)) {
-  let list_fn = fn(row: Int) { build_row(floats, row, rows, cols) }
-
-  list.map(list.range(0, rows - 1), list_fn)
-}
-
-fn build_row(
-  floats: List(Float),
-  row_index: Int,
-  rows: Int,
-  cols: Int,
-) -> List(Float) {
-  let list_fn = fn(col: Int) {
-    let index = col * rows + row_index
-    result.unwrap(nth(floats, index), or: 0.0)
-  }
-
-  list.map(list.range(0, cols - 1), list_fn)
+  list.map(list.range(0, rows - 1), fn(row) {
+    list.map(list.range(0, cols - 1), fn(col) {
+      read_float_at(data, col * rows + row)
+    })
+  })
 }
 
 /// Get the number of rows in a matrix.
@@ -173,25 +117,41 @@ pub fn identity(n: Int) -> Result(Matrix, MatrixError) {
   case n {
     _ if n < 1 -> Error(InvalidDimensions("Matrix size must be at least 1"))
     _ -> {
-      let list_fn = fn(i: Int) {
-        let row = i / n
-        let col = i % n
-        case row == col {
-          True -> 1.0
-          False -> 0.0
-        }
-      }
-
-      let values = list.map(list.range(0, n * n - 1), list_fn)
-      Ok(Matrix(rows: n, cols: n, data: pack_floats(values)))
+      // Iterate in column-major order: col = i / n, row = i % n
+      let data =
+        list.fold(list.range(0, n * n - 1), <<>>, fn(acc, i) {
+          let col = i / n
+          let row = i % n
+          let value = case row == col {
+            True -> 1.0
+            False -> 0.0
+          }
+          <<acc:bits, value:float-little-size(64)>>
+        })
+      Ok(Matrix(rows: n, cols: n, data: data))
     }
   }
 }
 
 /// Create a matrix from binary data.
 @internal
-pub fn from_binary(rows: Int, cols: Int, data: BitArray) -> Matrix {
-  Matrix(rows: rows, cols: cols, data: data)
+pub fn from_binary(
+  rows: Int,
+  cols: Int,
+  data: BitArray,
+) -> Result(Matrix, MatrixError) {
+  let expected = rows * cols * 8
+  let actual = bit_array.byte_size(data)
+  case actual == expected {
+    True -> Ok(Matrix(rows: rows, cols: cols, data: data))
+    False ->
+      Error(InvalidDimensions(
+        "from_binary: expected "
+        <> int.to_string(expected)
+        <> " bytes but got "
+        <> int.to_string(actual),
+      ))
+  }
 }
 
 /// Get the binary data from a matrix.

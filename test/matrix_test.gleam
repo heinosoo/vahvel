@@ -73,7 +73,7 @@ pub fn from_list_ragged_rows_test() {
 
 pub fn from_list_mixed_empty_row_test() {
   let result = matrix.from_list([[1.0, 2.0], []])
-  result |> should.equal(Error(matrix.EmptyRow))
+  result |> should.equal(Error(matrix.RaggedRows))
 }
 
 pub fn from_list_single_element_test() {

@@ -29,18 +29,14 @@ fn validate_dimensions(
   a: matrix.Matrix,
   b: matrix.Matrix,
 ) -> Result(Nil, SolverError) {
-  let a_rows = matrix.rows(a)
-  let a_cols = matrix.cols(a)
-  let b_rows = matrix.rows(b)
-  let b_cols = matrix.cols(b)
+  let is_square = matrix.rows(a) == matrix.cols(a)
+  let is_column = matrix.cols(b) == 1
+  let rows_match = matrix.rows(a) == matrix.rows(b)
 
-  case a_rows != a_cols {
-    True -> Error(MatrixNotSquare)
-    False ->
-      case b_rows != a_rows || b_cols != 1 {
-        True -> Error(DimensionMismatch)
-        False -> Ok(Nil)
-      }
+  case is_square, is_column && rows_match {
+    False, _ -> Error(MatrixNotSquare)
+    _, False -> Error(DimensionMismatch)
+    True, True -> Ok(Nil)
   }
 }
 
@@ -56,13 +52,17 @@ fn do_solve(a: matrix.Matrix, b: matrix.Matrix) -> Result(matrix.Matrix, String)
   let b_data = matrix.to_binary(b)
   let rows = matrix.rows(a)
   let cols = matrix.cols(a)
-  let _b_cols = matrix.cols(b)
+  use result_data <- result.try(solve_linear_system(rows, cols, a_data, b_data))
+  matrix.from_binary(rows, 1, result_data)
+  |> result.map_error(matrix_error_to_string)
+}
 
-  case solve_linear_system(rows, cols, a_data, b_data) {
-    Ok(result_data) -> {
-      Ok(matrix.from_binary(rows, 1, result_data))
-    }
-    Error(msg) -> Error(msg)
+fn matrix_error_to_string(error: matrix.MatrixError) -> String {
+  case error {
+    matrix.EmptyInput -> "Matrix error: empty input"
+    matrix.EmptyRow -> "Matrix error: empty row"
+    matrix.RaggedRows -> "Matrix error: ragged rows"
+    matrix.InvalidDimensions(msg) -> "Matrix error: " <> msg
   }
 }
 
