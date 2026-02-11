@@ -1,5 +1,4 @@
 use rustler::{Atom, Binary, Encoder, Env, NifResult, OwnedBinary, Term};
-use std::panic::catch_unwind;
 
 #[rustler::nif]
 fn nif_version() -> String {
@@ -38,49 +37,39 @@ fn solve_linear_system<'a>(
         return Ok((Atom::from_str(env, "error").unwrap(), error).encode(env));
     }
 
-    let result = catch_unwind(|| {
-        let a_ptr = a_bin.as_ptr();
-        let b_ptr = b_bin.as_ptr();
+    // Safe conversion from binary to f64 slices using bytemuck
+    let a_slice = bytemuck::cast_slice::<u8, f64>(a_bin.as_slice());
+    let b_slice = bytemuck::cast_slice::<u8, f64>(b_bin.as_slice());
 
-        unsafe {
-            let a_slice = std::slice::from_raw_parts(a_ptr as *const f64, rows * cols);
-            let b_slice = std::slice::from_raw_parts(b_ptr as *const f64, rows);
+    // Create faer matrices from slices (column-major layout)
+    use faer::prelude::*;
+    let a_mat = Mat::from_fn(rows, cols, |i, j| a_slice[i + j * rows]);
+    let b_mat = Mat::from_fn(rows, 1, |i, _| b_slice[i]);
 
-            use faer::prelude::*;
-            let a_mat = Mat::from_fn(rows, cols, |i, j| {
-                *a_slice.get(i + j * rows).unwrap_or(&0.0)
-            });
-            let b_mat = Mat::from_fn(rows, 1, |i, _| *b_slice.get(i).unwrap_or(&0.0));
+    // Solve the linear system
+    let lu = a_mat.partial_piv_lu();
+    let x = lu.solve(&b_mat);
 
-            let lu = a_mat.partial_piv_lu();
-            let x = lu.solve(&b_mat);
+    // Extract solution and validate
+    let x_data: Vec<f64> = x.col_iter().next().unwrap().iter().copied().collect();
 
-            let x_data: Vec<f64> = x.col_iter().next().unwrap().iter().copied().collect();
+    for &val in &x_data {
+        if val.is_nan() || val.is_infinite() {
+            let error = "Matrix is singular or computation failed".to_string();
+            return Ok((Atom::from_str(env, "error").unwrap(), error).encode(env));
+        }
+    }
 
-            for &val in &x_data {
-                if val.is_nan() || val.is_infinite() {
-                    return Err("Matrix is singular or computation failed");
-                }
-            }
-
-            let mut owned =
-                OwnedBinary::new(x_data.len() * 8).ok_or("Failed to allocate result binary")?;
+    // Allocate and copy result
+    match OwnedBinary::new(x_data.len() * 8) {
+        Some(mut owned) => {
             owned
                 .as_mut_slice()
                 .copy_from_slice(bytemuck::cast_slice(&x_data));
-
-            Ok::<rustler::Binary<'_>, &str>(owned.release(env))
+            Ok((Atom::from_str(env, "ok").unwrap(), owned.release(env)).encode(env))
         }
-    });
-
-    match result {
-        Ok(Ok(bin)) => Ok((Atom::from_str(env, "ok").unwrap(), bin).encode(env)),
-        Ok(Err(e)) => {
-            let error = format!("Solver failed: {}", e);
-            Ok((Atom::from_str(env, "error").unwrap(), error).encode(env))
-        }
-        Err(_) => {
-            let error = "Matrix is singular or computation failed".to_string();
+        None => {
+            let error = "Failed to allocate result binary".to_string();
             Ok((Atom::from_str(env, "error").unwrap(), error).encode(env))
         }
     }
@@ -97,40 +86,42 @@ fn transpose<'a>(
     if data_bin.len() != expected_len {
         let error = format!(
             "Binary length mismatch: expected {} bytes for {}x{} matrix, got {}",
-            expected_len, rows, cols, data_bin.len()
+            expected_len,
+            rows,
+            cols,
+            data_bin.len()
         );
         return Ok((Atom::from_str(env, "error").unwrap(), error).encode(env));
     }
 
-    let data_ptr = data_bin.as_ptr();
-    unsafe {
-        let data_slice = std::slice::from_raw_parts(data_ptr as *const f64, rows * cols);
+    // Safe conversion from binary to f64 slice using bytemuck
+    let data_slice = bytemuck::cast_slice::<u8, f64>(data_bin.as_slice());
 
-        // Create column-major faer matrix
-        use faer::prelude::*;
-        let mat = Mat::from_fn(rows, cols, |i, j| data_slice[j * rows + i]);
+    // Create column-major faer matrix
+    use faer::prelude::*;
+    let mat = Mat::from_fn(rows, cols, |i, j| data_slice[j * rows + i]);
 
-        // Transpose and extract in column-major order using col_iter
-        let transposed = mat.transpose();
-        let col_major: Vec<f64> = transposed
-            .as_ref()
-            .col_iter()
-            .flat_map(|col| col.iter().copied())
-            .collect();
+    // Transpose and extract in column-major order
+    let transposed = mat.transpose();
+    let col_major: Vec<f64> = transposed
+        .as_ref()
+        .col_iter()
+        .flat_map(|col| col.iter().copied())
+        .collect();
 
-        match OwnedBinary::new(col_major.len() * 8) {
-            Some(mut owned) => {
-                owned
-                    .as_mut_slice()
-                    .copy_from_slice(bytemuck::cast_slice(&col_major));
-                Ok((Atom::from_str(env, "ok").unwrap(), owned.release(env)).encode(env))
-            }
-            None => {
-                let error = "Failed to allocate output binary".to_string();
-                Ok((Atom::from_str(env, "error").unwrap(), error).encode(env))
-            }
+    // Allocate and copy result
+    match OwnedBinary::new(col_major.len() * 8) {
+        Some(mut owned) => {
+            owned
+                .as_mut_slice()
+                .copy_from_slice(bytemuck::cast_slice(&col_major));
+            Ok((Atom::from_str(env, "ok").unwrap(), owned.release(env)).encode(env))
+        }
+        None => {
+            let error = "Failed to allocate output binary".to_string();
+            Ok((Atom::from_str(env, "error").unwrap(), error).encode(env))
         }
     }
 }
 
-rustler::init!("nif", [nif_version, solve_linear_system, transpose]);
+rustler::init!("nif");
