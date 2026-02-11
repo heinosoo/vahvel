@@ -113,17 +113,18 @@ Goal: Automated test and release CI lanes.
 
 ---
 
-## Step 5 — API expansion (future)
+## Step 5 — ~API expansion~ ✅
 
 Additional linear algebra operations, each following the same NIF pattern:
 
-- [ ] Matrix multiply (`A * B`)
-- [ ] Matrix inverse
-- [ ] Determinant
-- [ ] Eigenvalues / eigenvectors
-- [ ] SVD (singular value decomposition)
-- [ ] QR decomposition
-- [ ] Element-wise operations (add, subtract, scale)
+- [x] Matrix multiply (`A * B`)
+- [x] Matrix inverse
+- [x] Determinant
+- [x] Eigenvalues (symmetric)
+- [x] SVD (singular value decomposition)
+- [x] QR decomposition
+- [x] Element-wise operations (add, subtract, scale)
+- [x] Transpose
 
 Each operation: Rust NIF with DirtyCpu + catch_unwind, Gleam wrapper, tests with known results.
 

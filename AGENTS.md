@@ -74,6 +74,10 @@ src/
   build.gleam               # Build NIF from source (gleam run -m build)
   setup.gleam               # Build if needed, skip if up to date (gleam run -m setup)
   version.gleam             # Package version constant + NIF version check
+  faer/
+    mat.gleam               # @internal NIF wrappers: arithmetic ops
+    linalg/
+      solvers.gleam         # @internal NIF wrappers: decompositions, solvers
   ffi/
     nif.erl                 # NIF loader and stubs
     platform.erl            # Platform detection (pure Erlang)

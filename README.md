@@ -4,7 +4,7 @@ Linear algebra for Gleam, powered by Rust.
 
 ## What
 
-A Gleam library for solving linear systems (`Ax = b`) using LU decomposition with partial pivoting. The heavy lifting is done by [faer](https://github.com/sarah-ek/faer-rs), a pure Rust linear algebra crate — no C/Fortran dependencies.
+A Gleam linear algebra library. Matrix arithmetic, decompositions (LU, QR, SVD), and linear solvers — all backed by [faer](https://github.com/sarah-ek/faer-rs), a pure Rust linear algebra crate with no C/Fortran dependencies.
 
 ## Why
 
@@ -12,7 +12,11 @@ There is no linear algebra library in the Gleam ecosystem. faer is fast (often o
 
 ## Features
 
-- **Dirty NIFs** — matrix operations run on the DirtyCpu scheduler, never blocking the BEAM
+- **Matrix arithmetic** — add, subtract, scale, multiply, transpose
+- **Decompositions** — LU (partial pivoting), QR (thin), SVD (thin)
+- **Properties** — determinant, inverse, symmetric eigenvalues, trace
+- **Linear solver** — solve `Ax = b` via LU decomposition
+- **Dirty NIFs** — all operations run on the DirtyCpu scheduler, never blocking the BEAM
 - **Zero-copy input** — Erlang binaries are viewed directly as f64 slices
 - **Smart build** — `gleam run -m setup` builds the NIF, skipping if already up to date
 
@@ -23,12 +27,20 @@ import matrix
 import solver
 
 pub fn main() {
-  // Solve: 2x + y = 7, x + 3y = 9
   let assert Ok(a) = matrix.from_list([[2.0, 1.0], [1.0, 3.0]])
   let assert Ok(b) = matrix.from_list([[7.0], [9.0]])
 
+  // Solve Ax = b
   let assert Ok(x) = solver.solve(a, b)
-  // x = [[2.4], [2.2]]
+
+  // Arithmetic
+  let assert Ok(sum) = matrix.add(a, a)
+  let assert Ok(product) = matrix.multiply(a, a)
+
+  // Decompositions and properties
+  let assert Ok(matrix.LU(l, u, pivot)) = matrix.lu(a)
+  let assert Ok(det) = matrix.determinant(a)
+  let assert Ok(inv) = matrix.inverse(a)
 }
 ```
 

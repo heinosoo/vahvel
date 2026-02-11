@@ -1,3 +1,4 @@
+import faer/linalg/solvers
 import gleam/result
 import gleam/string
 import matrix
@@ -19,7 +20,6 @@ pub fn solve(
   a: matrix.Matrix,
   b: matrix.Matrix,
 ) -> Result(matrix.Matrix, SolverError) {
-  // Validate dimensions first
   use Nil <- result.try(validate_dimensions(a, b))
 
   do_solve(a, b) |> result.map_error(classify_solver_error)
@@ -52,7 +52,12 @@ fn do_solve(a: matrix.Matrix, b: matrix.Matrix) -> Result(matrix.Matrix, String)
   let b_data = matrix.to_binary(b)
   let rows = matrix.rows(a)
   let cols = matrix.cols(a)
-  use result_data <- result.try(solve_linear_system(rows, cols, a_data, b_data))
+  use result_data <- result.try(solvers.solve_linear_system(
+    rows,
+    cols,
+    a_data,
+    b_data,
+  ))
   matrix.from_binary(rows, 1, result_data)
   |> result.map_error(matrix_error_to_string)
 }
@@ -63,13 +68,7 @@ fn matrix_error_to_string(error: matrix.MatrixError) -> String {
     matrix.EmptyRow -> "Matrix error: empty row"
     matrix.RaggedRows -> "Matrix error: ragged rows"
     matrix.InvalidDimensions(msg) -> "Matrix error: " <> msg
+    matrix.DimensionMismatch(msg) -> "Matrix error: " <> msg
+    matrix.SingularMatrix -> "Matrix error: singular matrix"
   }
 }
-
-@external(erlang, "nif", "solve_linear_system")
-fn solve_linear_system(
-  rows: Int,
-  cols: Int,
-  a_data: BitArray,
-  b_data: BitArray,
-) -> Result(BitArray, String)
