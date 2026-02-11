@@ -20,6 +20,25 @@ pub opaque type Matrix {
   Matrix(rows: Int, cols: Int, data: BitArray)
 }
 
+@external(erlang, "nif", "transpose")
+fn transpose_nif(
+  rows: Int,
+  cols: Int,
+  data: BitArray,
+) -> Result(BitArray, String)
+
+fn pack_floats(floats: List(Float)) -> BitArray {
+  list.fold(floats, <<>>, fn(acc, x) { <<acc:bits, x:float-little-size(64)>> })
+}
+
+fn read_float_at(data: BitArray, index: Int) -> Float {
+  let offset = index * 8
+  case bit_array.slice(data, offset, 8) {
+    Ok(<<x:float-little-size(64)>>) -> x
+    _ -> 0.0
+  }
+}
+
 /// Create a matrix from a nested list. Input is row-major.
 pub fn from_list(data: List(List(Float))) -> Result(Matrix, MatrixError) {
   // Validate and get dimensions
@@ -28,9 +47,12 @@ pub fn from_list(data: List(List(Float))) -> Result(Matrix, MatrixError) {
   // Validate all rows have correct length
   use _ <- result.try(validate_all_rows(data, cols))
 
-  // Pack row-major into a flat BitArray, then rearrange to column-major
+  // Pack row-major into a flat BitArray, then rearrange to column-major using transpose
   let row_major = pack_floats(list.flatten(data))
-  let column_major = row_major_to_column_major(row_major, rows, cols)
+  use column_major <- result.try(
+    transpose_nif(cols, rows, row_major)
+    |> result.map_error(fn(msg) { InvalidDimensions(msg) }),
+  )
   Ok(Matrix(rows: rows, cols: cols, data: column_major))
 }
 
@@ -64,31 +86,6 @@ fn validate_all_rows(
   })
 }
 
-fn pack_floats(floats: List(Float)) -> BitArray {
-  list.fold(floats, <<>>, fn(acc, x) { <<acc:bits, x:float-little-size(64)>> })
-}
-
-fn read_float_at(data: BitArray, index: Int) -> Float {
-  let offset = index * 8
-  case bit_array.slice(data, offset, 8) {
-    Ok(<<x:float-little-size(64)>>) -> x
-    _ -> 0.0
-  }
-}
-
-fn row_major_to_column_major(
-  row_major: BitArray,
-  rows: Int,
-  cols: Int,
-) -> BitArray {
-  list.fold(list.range(0, rows * cols - 1), <<>>, fn(acc, i) {
-    let col = i / rows
-    let row = i % rows
-    let value = read_float_at(row_major, row * cols + col)
-    <<acc:bits, value:float-little-size(64)>>
-  })
-}
-
 /// Convert matrix to nested list. Output is row-major.
 pub fn to_list(matrix: Matrix) -> List(List(Float)) {
   let data = matrix.data
@@ -110,6 +107,14 @@ pub fn rows(matrix: Matrix) -> Int {
 /// Get the number of columns in a matrix.
 pub fn cols(matrix: Matrix) -> Int {
   matrix.cols
+}
+
+/// Transpose a matrix (swap rows and columns).
+pub fn transpose(matrix: Matrix) -> Result(Matrix, MatrixError) {
+  case transpose_nif(matrix.rows, matrix.cols, matrix.data) {
+    Ok(data) -> Ok(Matrix(rows: matrix.cols, cols: matrix.rows, data: data))
+    Error(msg) -> Error(InvalidDimensions("Transpose failed: " <> msg))
+  }
 }
 
 /// Create an n x n identity matrix.

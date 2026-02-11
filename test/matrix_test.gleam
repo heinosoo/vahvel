@@ -112,3 +112,36 @@ pub fn from_list_tall_matrix_test() {
   matrix.rows(m) |> should.equal(4)
   matrix.cols(m) |> should.equal(1)
 }
+
+pub fn transpose_2x3_test() {
+  let assert Ok(m) = matrix.from_list([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+  let assert Ok(mt) = matrix.transpose(m)
+  let expected = [[1.0, 4.0], [2.0, 5.0], [3.0, 6.0]]
+  mt |> matrix.to_list() |> should.equal(expected)
+  matrix.rows(mt) |> should.equal(3)
+  matrix.cols(mt) |> should.equal(2)
+}
+
+pub fn transpose_square_test() {
+  let assert Ok(m) = matrix.from_list([[1.0, 2.0], [3.0, 4.0]])
+  let assert Ok(mt) = matrix.transpose(m)
+  let expected = [[1.0, 3.0], [2.0, 4.0]]
+  mt |> matrix.to_list() |> should.equal(expected)
+  matrix.rows(mt) |> should.equal(2)
+  matrix.cols(mt) |> should.equal(2)
+}
+
+pub fn transpose_round_trip_test() {
+  let input = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
+  let assert Ok(m) = matrix.from_list(input)
+  let assert Ok(mt) = matrix.transpose(m)
+  let assert Ok(m2) = matrix.transpose(mt)
+  m2 |> matrix.to_list() |> should.equal(input)
+}
+
+pub fn transpose_identity_test() {
+  let assert Ok(m) = matrix.identity(3)
+  let assert Ok(mt) = matrix.transpose(m)
+  // Identity matrix should equal its transpose
+  mt |> matrix.to_list() |> should.equal(matrix.to_list(m))
+}

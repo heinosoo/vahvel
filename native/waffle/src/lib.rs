@@ -86,4 +86,51 @@ fn solve_linear_system<'a>(
     }
 }
 
-rustler::init!("nif");
+#[rustler::nif]
+fn transpose<'a>(
+    env: Env<'a>,
+    rows: usize,
+    cols: usize,
+    data_bin: Binary<'a>,
+) -> NifResult<Term<'a>> {
+    let expected_len = rows * cols * 8;
+    if data_bin.len() != expected_len {
+        let error = format!(
+            "Binary length mismatch: expected {} bytes for {}x{} matrix, got {}",
+            expected_len, rows, cols, data_bin.len()
+        );
+        return Ok((Atom::from_str(env, "error").unwrap(), error).encode(env));
+    }
+
+    let data_ptr = data_bin.as_ptr();
+    unsafe {
+        let data_slice = std::slice::from_raw_parts(data_ptr as *const f64, rows * cols);
+
+        // Create column-major faer matrix
+        use faer::prelude::*;
+        let mat = Mat::from_fn(rows, cols, |i, j| data_slice[j * rows + i]);
+
+        // Transpose and extract in column-major order using col_iter
+        let transposed = mat.transpose();
+        let col_major: Vec<f64> = transposed
+            .as_ref()
+            .col_iter()
+            .flat_map(|col| col.iter().copied())
+            .collect();
+
+        match OwnedBinary::new(col_major.len() * 8) {
+            Some(mut owned) => {
+                owned
+                    .as_mut_slice()
+                    .copy_from_slice(bytemuck::cast_slice(&col_major));
+                Ok((Atom::from_str(env, "ok").unwrap(), owned.release(env)).encode(env))
+            }
+            None => {
+                let error = "Failed to allocate output binary".to_string();
+                Ok((Atom::from_str(env, "error").unwrap(), error).encode(env))
+            }
+        }
+    }
+}
+
+rustler::init!("nif", [nif_version, solve_linear_system, transpose]);
