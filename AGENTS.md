@@ -116,34 +116,34 @@ test/
 
 ## Development Workflow
 
-### Gleam commands
+The project uses a `justfile` for unified dev commands across both languages. Install [just](https://github.com/casey/just) and run recipes from the project root:
+
+| Command | What it does |
+|---------|-------------|
+| `just` | Default: format-check + lint + test (run before committing) |
+| `just test` | Build NIF + run Gleam tests |
+| `just fmt` | Auto-format both Gleam and Rust |
+| `just lint` | Format checks + Clippy (read-only, CI-safe) |
+| `just build` | Compile NIF from source (`gleam run -m build`) |
+| `just clean` | Clean all build artifacts |
+
+### Underlying commands
+
+For reference, the justfile wraps these:
 
 ```sh
-gleam build                 # Compile
-gleam check                 # Type-check without emitting
-gleam test                  # Run all tests
-gleam format                # Format all source
+# Gleam
+gleam build                    # Compile
+gleam check                    # Type-check without emitting
+gleam test                     # Run all tests
+gleam format src test          # Format source
 gleam format --check src test  # Check formatting
+
+# Rust (from project root)
+cargo fmt  --manifest-path native/waffle/Cargo.toml          # Format
+cargo clippy --manifest-path native/waffle/Cargo.toml        # Lint
+cargo build --release --manifest-path native/waffle/Cargo.toml  # Build NIF
 ```
-
-### Rust commands
-
-```sh
-cd native/waffle
-cargo build --release       # Build NIF shared library
-cargo test                  # Run Rust unit tests
-cargo fmt                   # Format Rust code
-cargo clippy                # Lint Rust code
-```
-
-### Full build cycle
-
-```sh
-gleam run -m build   # Build NIF from source, copy to priv/
-gleam test
-```
-
-Always run `gleam format`, `cargo fmt`, and `gleam test` before committing.
 
 **Commit messages:** Use conventional commits format: `<type>: <description>`. Common types: `feat`, `fix`, `docs`, `refactor`, `test`, `ci`, `chore`.
 
