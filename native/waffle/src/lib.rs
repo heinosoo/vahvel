@@ -11,10 +11,7 @@ fn mat_from_binary(rows: usize, cols: usize, data: &[u8]) -> Mat<f64> {
     // Safety: Handle unaligned data by reading 8-byte chunks and parsing as LE f64
     let mut vec = Vec::with_capacity(rows * cols);
     for chunk in data.chunks_exact(8) {
-        let bytes: [u8; 8] = match chunk.try_into() {
-            Ok(b) => b,
-            Err(_) => [0; 8], // Should be covered by length check in caller
-        };
+        let bytes: [u8; 8] = chunk.try_into().unwrap_or_default();
         vec.push(f64::from_le_bytes(bytes));
     }
     // Faer uses column-major storage by default
@@ -218,10 +215,7 @@ fn solve_linear_system<'a>(
     let b_slice_bytes = b_bin.as_slice();
     let mut b_vec = Vec::with_capacity(rows);
     for chunk in b_slice_bytes.chunks_exact(8) {
-        let bytes: [u8; 8] = match chunk.try_into() {
-            Ok(b) => b,
-            Err(_) => [0; 8],
-        };
+        let bytes: [u8; 8] = chunk.try_into().unwrap_or_default();
         b_vec.push(f64::from_le_bytes(bytes));
     }
     let b_mat = Mat::from_fn(rows, 1, |i, _| b_vec[i]);
