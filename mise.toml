@@ -1,0 +1,6 @@
+[tools]
+erlang = "latest" # or "27.0"
+gleam = "latest"  # or "1.6.3"
+rust = "latest"
+just = "latest"
+rebar = "latest"
