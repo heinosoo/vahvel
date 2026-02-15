@@ -9,13 +9,15 @@ use rustler::{Atom, Binary, Encoder, Env, NifResult, OwnedBinary, Term};
 
 fn mat_from_binary(rows: usize, cols: usize, data: &[u8]) -> Mat<f64> {
     // Safety: Handle unaligned data by reading 8-byte chunks and parsing as LE f64
-    let mut vec = Vec::with_capacity(rows * cols);
-    for chunk in data.chunks_exact(8) {
-        let bytes: [u8; 8] = chunk.try_into().unwrap_or_default();
-        vec.push(f64::from_le_bytes(bytes));
-    }
-    // Faer uses column-major storage by default
-    Mat::from_fn(rows, cols, |i, j| vec[j * rows + i])
+    // Faer uses column-major storage by default.
+    // We avoid intermediate Vec allocation by parsing on demand.
+    Mat::from_fn(rows, cols, |i, j| {
+        let idx = j * rows + i;
+        let start = idx * 8;
+        // Slice length is validated by caller, so unwrapping is safe (or panics if logic is wrong)
+        let bytes: [u8; 8] = data[start..start + 8].try_into().unwrap_or_default();
+        f64::from_le_bytes(bytes)
+    })
 }
 
 fn mat_to_binary<'a>(mat: faer::MatRef<'_, f64>, env: Env<'a>) -> Option<Binary<'a>> {
@@ -211,14 +213,13 @@ fn solve_linear_system<'a>(
 
     let a_mat = mat_from_binary(rows, cols, a_bin.as_slice());
 
-    // Manual copy for B vector
+    // Manual copy for B vector, avoiding intermediate Vec
     let b_slice_bytes = b_bin.as_slice();
-    let mut b_vec = Vec::with_capacity(rows);
-    for chunk in b_slice_bytes.chunks_exact(8) {
-        let bytes: [u8; 8] = chunk.try_into().unwrap_or_default();
-        b_vec.push(f64::from_le_bytes(bytes));
-    }
-    let b_mat = Mat::from_fn(rows, 1, |i, _| b_vec[i]);
+    let b_mat = Mat::from_fn(rows, 1, |i, _| {
+        let start = i * 8;
+        let bytes: [u8; 8] = b_slice_bytes[start..start + 8].try_into().unwrap_or_default();
+        f64::from_le_bytes(bytes)
+    });
 
     let lu = a_mat.partial_piv_lu();
     let x = lu.solve(&b_mat);
