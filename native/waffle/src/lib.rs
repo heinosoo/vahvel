@@ -217,7 +217,9 @@ fn solve_linear_system<'a>(
     let b_slice_bytes = b_bin.as_slice();
     let b_mat = Mat::from_fn(rows, 1, |i, _| {
         let start = i * 8;
-        let bytes: [u8; 8] = b_slice_bytes[start..start + 8].try_into().unwrap_or_default();
+        let bytes: [u8; 8] = b_slice_bytes[start..start + 8]
+            .try_into()
+            .unwrap_or_default();
         f64::from_le_bytes(bytes)
     });
 
