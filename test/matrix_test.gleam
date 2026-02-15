@@ -1,7 +1,7 @@
 import gleam/float
 import gleam/list
 import gleeunit/should
-import matrix
+import waffle/matrix
 
 // ---------------------------------------------------------------------------
 // Test helpers

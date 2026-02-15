@@ -1,12 +1,12 @@
-import build
 import gleam/io
 import gleam/list
 import shellout
 import simplifile
-import version
+import waffle/version
+import waffle_build
 
 fn should_rebuild_nif() -> Bool {
-  let nif = build.nif_path()
+  let nif = waffle_build.nif_path()
 
   case simplifile.is_file(nif) {
     Ok(True) -> check_nif_version(nif)
@@ -47,7 +47,7 @@ pub fn main() {
   case force || should_rebuild_nif() {
     False -> Nil
     True -> {
-      case build.do_compile() {
+      case waffle_build.do_compile() {
         Ok(_) -> io.println("Setup complete.")
         Error(msg) -> {
           io.println("Error: " <> msg)

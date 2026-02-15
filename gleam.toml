@@ -1,5 +1,6 @@
 name = "waffle"
 version = "0.1.1"
+internal_modules = ["waffle/version", "waffle/internal", "waffle/internal/*"]
 
 # Fill out these fields if you intend to generate HTML documentation or publish
 # your project to the Hex package manager.

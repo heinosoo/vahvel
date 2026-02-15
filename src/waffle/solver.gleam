@@ -1,7 +1,7 @@
-import faer/linalg/solvers
 import gleam/result
 import gleam/string
-import matrix
+import waffle/internal/faer/linalg/solvers
+import waffle/matrix
 
 /// Errors that can occur when solving linear systems.
 pub type SolverError {

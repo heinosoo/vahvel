@@ -5,7 +5,7 @@
 | Document | What it's for |
 |----------|---------------|
 | This file (`AGENTS.md`) | Orient here first. Coding standards, pitfalls, getting started. |
-| `idea.md` | Architectural plan. Data flow, NIF design, build strategy, risk analysis. |
+| `README.md` | User-facing landing page with basic project and usage information. |
 | `ROADMAP.md` | Step-by-step implementation plan with checkboxes. |
 
 ---
@@ -69,18 +69,20 @@ See also: [Gleam language tour - Everything](https://tour.gleam.run/everything) 
 
 ```
 src/
-  matrix.gleam              # Matrix type, constructors, conversions
-  solver.gleam              # Linear solver (Gleam wrapper around NIF)
-  build.gleam               # Build NIF from source (gleam run -m build)
-  setup.gleam               # Build if needed, skip if up to date (gleam run -m setup)
-  version.gleam             # Package version constant + NIF version check
-  faer/
-    mat.gleam               # @internal NIF wrappers: arithmetic ops
-    linalg/
-      solvers.gleam         # @internal NIF wrappers: decompositions, solvers
-  ffi/
-    nif.erl                 # NIF loader and stubs
-    platform.erl            # Platform detection (pure Erlang)
+  waffle/
+    matrix.gleam                    # waffle/matrix  (public API)
+    solver.gleam                    # waffle/solver  (public API)
+    version.gleam                   # waffle/version (public API)
+    internal/
+      faer/
+        mat.gleam                   # waffle/internal/faer/mat
+        linalg/
+          solvers.gleam             # waffle/internal/faer/linalg/solvers
+      ffi/
+        nif.erl                     # Erlang NIF loader (module name = "nif")
+        platform.erl                # Platform detection (module name = "platform")
+  waffle_build.gleam                # waffle_build  (gleam run -m waffle_build)
+  waffle_setup.gleam                # waffle_setup  (gleam run -m waffle_setup)
 
 native/waffle/
   Cargo.toml                # Rust dependencies (rustler, faer)
@@ -128,7 +130,7 @@ The project uses a `justfile` for unified dev commands across both languages. In
 | `just test` | Build NIF + run Gleam tests |
 | `just fmt` | Auto-format both Gleam and Rust |
 | `just lint` | Format checks + Clippy (read-only, CI-safe) |
-| `just build` | Compile NIF from source (`gleam run -m build`) |
+| `just build` | Compile NIF from source (`gleam run -m waffle_build`) |
 | `just clean` | Clean all build artifacts |
 
 ### Underlying commands
@@ -198,7 +200,7 @@ Use [docs.rs](https://docs.rs) for Rust crate documentation. Key crates:
 
 ### NIF not loaded
 
-If the NIF shared library is missing from `priv/`, all NIF calls crash. The error message should tell the user to run `gleam run -m setup`. Check this first when debugging test failures.
+If the NIF shared library is missing from `priv/`, all NIF calls crash. The error message should tell the user to run `gleam run -m waffle_setup`. Check this first when debugging test failures.
 
 ### Binary alignment
 
@@ -219,7 +221,7 @@ The build script and FFI loader must handle all three.
 
 ### Column-major vs row-major
 
-Gleam/user input is naturally row-major (`[[1, 2], [3, 4]]`). faer expects column-major. The `matrix.gleam` module must transpose during `from_list`.
+Gleam/user input is naturally row-major (`[[1, 2], [3, 4]]`). faer expects column-major. The `waffle/matrix` module must transpose during `from_list`.
 
 ---
 
@@ -229,20 +231,20 @@ Gleam/user input is naturally row-major (`[[1, 2], [3, 4]]`). faer expects colum
 
 1. **Rust:** Add the function in `native/waffle/src/lib.rs` with `#[rustler::nif(schedule = "DirtyCpu")]`. Return tagged tuples.
 2. **Rust:** Register it in the `rustler::init!` macro.
-3. **Erlang:** Add the function stub in `src/ffi/nif.erl` that raises `nif_not_loaded`.
+3. **Erlang:** Add the function stub in `src/waffle/internal/ffi/nif.erl` that raises `nif_not_loaded`.
 4. **Gleam:** Add the `@external(erlang, "nif", "function_name")` binding.
 5. **Test:** Write a Gleam test that calls the public API and verifies the result.
 
 ### Adding a pure Gleam function
 
-1. Add the function in the appropriate module (`matrix.gleam`, `solver.gleam`).
+1. Add the function in the appropriate module (`waffle/matrix.gleam`, `waffle/solver.gleam`).
 2. Write tests in `test/`.
 3. No Rust or Erlang changes needed.
 
 ### Modifying the build scripts
 
 Two build entry points:
-- `src/build.gleam` — always builds from source (`gleam run -m build`). Used by CI.
-- `src/setup.gleam` — builds only if NIF is missing or version mismatches (`gleam run -m setup`). Used by end users.
+- `src/waffle_build.gleam` — always builds from source (`gleam run -m waffle_build`). Used by CI.
+- `src/waffle_setup.gleam` — builds only if NIF is missing or version mismatches (`gleam run -m waffle_setup`). Used by end users.
 
 Changes here affect how users install the native library.

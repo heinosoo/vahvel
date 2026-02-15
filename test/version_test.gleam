@@ -2,7 +2,7 @@ import gleam/io
 import gleeunit/should
 import simplifile
 import tom
-import version
+import waffle/version
 
 pub fn nif_version_matches_package_test() {
   case version.check_nif_version() {
@@ -11,12 +11,12 @@ pub fn nif_version_matches_package_test() {
       io.println(
         "NIF version mismatch - expected "
         <> version.package_version
-        <> ", rebuild with: gleam run -m setup --force",
+        <> ", rebuild with: gleam run -m waffle_setup --force",
       )
       should.be_true(False)
     }
     Error(_) -> {
-      io.println("NIF not loaded - run: gleam run -m setup")
+      io.println("NIF not loaded - run: gleam run -m waffle_setup")
       should.be_true(False)
     }
   }

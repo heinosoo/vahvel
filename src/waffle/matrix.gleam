@@ -1,10 +1,10 @@
-import faer/linalg/solvers
-import faer/mat
 import gleam/bit_array
 import gleam/float
 import gleam/int
 import gleam/list
 import gleam/result
+import waffle/internal/faer/linalg/solvers
+import waffle/internal/faer/mat
 
 /// Errors that can occur when creating or manipulating matrices.
 pub type MatrixError {
@@ -298,13 +298,11 @@ pub fn to_list(matrix: Matrix) -> List(List(Float)) {
 }
 
 /// Get the binary data from a matrix.
-@internal
 pub fn to_binary(matrix: Matrix) -> BitArray {
   matrix.data
 }
 
 /// Create a matrix from binary data.
-@internal
 pub fn from_binary(
   rows: Int,
   cols: Int,

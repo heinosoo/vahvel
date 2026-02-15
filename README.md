@@ -18,13 +18,13 @@ There is no linear algebra library in the Gleam ecosystem. faer is fast (often o
 - **Linear solver** — solve `Ax = b` via LU decomposition
 - **Dirty NIFs** — all operations run on the DirtyCpu scheduler, never blocking the BEAM
 - **Zero-copy input** — Erlang binaries are viewed directly as f64 slices
-- **Smart build** — `gleam run -m setup` builds the NIF, skipping if already up to date
+- **Smart build** — `gleam run -m waffle_setup` builds the NIF, skipping if already up to date
 
 ## Usage
 
 ```gleam
-import matrix
-import solver
+import waffle/matrix
+import waffle/solver
 
 pub fn main() {
   let assert Ok(a) = matrix.from_list([[2.0, 1.0], [1.0, 3.0]])
@@ -50,7 +50,7 @@ pub fn main() {
 
 ```sh
 gleam add waffle
-gleam run -m setup
+gleam run -m waffle_setup
 ```
 
 ### As a local dependency
@@ -66,7 +66,7 @@ Then build the native library:
 
 ```sh
 cd path/to/waffle
-gleam run -m setup
+gleam run -m waffle_setup
 ```
 
 The setup script builds the native library from source using Cargo. It skips the build if the NIF is already present and the version matches. Precompiled binary downloads are planned but not yet implemented.
