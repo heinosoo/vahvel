@@ -169,8 +169,10 @@ fn transpose<'a>(
     // Manual transpose loop: B[c, r] = A[r, c]
     // A (input) is rows x cols
     // B (output) is cols x rows
-    for c in 0..cols { // c is col index in A (row index in B)
-        for r in 0..rows { // r is row index in A (col index in B)
+    for c in 0..cols {
+        // c is col index in A (row index in B)
+        for r in 0..rows {
+            // r is row index in A (col index in B)
             // Read A[r, c] from input (col-major: index = c * rows + r)
             let input_idx = (c * rows + r) * 8;
 
@@ -178,7 +180,8 @@ fn transpose<'a>(
             // (Note: B has `cols` rows, so stride is `cols`)
             let output_idx = (r * cols + c) * 8;
 
-            output_bytes[output_idx..output_idx + 8].copy_from_slice(&input_bytes[input_idx..input_idx + 8]);
+            output_bytes[output_idx..output_idx + 8]
+                .copy_from_slice(&input_bytes[input_idx..input_idx + 8]);
         }
     }
 
