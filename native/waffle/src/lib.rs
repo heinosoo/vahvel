@@ -8,24 +8,57 @@ use rustler::{Atom, Binary, Encoder, Env, NifResult, OwnedBinary, Term};
 // ---------------------------------------------------------------------------
 
 fn mat_from_binary(rows: usize, cols: usize, data: &[u8]) -> Mat<f64> {
-    let slice = bytemuck::cast_slice::<u8, f64>(data);
-    Mat::from_fn(rows, cols, |i, j| slice[j * rows + i])
+    // Safety: Handle unaligned data by reading 8-byte chunks and parsing as LE f64
+    let mut vec = Vec::with_capacity(rows * cols);
+    for chunk in data.chunks_exact(8) {
+        let bytes: [u8; 8] = match chunk.try_into() {
+            Ok(b) => b,
+            Err(_) => [0; 8], // Should be covered by length check in caller
+        };
+        vec.push(f64::from_le_bytes(bytes));
+    }
+    // Faer uses column-major storage by default
+    Mat::from_fn(rows, cols, |i, j| vec[j * rows + i])
 }
 
 fn mat_to_binary<'a>(mat: faer::MatRef<'_, f64>, env: Env<'a>) -> Option<Binary<'a>> {
-    let col_major: Vec<f64> = mat.col_iter().flat_map(|col| col.iter().copied()).collect();
-    let mut owned = OwnedBinary::new(col_major.len() * 8)?;
-    owned
-        .as_mut_slice()
-        .copy_from_slice(bytemuck::cast_slice(&col_major));
+    let len = mat.nrows() * mat.ncols();
+    let mut owned = OwnedBinary::new(len * 8)?;
+    {
+        let slice = owned.as_mut_slice();
+        // Col-major iteration
+        for (idx, &val) in mat.col_iter().flat_map(|col| col.iter()).enumerate() {
+            let bytes = val.to_le_bytes();
+            let start = idx * 8;
+            slice[start..start + 8].copy_from_slice(&bytes);
+        }
+    }
     Some(owned.release(env))
 }
 
 fn floats_to_binary<'a>(data: &[f64], env: Env<'a>) -> Option<Binary<'a>> {
     let mut owned = OwnedBinary::new(data.len() * 8)?;
-    owned
-        .as_mut_slice()
-        .copy_from_slice(bytemuck::cast_slice(data));
+    {
+        let slice = owned.as_mut_slice();
+        for (idx, &val) in data.iter().enumerate() {
+            let bytes = val.to_le_bytes();
+            let start = idx * 8;
+            slice[start..start + 8].copy_from_slice(&bytes);
+        }
+    }
+    Some(owned.release(env))
+}
+
+fn u64s_to_binary<'a>(data: &[u64], env: Env<'a>) -> Option<Binary<'a>> {
+    let mut owned = OwnedBinary::new(data.len() * 8)?;
+    {
+        let slice = owned.as_mut_slice();
+        for (idx, &val) in data.iter().enumerate() {
+            let bytes = val.to_le_bytes();
+            let start = idx * 8;
+            slice[start..start + 8].copy_from_slice(&bytes);
+        }
+    }
     Some(owned.release(env))
 }
 
@@ -122,8 +155,34 @@ fn transpose<'a>(
     if let Err(msg) = validate_binary_len(data_bin.as_slice(), rows, cols) {
         return Ok(err_string(env, &msg));
     }
-    let mat = mat_from_binary(rows, cols, data_bin.as_slice());
-    Ok(ok_mat(env, mat.transpose()))
+
+    let input_bytes = data_bin.as_slice();
+    // Pre-allocate output binary
+    let len = rows * cols;
+    let mut owned = match OwnedBinary::new(len * 8) {
+        Some(o) => o,
+        None => return Ok(err_string(env, "Failed to allocate result binary")),
+    };
+
+    let output_bytes = owned.as_mut_slice();
+
+    // Manual transpose loop: B[c, r] = A[r, c]
+    // A (input) is rows x cols
+    // B (output) is cols x rows
+    for c in 0..cols { // c is col index in A (row index in B)
+        for r in 0..rows { // r is row index in A (col index in B)
+            // Read A[r, c] from input (col-major: index = c * rows + r)
+            let input_idx = (c * rows + r) * 8;
+
+            // Write B[c, r] to output (col-major: index = r * cols + c)
+            // (Note: B has `cols` rows, so stride is `cols`)
+            let output_idx = (r * cols + c) * 8;
+
+            output_bytes[output_idx..output_idx + 8].copy_from_slice(&input_bytes[input_idx..input_idx + 8]);
+        }
+    }
+
+    Ok((atom_ok(env), owned.release(env)).encode(env))
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -151,8 +210,18 @@ fn solve_linear_system<'a>(
     }
 
     let a_mat = mat_from_binary(rows, cols, a_bin.as_slice());
-    let b_slice = bytemuck::cast_slice::<u8, f64>(b_bin.as_slice());
-    let b_mat = Mat::from_fn(rows, 1, |i, _| b_slice[i]);
+
+    // Manual copy for B vector
+    let b_slice_bytes = b_bin.as_slice();
+    let mut b_vec = Vec::with_capacity(rows);
+    for chunk in b_slice_bytes.chunks_exact(8) {
+        let bytes: [u8; 8] = match chunk.try_into() {
+            Ok(b) => b,
+            Err(_) => [0; 8],
+        };
+        b_vec.push(f64::from_le_bytes(bytes));
+    }
+    let b_mat = Mat::from_fn(rows, 1, |i, _| b_vec[i]);
 
     let lu = a_mat.partial_piv_lu();
     let x = lu.solve(&b_mat);
@@ -243,7 +312,7 @@ fn matrix_lu<'a>(env: Env<'a>, n: usize, data_bin: Binary<'a>) -> NifResult<Term
 
     let l_bin = mat_to_binary(l.as_ref(), env);
     let u_bin = mat_to_binary(u.as_ref(), env);
-    let pivot_bin = floats_to_binary(bytemuck::cast_slice(&pivot), env);
+    let pivot_bin = u64s_to_binary(&pivot, env);
 
     match (l_bin, u_bin, pivot_bin) {
         (Some(lb), Some(ub), Some(pb)) => {
