@@ -27,12 +27,14 @@ pub fn from_list_round_trip_4x2_test() {
 }
 
 pub fn rows_test() {
-  let assert Ok(m) = matrix.from_float_list([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
+  let assert Ok(m) =
+    matrix.from_float_list([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
   matrix.rows(m) |> should.equal(3)
 }
 
 pub fn cols_test() {
-  let assert Ok(m) = matrix.from_float_list([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
+  let assert Ok(m) =
+    matrix.from_float_list([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
   matrix.cols(m) |> should.equal(2)
 }
 

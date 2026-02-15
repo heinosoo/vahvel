@@ -1,8 +1,8 @@
 import gleam/float
 import gleam/list
 import gleeunit/should
-import waffle/matrix
 import waffle/linalg
+import waffle/matrix
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -18,7 +18,11 @@ fn approx_equal_lists(a: List(Float), b: List(Float), tol: Float) -> Bool {
   |> list.all(fn(pair) { approx_equal(pair.0, pair.1, tol) })
 }
 
-fn approx_equal_matrix(a: matrix.Matrix(Float), b: matrix.Matrix(Float), tol: Float) -> Bool {
+fn approx_equal_matrix(
+  a: matrix.Matrix(Float),
+  b: matrix.Matrix(Float),
+  tol: Float,
+) -> Bool {
   let a_list = list.flatten(matrix.to_float_list(a))
   let b_list = list.flatten(matrix.to_float_list(b))
   approx_equal_lists(a_list, b_list, tol)
@@ -209,7 +213,10 @@ fn list_at(lst: List(a), index: Int) -> a {
   item
 }
 
-fn apply_pivot(pivot: List(Int), m: matrix.Matrix(Float)) -> matrix.Matrix(Float) {
+fn apply_pivot(
+  pivot: List(Int),
+  m: matrix.Matrix(Float),
+) -> matrix.Matrix(Float) {
   let rows_list = matrix.to_float_list(m)
   let permuted = list.map(pivot, fn(p) { list_at(rows_list, p) })
   let assert Ok(result) = matrix.from_float_list(permuted)
@@ -249,7 +256,8 @@ pub fn qr_square_test() {
 }
 
 pub fn qr_rectangular_test() {
-  let assert Ok(m) = matrix.from_float_list([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
+  let assert Ok(m) =
+    matrix.from_float_list([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
   let assert Ok(linalg.QR(q: q, r: r)) = linalg.qr(m)
 
   // Q is 3x2 (thin), R is 2x2
@@ -307,7 +315,8 @@ fn is_descending(values: List(Float)) -> Bool {
 }
 
 pub fn svd_rectangular_test() {
-  let assert Ok(m) = matrix.from_float_list([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
+  let assert Ok(m) =
+    matrix.from_float_list([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
   let assert Ok(linalg.SVD(u: u, singular_values: s, v: v)) = linalg.svd(m)
 
   // U is 3x2, V is 2x2, S has 2 values

@@ -27,7 +27,9 @@ pub type SVD {
 // ---------------------------------------------------------------------------
 
 fn dim_string(matrix: Matrix(a)) -> String {
-  int.to_string(matrix.rows(matrix)) <> "x" <> int.to_string(matrix.cols(matrix))
+  int.to_string(matrix.rows(matrix))
+  <> "x"
+  <> int.to_string(matrix.cols(matrix))
 }
 
 fn validate_same_dimensions(
@@ -132,9 +134,17 @@ fn unpack_pivot(data: BitArray, count: Int) -> List(Int) {
 // ---------------------------------------------------------------------------
 
 /// Element-wise matrix addition.
-pub fn add(a: Matrix(Float), b: Matrix(Float)) -> Result(Matrix(Float), MatrixError) {
+pub fn add(
+  a: Matrix(Float),
+  b: Matrix(Float),
+) -> Result(Matrix(Float), MatrixError) {
   use _ <- result.try(validate_same_dimensions(a, b))
-  mat.add(matrix.rows(a), matrix.cols(a), matrix.to_binary(a), matrix.to_binary(b))
+  mat.add(
+    matrix.rows(a),
+    matrix.cols(a),
+    matrix.to_binary(a),
+    matrix.to_binary(b),
+  )
   |> result.map(fn(data) {
     let assert Ok(m) = matrix.from_binary(matrix.rows(a), matrix.cols(a), data)
     m
@@ -266,7 +276,13 @@ pub fn lu(matrix: Matrix(Float)) -> Result(LU, MatrixError) {
 
 /// Thin QR decomposition: A = QR.
 pub fn qr(matrix: Matrix(Float)) -> Result(QR, MatrixError) {
-  case solvers.qr(matrix.rows(matrix), matrix.cols(matrix), matrix.to_binary(matrix)) {
+  case
+    solvers.qr(
+      matrix.rows(matrix),
+      matrix.cols(matrix),
+      matrix.to_binary(matrix),
+    )
+  {
     Ok(#(#(q_r, q_c, q_bin), #(r_r, r_c, r_bin))) -> {
       case
         matrix.from_binary(q_r, q_c, q_bin),
@@ -282,7 +298,13 @@ pub fn qr(matrix: Matrix(Float)) -> Result(QR, MatrixError) {
 
 /// Thin SVD: A = U * diag(S) * transpose(V).
 pub fn svd(matrix: Matrix(Float)) -> Result(SVD, MatrixError) {
-  case solvers.svd(matrix.rows(matrix), matrix.cols(matrix), matrix.to_binary(matrix)) {
+  case
+    solvers.svd(
+      matrix.rows(matrix),
+      matrix.cols(matrix),
+      matrix.to_binary(matrix),
+    )
+  {
     Ok(#(#(u_r, u_c, u_bin), #(s_len, s_bin), #(v_r, v_c, v_bin))) -> {
       let s_values = unpack_floats(s_bin, s_len)
       case

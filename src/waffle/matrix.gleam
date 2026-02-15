@@ -92,7 +92,9 @@ fn validate_all_rows(
 // ---------------------------------------------------------------------------
 
 /// Create a matrix of floats from a nested list. Input is row-major.
-pub fn from_float_list(data: List(List(Float))) -> Result(Matrix(Float), MatrixError) {
+pub fn from_float_list(
+  data: List(List(Float)),
+) -> Result(Matrix(Float), MatrixError) {
   use #(rows, cols) <- result.try(validate_and_get_dimensions(data))
   use _ <- result.try(validate_all_rows(data, cols))
   let row_major = pack_floats(list.flatten(data))
@@ -214,7 +216,11 @@ pub fn cols(matrix: Matrix(a)) -> Int {
 }
 
 /// Get the float element at the given row and column (0-indexed).
-pub fn get_float(matrix: Matrix(Float), row: Int, col: Int) -> Result(Float, MatrixError) {
+pub fn get_float(
+  matrix: Matrix(Float),
+  row: Int,
+  col: Int,
+) -> Result(Float, MatrixError) {
   case row >= 0 && row < matrix.rows && col >= 0 && col < matrix.cols {
     True -> {
       let index = col * matrix.rows + row
@@ -234,7 +240,11 @@ pub fn get_float(matrix: Matrix(Float), row: Int, col: Int) -> Result(Float, Mat
 }
 
 /// Get the int element at the given row and column (0-indexed).
-pub fn get_int(matrix: Matrix(Int), row: Int, col: Int) -> Result(Int, MatrixError) {
+pub fn get_int(
+  matrix: Matrix(Int),
+  row: Int,
+  col: Int,
+) -> Result(Int, MatrixError) {
   case row >= 0 && row < matrix.rows && col >= 0 && col < matrix.cols {
     True -> {
       let index = col * matrix.rows + row
