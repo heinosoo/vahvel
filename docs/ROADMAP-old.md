@@ -130,9 +130,33 @@ Each operation: Rust NIF with DirtyCpu + catch_unwind, Gleam wrapper, tests with
 
 ---
 
-## Step 6 — Polish and publish
+## Step 6 — ILP Solver (Highs)
+
+Goal: Solve Mixed-Integer Linear Programming (MILP) problems using the HiGHS C++ solver, bundled in the same NIF.
+
+- [ ] Add `highs` dependency to `native/waffle/Cargo.toml`
+- [ ] **Crucial:** Configure static C++ linking (`-static-libstdc++`) in `native/waffle/.cargo/config.toml` or `build.rs`.
+      *Rationale:* `highs` depends on the C++ runtime. Statically linking it ensures the `.so` remains portable across different Linux distributions.
+- [ ] Create `src/waffle/optimization.gleam`
+  - Define types for the "Standard Form": Minimize $c^T x$ subject to $L \le Ax \le U$.
+  - `pub fn solve_ilp(objective: Matrix, constraints: Matrix, ...) -> Result(Solution, Error)`
+- [ ] Implement `solve_ilp` NIF in `lib.rs`:
+  - `#[rustler::nif(schedule = "DirtyCpu")]`
+  - Accept `faer` matrix data directly (zero-copy inputs where possible).
+  - Map Gleam matrices to HiGHS model.
+  - Return `{ok, solution_vector}` or `{error, status}`.
+- [ ] Tests:
+  - Simple LP (continuous variables only).
+  - Simple ILP (integer constraints, e.g., maximize $x+y$ where $2x+2y \le 9$ and $x,y \in \mathbb{Z}$).
+
+**Milestone:** Users can solve optimization problems. The library now covers both Linear Algebra and Operations Research.
+
+---
+
+## Step 7 — Polish and publish
 
 - [ ] Publish to Hex (`gleam publish`)
 - [ ] Generate and host documentation
 - [ ] Benchmarks (compare with equivalent Python/NumPy operations)
 - [ ] Usage examples in README
+
