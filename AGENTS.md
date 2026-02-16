@@ -72,7 +72,9 @@ src/
   waffle/
     matrix.gleam                    # waffle/matrix  (public API)
     linalg.gleam                    # waffle/linalg  (public API)
+    sparse.gleam                    # waffle/sparse  (public API)
     random.gleam                    # waffle/random  (public API)
+    opt.gleam                       # waffle/opt     (public API)
     version.gleam                   # waffle/version (public API)
     internal/
       faer/
@@ -80,6 +82,7 @@ src/
         linalg/
           solvers.gleam             # waffle/internal/faer/linalg/solvers
       random.gleam                  # waffle/internal/random (NIF bindings)
+      highs.gleam                   # waffle/internal/highs (NIF bindings)
       ffi/
         nif.erl                     # Erlang NIF loader (module name = "nif")
         platform.erl                # Platform detection (module name = "platform")
@@ -87,7 +90,7 @@ src/
   waffle_setup.gleam                # waffle_setup  (gleam run -m waffle_setup)
 
 native/waffle/
-  Cargo.toml                # Rust dependencies (rustler, faer)
+  Cargo.toml                # Rust dependencies (rustler, faer, highs)
   src/lib.rs                # NIF implementations
 
 priv/                       # Compiled .so/.dll/.dylib (gitignored)
@@ -95,7 +98,9 @@ priv/                       # Compiled .so/.dll/.dylib (gitignored)
 test/
   matrix_test.gleam         # Matrix tests
   linalg_test.gleam         # Linear algebra tests
+  sparse_test.gleam         # Sparse matrix tests
   random_test.gleam         # Random generation tests
+  opt_test.gleam            # Optimization tests
   version_test.gleam        # Version tests
   waffle_test.gleam         # Main test entry
 ```
@@ -141,6 +146,7 @@ Use [docs.rs](https://docs.rs) for Rust crate documentation. Key crates:
 |-------|---------|-----------|
 | `rustler` | Erlang NIF bindings | Safe Rust wrappers for NIF creation; handles type conversion |
 | `faer` | Linear algebra | High-performance dense linear algebra; native column-major layout |
+| `highs` | Optimization | Mixed-integer linear programming solver; CSC-friendly API |
 | `bytemuck` | Zero-copy binary casting | Safe abstraction over `unsafe` pointer casting; eliminates UB class |
 | `rand` + `rand_distr` | Quality RNG | ChaCha20 CSPRNG; efficient for large matrices; seeded variants for reproducibility |
 

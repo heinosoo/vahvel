@@ -4,7 +4,7 @@ import gleam/int
 import gleam/list
 import gleam/result
 import gleam/string
-import waffle/internal/faer/sparse as nif
+import waffle/internal/faer as nif
 import waffle/matrix
 
 /// Errors that can occur when creating or manipulating sparse matrices.
@@ -683,4 +683,10 @@ pub fn to_string(matrix: SparseMatrix) -> String {
 
 fn float_to_string(x: Float) -> String {
   float.to_string(x)
+}
+
+/// Get the raw CSC data components (nnz, col_ptr, row_indices, values).
+/// This is useful for passing to NIFs.
+pub fn to_csc_data(matrix: SparseMatrix) -> #(Int, BitArray, BitArray, BitArray) {
+  #(matrix.nnz, matrix.col_ptr, matrix.row_indices, matrix.values)
 }

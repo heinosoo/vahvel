@@ -17,6 +17,8 @@ There is no linear algebra library in the Gleam ecosystem. faer is fast (often o
 - **Decompositions** — LU (partial pivoting), QR (thin), SVD (thin)
 - **Properties** — determinant, inverse, symmetric eigenvalues, trace
 - **Linear solver** — solve `Ax = b` via LU decomposition
+- **Random generation** — uniform, normal, bernoulli distributions
+- **Optimization (ILP)** — linear and mixed-integer programming via HiGHS
 - **Dirty NIFs** — all operations run on the DirtyCpu scheduler, never blocking the BEAM
 - **Zero-copy input** — Erlang binaries are viewed directly as f64 slices
 - **Smart build** — `gleam run -m waffle_setup` builds the NIF, skipping if already up to date
@@ -27,6 +29,8 @@ There is no linear algebra library in the Gleam ecosystem. faer is fast (often o
 import waffle/matrix
 import waffle/linalg
 import waffle/sparse
+import waffle/random
+import waffle/opt
 
 pub fn main() {
   let assert Ok(a) = matrix.from_list([[2.0, 1.0], [1.0, 3.0]])
@@ -47,6 +51,16 @@ pub fn main() {
   // Sparse matrices (efficient for matrices with many zeros)
   let assert Ok(s) = sparse.from_triplets(3, 3, [#(0, 0, 1.0), #(1, 1, 2.0), #(2, 2, 3.0)])
   let assert Ok(dense) = sparse.to_dense(s)
+
+  // Random generation
+  let noise = random.normal(100, 100, 0.0, 1.0)
+
+  // Optimization (mixed-integer linear programming)
+  let model = opt.new() |> opt.set_direction(opt.Maximize)
+  let #(model, x) = opt.add_variable(model, 3.0, 0.0, 10.0, opt.Continuous)
+  let #(model, y) = opt.add_variable(model, 2.0, 0.0, 10.0, opt.Integer)
+  let assert Ok(model) = opt.add_constraint(model, 0.0, 15.0, [#(x, 1.0), #(y, 1.0)])
+  let assert Ok(solution) = opt.solve(model)
 }
 ```
 
