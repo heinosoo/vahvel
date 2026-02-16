@@ -111,7 +111,7 @@ test/
 
 - **Stable Rust.** No nightly features.
 - **`NifResult` returns.** All NIFs return tagged tuples: `{ok, result}` or `{error, reason}`.
-- **`catch_unwind` around faer.** faer may panic on singular matrices. Wrap compute calls in `std::panic::catch_unwind` and convert panics to `{error, reason}` tuples.
+
 - **Minimal `unsafe`.** Only for zero-copy binary views. Document why each `unsafe` block is sound.
 - **`cargo fmt` and `cargo clippy`.** Run before every commit.
 
@@ -221,14 +221,9 @@ Use [docs.rs](https://docs.rs) for Rust crate documentation. See the dependency 
 - Test `linalg.solve` with known solutions (e.g., identity matrix, simple 2x2, 3x3)
 - Test error cases: singular matrices, dimension mismatches, empty inputs
 
-### Rust unit tests (validation)
-
-- Test input validation logic (binary length checks, dimension checks)
-- Test directly in `native/waffle/src/lib.rs` with `#[cfg(test)]`
-
 ### Integration
 
-`gleam test` exercises the full path: Gleam → Erlang FFI → Rust NIF → faer → result back to Gleam.
+`gleam test` exercises the full path: Gleam → Erlang FFI → Rust NIF → faer → result back to Gleam. This provides complete coverage; Rust unit tests are not needed because the NIF layer is a thin wrapper.
 
 ### Test Writing Tips
 
@@ -251,10 +246,6 @@ If the NIF shared library is missing from `priv/`, all NIF calls crash. The erro
 ### Binary alignment
 
 `&[f64]` requires 8-byte alignment. Erlang binaries are typically aligned, but verify with assertions in debug builds.
-
-### Singular matrices
-
-faer panics on singular matrices during LU solve. The `catch_unwind` wrapper converts this to an error tuple. Without it, the BEAM process crashes.
 
 ### Cross-platform library extensions
 

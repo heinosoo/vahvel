@@ -16,10 +16,6 @@ Step-by-step implementation plan.
 
 - [ ] Compare performance against Python/NumPy for common ops.
 
-## Robustness
-
-- [ ] Add `catch_unwind` wrappers around NIF compute calls to convert panics to error tuples.
-
 ## Future Enhancements
 
 - [ ] Add builder API for `waffle/opt` with chaining (`with_int_var`, `with_eq_constraint`, `build`)

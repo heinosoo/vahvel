@@ -298,3 +298,26 @@ pub fn validate_square_non_square_test() {
   let assert Ok(s) = sparse.from_triplets(2, 3, [#(0, 0, 1.0)])
   sparse.validate_square(s) |> should.be_error()
 }
+
+pub fn from_triplets_duplicate_entries_summed_test() {
+  let triplets = [#(0, 0, 1.0), #(0, 0, 2.0), #(1, 1, 3.0)]
+  let assert Ok(s) = sparse.from_triplets(2, 2, triplets)
+  let assert Ok(dense) = sparse.to_dense(s)
+  matrix.to_list(dense) |> should.equal([[3.0, 0.0], [0.0, 3.0]])
+}
+
+pub fn from_triplets_negative_row_test() {
+  let result = sparse.from_triplets(2, 2, [#(-1, 0, 1.0)])
+  result
+  |> should.equal(
+    Error(sparse.IndexOutOfBounds(row: -1, col: 0, rows: 2, cols: 2)),
+  )
+}
+
+pub fn from_triplets_negative_col_test() {
+  let result = sparse.from_triplets(2, 2, [#(0, -1, 1.0)])
+  result
+  |> should.equal(
+    Error(sparse.IndexOutOfBounds(row: 0, col: -1, rows: 2, cols: 2)),
+  )
+}
