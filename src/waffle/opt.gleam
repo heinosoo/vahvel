@@ -566,12 +566,12 @@ fn build_constraint_data(
 fn empty_csc_data(
   num_vars: Int,
 ) -> #(Int, BitArray, BitArray, BitArray, BitArray) {
-  let col_ptr = pack_ints(list.repeat(0, num_vars + 1))
+  let col_ptr = pack_indices(list.repeat(0, num_vars + 1))
   #(0, col_ptr, <<>>, <<>>, <<>>)
 }
 
-fn pack_ints(ints: List(Int)) -> BitArray {
-  list.fold(ints, <<>>, fn(acc, x) { <<acc:bits, x:int-little-size(64)>> })
+fn pack_indices(indices: List(Int)) -> BitArray {
+  list.fold(indices, <<>>, fn(acc, x) { <<acc:bits, x:int-little-size(64)>> })
 }
 
 fn pack_floats(floats: List(Float)) -> BitArray {
