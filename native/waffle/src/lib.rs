@@ -9,12 +9,9 @@ use rustler::{Atom, Binary, Encoder, Env, NifResult, OwnedBinary, Term};
 
 fn mat_from_binary(rows: usize, cols: usize, data: &[u8]) -> Mat<f64> {
     // Safety: Handle unaligned data by reading 8-byte chunks and parsing as LE f64
-    // Faer uses column-major storage by default.
-    // We avoid intermediate Vec allocation by parsing on demand.
     Mat::from_fn(rows, cols, |i, j| {
         let idx = j * rows + i;
         let start = idx * 8;
-        // Slice length is validated by caller, so unwrapping is safe (or panics if logic is wrong)
         let bytes: [u8; 8] = data[start..start + 8].try_into().unwrap_or_default();
         f64::from_le_bytes(bytes)
     })
@@ -165,7 +162,9 @@ fn transpose<'a>(
 
     let output_bytes = owned.as_mut_slice();
 
-    // Manual transpose loop: B[c, r] = A[r, c]
+    // Manual transpose loop because faer::Mat<u64> is not supported (u64 is not an Entity).
+    // Casting to f64 is unsafe as it might canonicalize NaNs and corrupt integer bit patterns.
+    //
     // A (input) is rows x cols
     // B (output) is cols x rows
     for c in 0..cols {
