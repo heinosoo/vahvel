@@ -57,9 +57,9 @@ pub fn main() {
 
   // Optimization (mixed-integer linear programming)
   let model = opt.new() |> opt.set_direction(opt.Maximize)
-  let #(model, x) = opt.add_variable(model, 3.0, 0.0, 10.0, opt.Continuous)
-  let #(model, y) = opt.add_variable(model, 2.0, 0.0, 10.0, opt.Integer)
-  let assert Ok(model) = opt.add_constraint(model, 0.0, 15.0, [#(x, 1.0), #(y, 1.0)])
+  let #(model, x) = opt.cont_var(model, "x", 3.0, 0.0, 10.0)
+  let #(model, y) = opt.int_var(model, "y", 2.0, 0.0, 10.0)
+  let assert Ok(model) = opt.add_le_constraint(model, 15.0, [#(x, 1.0), #(y, 1.0)])
   let assert Ok(solution) = opt.solve(model)
 }
 ```
