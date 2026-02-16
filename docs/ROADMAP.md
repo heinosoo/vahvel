@@ -119,19 +119,19 @@ Step-by-step implementation plan.
 **Goal:** Add a Mixed-Integer Linear Programming (MILP) solver using `highs`.
 
 - [ ] **Dependencies**
-  - Add `highs` to `native/waffle/Cargo.toml`.
-  - **Crucial:** Configure static C++ linking (`-static-libstdc++`) to ensure portability.
+  - Add `highs = "2.0"` to `native/waffle/Cargo.toml`.
+  - Configure static C++ linking (`-static-libstdc++`) for portability.
 
 - [ ] **Optimization Module (`waffle/opt`)**
-  - Define `Model` type for the "Standard Form" ($L \le Ax \le U$).
-  - Define `VariableType` enum (`Continuous`, `Integer`).
+  - Define `Model`, `VariableType`, `Direction`, `SolutionStatus` types.
   - Create fluent Builder API for defining problems.
+  - Add matrix-based API accepting `Matrix` or `SparseMatrix`.
 
 - [ ] **Solver NIF**
-  - Implement `solve_ilp` NIF in Rust.
-  - Support **both** `Matrix` (Dense) and `SparseMatrix` (CSR) constraints.
-  - Map inputs directly to `highs::HighsModel`.
-  - Return detailed solution structs (status, objective value, variable assignments).
+  - Implement solver using `highs` crate's safe API (`ColProblem`/`RowProblem`).
+  - Support both dense and sparse constraint matrices.
+  - Our `SparseMatrix` (CSC) maps naturally to `highs::ColMatrix`.
+  - Return detailed solution structs (status, objective value, primal/dual values).
 
 ---
 
