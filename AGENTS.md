@@ -68,41 +68,14 @@ See also: [Gleam language tour - Everything](https://tour.gleam.run/everything) 
 ### File Structure
 
 ```
-src/
-  waffle/
-    matrix.gleam                    # waffle/matrix  (public API)
-    linalg.gleam                    # waffle/linalg  (public API)
-    sparse.gleam                    # waffle/sparse  (public API)
-    random.gleam                    # waffle/random  (public API)
-    opt.gleam                       # waffle/opt     (public API)
-    version.gleam                   # waffle/version (public API)
-    internal/
-      faer/
-        mat.gleam                   # waffle/internal/faer/mat
-        linalg/
-          solvers.gleam             # waffle/internal/faer/linalg/solvers
-      random.gleam                  # waffle/internal/random (NIF bindings)
-      highs.gleam                   # waffle/internal/highs (NIF bindings)
-      ffi/
-        nif.erl                     # Erlang NIF loader (module name = "nif")
-        platform.erl                # Platform detection (module name = "platform")
-  waffle_build.gleam                # waffle_build  (gleam run -m waffle_build)
-  waffle_setup.gleam                # waffle_setup  (gleam run -m waffle_setup)
+src/waffle/*.gleam           # Public API (matrix, linalg, sparse, random, opt, version)
+src/waffle/internal/         # NIF bindings (Gleam wrappers + Erlang FFI)
+src/waffle_build.gleam       # Build script (always compiles from source)
+src/waffle_setup.gleam       # Setup script (builds if missing/outdated)
 
-native/waffle/
-  Cargo.toml                # Rust dependencies (rustler, faer, highs)
-  src/lib.rs                # NIF implementations
-
-priv/                       # Compiled .so/.dll/.dylib (gitignored)
-
-test/
-  matrix_test.gleam         # Matrix tests
-  linalg_test.gleam         # Linear algebra tests
-  sparse_test.gleam         # Sparse matrix tests
-  random_test.gleam         # Random generation tests
-  opt_test.gleam            # Optimization tests
-  version_test.gleam        # Version tests
-  waffle_test.gleam         # Main test entry
+native/waffle/src/*.rs       # Rust NIF implementations split by domain
+priv/                        # Compiled .so/.dll/.dylib (gitignored)
+test/*_test.gleam            # Test modules
 ```
 
 ---
@@ -270,8 +243,8 @@ After editing imports or adding modules, the Gleam LSP may show false errors. Ru
 
 ### Adding a new NIF function
 
-1. **Rust:** Add the function in `native/waffle/src/lib.rs` with `#[rustler::nif(schedule = "DirtyCpu")]`. Return tagged tuples.
-2. **Rust:** Register it in the `rustler::init!` macro.
+1. **Rust:** Add the function in the appropriate module (`dense.rs`, `sparse.rs`, `opt.rs`, `random.rs`) with `#[rustler::nif(schedule = "DirtyCpu")]`. Return tagged tuples.
+2. **Rust:** Register it in `rustler::init!` in `lib.rs`.
 3. **Erlang:** Add the function stub in `src/waffle/internal/ffi/nif.erl` that raises `nif_not_loaded`.
 4. **Gleam:** Add the `@external(erlang, "nif", "function_name")` binding.
 5. **Test:** Write a Gleam test that calls the public API and verifies the result.

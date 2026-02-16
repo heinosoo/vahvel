@@ -30,8 +30,8 @@ pub opaque type SparseMatrix {
   )
 }
 
-fn pack_ints(ints: List(Int)) -> BitArray {
-  list.fold(ints, <<>>, fn(acc, x) { <<acc:bits, x:int-little-size(64)>> })
+fn pack_indices(indices: List(Int)) -> BitArray {
+  list.fold(indices, <<>>, fn(acc, x) { <<acc:bits, x:int-little-size(64)>> })
 }
 
 fn pack_floats(floats: List(Float)) -> BitArray {
@@ -65,8 +65,8 @@ pub fn from_triplets(
   use _ <- result.try(validate_non_empty(triplets))
   use _ <- result.try(validate_triplet_indices(triplets, rows, cols))
 
-  let row_indices = pack_ints(list.map(triplets, fn(t) { t.0 }))
-  let col_indices = pack_ints(list.map(triplets, fn(t) { t.1 }))
+  let row_indices = pack_indices(list.map(triplets, fn(t) { t.0 }))
+  let col_indices = pack_indices(list.map(triplets, fn(t) { t.1 }))
   let values = pack_floats(list.map(triplets, fn(t) { t.2 }))
 
   use #(nnz, col_ptr, row_idx, vals) <- result.try(
