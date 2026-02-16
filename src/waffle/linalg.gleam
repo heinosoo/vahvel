@@ -2,7 +2,7 @@ import gleam/bit_array
 import gleam/int
 import gleam/list
 import gleam/result
-import waffle/internal/faer/linalg/solvers
+import waffle/internal/faer
 import waffle/matrix
 
 /// LU decomposition with partial pivoting: PA = LU.
@@ -57,7 +57,7 @@ fn nif_error_to_matrix_error(msg: String) -> matrix.MatrixError {
 /// Returns an error if the matrix is not square.
 pub fn determinant(m: matrix.Matrix) -> Result(Float, matrix.MatrixError) {
   use _ <- result.try(matrix.validate_square(m))
-  solvers.determinant(matrix.rows(m), matrix.to_binary(m))
+  faer.matrix_determinant(matrix.rows(m), matrix.to_binary(m))
   |> result.map_error(nif_error_to_matrix_error)
 }
 
@@ -67,7 +67,7 @@ pub fn inverse(m: matrix.Matrix) -> Result(matrix.Matrix, matrix.MatrixError) {
   use _ <- result.try(matrix.validate_square(m))
   let n = matrix.rows(m)
   use data <- result.try(
-    solvers.inverse(n, matrix.to_binary(m))
+    faer.matrix_inverse(n, matrix.to_binary(m))
     |> result.map_error(nif_error_to_matrix_error),
   )
   matrix.from_binary(n, n, data)
@@ -79,7 +79,7 @@ pub fn inverse(m: matrix.Matrix) -> Result(matrix.Matrix, matrix.MatrixError) {
 pub fn lu(m: matrix.Matrix) -> Result(LU, matrix.MatrixError) {
   use _ <- result.try(matrix.validate_square(m))
   let n = matrix.rows(m)
-  case solvers.lu(n, matrix.to_binary(m)) {
+  case faer.matrix_lu(n, matrix.to_binary(m)) {
     Ok(#(#(l_r, l_c, l_bin), #(u_r, u_c, u_bin), #(piv_len, piv_bin))) -> {
       let pivot = unpack_pivot(piv_bin, piv_len)
       case
@@ -99,7 +99,7 @@ pub fn lu(m: matrix.Matrix) -> Result(LU, matrix.MatrixError) {
 /// For an m×n matrix with m >= n, produces Q (m×n with orthonormal columns)
 /// and R (n×n upper triangular).
 pub fn qr(m: matrix.Matrix) -> Result(QR, matrix.MatrixError) {
-  case solvers.qr(matrix.rows(m), matrix.cols(m), matrix.to_binary(m)) {
+  case faer.matrix_qr(matrix.rows(m), matrix.cols(m), matrix.to_binary(m)) {
     Ok(#(#(q_r, q_c, q_bin), #(r_r, r_c, r_bin))) -> {
       case
         matrix.from_binary(q_r, q_c, q_bin),
@@ -117,7 +117,7 @@ pub fn qr(m: matrix.Matrix) -> Result(QR, matrix.MatrixError) {
 /// Compute the thin SVD decomposition of a matrix: A = U * diag(S) * V^T.
 /// Singular values are returned in descending order.
 pub fn svd(m: matrix.Matrix) -> Result(SVD, matrix.MatrixError) {
-  case solvers.svd(matrix.rows(m), matrix.cols(m), matrix.to_binary(m)) {
+  case faer.matrix_svd(matrix.rows(m), matrix.cols(m), matrix.to_binary(m)) {
     Ok(#(#(u_r, u_c, u_bin), #(s_len, s_bin), #(v_r, v_c, v_bin))) -> {
       let s_values = unpack_floats(s_bin, s_len)
       case
@@ -142,7 +142,7 @@ pub fn symmetric_eigenvalues(
   use _ <- result.try(matrix.validate_square(m))
   use _ <- result.try(matrix.validate_symmetric(m))
   let n = matrix.rows(m)
-  case solvers.symmetric_eigenvalues(n, matrix.to_binary(m)) {
+  case faer.matrix_symmetric_eigenvalues(n, matrix.to_binary(m)) {
     Ok(eigenvalues_bin) -> Ok(unpack_floats(eigenvalues_bin, n))
     Error(msg) -> Error(nif_error_to_matrix_error(msg))
   }
@@ -195,7 +195,7 @@ fn do_solve(a: matrix.Matrix, b: matrix.Matrix) -> Result(matrix.Matrix, String)
   let b_data = matrix.to_binary(b)
   let rows = matrix.rows(a)
   let cols = matrix.cols(a)
-  use result_data <- result.try(solvers.solve_linear_system(
+  use result_data <- result.try(faer.solve_linear_system(
     rows,
     cols,
     a_data,

@@ -4,7 +4,7 @@ import gleam/int
 import gleam/list
 import gleam/result
 import gleam/string
-import waffle/internal/faer/mat
+import waffle/internal/faer
 
 /// Errors that can occur when creating or manipulating matrices.
 pub type MatrixError {
@@ -122,7 +122,7 @@ pub fn from_list(data: List(List(Float))) -> Result(Matrix, MatrixError) {
   use _ <- result.try(validate_all_rows(data, cols))
   let row_major = pack_floats(list.flatten(data))
   use column_major <- result.try(
-    mat.transpose(cols, rows, row_major)
+    faer.transpose(cols, rows, row_major)
     |> result.map_error(fn(msg) { InvalidDimensions(msg) }),
   )
   Ok(Matrix(rows: rows, cols: cols, data: column_major))
@@ -327,7 +327,7 @@ pub fn trace(matrix: Matrix) -> Result(Float, MatrixError) {
 
 /// Transpose a matrix (swap rows and columns).
 pub fn transpose(matrix: Matrix) -> Result(Matrix, MatrixError) {
-  case mat.transpose(matrix.rows, matrix.cols, matrix.data) {
+  case faer.transpose(matrix.rows, matrix.cols, matrix.data) {
     Ok(data) -> Ok(Matrix(rows: matrix.cols, cols: matrix.rows, data: data))
     Error(msg) -> Error(InvalidDimensions("Transpose failed: " <> msg))
   }
@@ -340,7 +340,7 @@ pub fn transpose(matrix: Matrix) -> Result(Matrix, MatrixError) {
 /// Element-wise matrix addition.
 pub fn add(a: Matrix, b: Matrix) -> Result(Matrix, MatrixError) {
   use _ <- result.try(validate_same_dimensions(a, b))
-  mat.add(a.rows, a.cols, a.data, b.data)
+  faer.matrix_add(a.rows, a.cols, a.data, b.data)
   |> result.map(fn(data) { Matrix(rows: a.rows, cols: a.cols, data: data) })
   |> result.map_error(nif_error_to_matrix_error)
 }
@@ -348,14 +348,14 @@ pub fn add(a: Matrix, b: Matrix) -> Result(Matrix, MatrixError) {
 /// Element-wise matrix subtraction.
 pub fn subtract(a: Matrix, b: Matrix) -> Result(Matrix, MatrixError) {
   use _ <- result.try(validate_same_dimensions(a, b))
-  mat.subtract(a.rows, a.cols, a.data, b.data)
+  faer.matrix_subtract(a.rows, a.cols, a.data, b.data)
   |> result.map(fn(data) { Matrix(rows: a.rows, cols: a.cols, data: data) })
   |> result.map_error(nif_error_to_matrix_error)
 }
 
 /// Scalar multiplication of a matrix.
 pub fn scale(matrix: Matrix, scalar: Float) -> Result(Matrix, MatrixError) {
-  mat.scale(matrix.rows, matrix.cols, matrix.data, scalar)
+  faer.matrix_scale(matrix.rows, matrix.cols, matrix.data, scalar)
   |> result.map(fn(data) {
     Matrix(rows: matrix.rows, cols: matrix.cols, data: data)
   })
@@ -365,7 +365,7 @@ pub fn scale(matrix: Matrix, scalar: Float) -> Result(Matrix, MatrixError) {
 /// Matrix multiplication.
 pub fn multiply(a: Matrix, b: Matrix) -> Result(Matrix, MatrixError) {
   use _ <- result.try(validate_multipliable(a, b))
-  mat.multiply(a.rows, a.cols, a.data, b.rows, b.cols, b.data)
+  faer.matrix_multiply(a.rows, a.cols, a.data, b.rows, b.cols, b.data)
   |> result.map(fn(data) { Matrix(rows: a.rows, cols: b.cols, data: data) })
   |> result.map_error(nif_error_to_matrix_error)
 }
