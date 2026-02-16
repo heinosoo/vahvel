@@ -1,4 +1,4 @@
-# Phase 1: Module Organization (mirroring `faer`)
+# Phase 1: Module Organization (mirroring `faer`) ✅ COMPLETED
 
 **Goal:** Reorganize modules to mirror `faer`'s structure for clarity and maintainability. Keep `Matrix` as float-only (no generics needed).
 
@@ -13,35 +13,35 @@
 ## 1. Refactor `matrix.gleam`
 
 **Keep:**
-- [ ] `Matrix` type (opaque, float-only)
-- [ ] `MatrixError` type
-- [ ] Constructors: `from_list`, `to_list`, `from_binary`, `to_binary`, `identity`, `zeros`, `ones`, `diagonal`
-- [ ] Accessors: `rows`, `cols`, `get`
-- [ ] Structural: `transpose`
-- [ ] Basic arithmetic: `add`, `subtract`, `multiply`, `scale`
-- [ ] Basic properties: `trace`
-- [ ] Internal helpers that support the above
+- [x] `Matrix` type (opaque, float-only)
+- [x] `MatrixError` type
+- [x] Constructors: `from_list`, `to_list`, `from_binary`, `to_binary`, `identity`, `zeros`, `ones`, `diagonal`
+- [x] Accessors: `rows`, `cols`, `get`
+- [x] Structural: `transpose`
+- [x] Basic arithmetic: `add`, `subtract`, `multiply`, `scale`
+- [x] Basic properties: `trace`
+- [x] Internal helpers that support the above
 
 **Remove (move to `linalg.gleam`):**
-- [ ] `LU`, `QR`, `SVD` types
-- [ ] `determinant`, `inverse`, `lu`, `qr`, `svd`, `symmetric_eigenvalues` functions
-- [ ] Import of `waffle/internal/faer/linalg/solvers`
+- [x] `LU`, `QR`, `SVD` types
+- [x] `determinant`, `inverse`, `lu`, `qr`, `svd`, `symmetric_eigenvalues` functions
+- [x] Import of `waffle/internal/faer/linalg/solvers`
 
 ## 2. Create `linalg.gleam`
 
 **Add:**
-- [ ] Types: `LU`, `QR`, `SVD`
-- [ ] Import `waffle/matrix` for `Matrix` and `MatrixError`
-- [ ] Import `waffle/internal/faer/linalg/solvers`
-- [ ] Functions: `determinant`, `inverse`, `lu`, `qr`, `svd`, `symmetric_eigenvalues`, `solve`
-- [ ] Internal helpers: `unpack_pivot`, `unpack_floats`, validation helpers
+- [x] Types: `LU`, `QR`, `SVD`
+- [x] Import `waffle/matrix` for `Matrix` and `MatrixError`
+- [x] Import `waffle/internal/faer/linalg/solvers`
+- [x] Functions: `determinant`, `inverse`, `lu`, `qr`, `svd`, `symmetric_eigenvalues`, `solve`
+- [x] Internal helpers: `unpack_pivot`, `unpack_floats`, validation helpers
 
 ## 3. Cleanup
 
-- [ ] Delete `src/waffle/solver.gleam`
-- [ ] Update `test/solver_test.gleam` → `test/linalg_test.gleam`
-- [ ] Update imports in test files
-- [ ] Run tests to verify everything works
+- [x] Delete `src/waffle/solver.gleam`
+- [x] Update `test/solver_test.gleam` → `test/linalg_test.gleam`
+- [x] Update imports in test files
+- [x] Run tests to verify everything works
 
 ## 4. Internal NIFs
 

@@ -24,23 +24,23 @@ There is no linear algebra library in the Gleam ecosystem. faer is fast (often o
 
 ```gleam
 import waffle/matrix
-import waffle/solver
+import waffle/linalg
 
 pub fn main() {
   let assert Ok(a) = matrix.from_list([[2.0, 1.0], [1.0, 3.0]])
   let assert Ok(b) = matrix.from_list([[7.0], [9.0]])
 
   // Solve Ax = b
-  let assert Ok(x) = solver.solve(a, b)
+  let assert Ok(x) = linalg.solve(a, b)
 
   // Arithmetic
   let assert Ok(sum) = matrix.add(a, a)
   let assert Ok(product) = matrix.multiply(a, a)
 
   // Decompositions and properties
-  let assert Ok(matrix.LU(l, u, pivot)) = matrix.lu(a)
-  let assert Ok(det) = matrix.determinant(a)
-  let assert Ok(inv) = matrix.inverse(a)
+  let assert Ok(linalg.LU(l, u, pivot)) = linalg.lu(a)
+  let assert Ok(det) = linalg.determinant(a)
+  let assert Ok(inv) = linalg.inverse(a)
 }
 ```
 

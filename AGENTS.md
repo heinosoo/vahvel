@@ -71,7 +71,7 @@ See also: [Gleam language tour - Everything](https://tour.gleam.run/everything) 
 src/
   waffle/
     matrix.gleam                    # waffle/matrix  (public API)
-    solver.gleam                    # waffle/solver  (public API)
+    linalg.gleam                    # waffle/linalg  (public API)
     version.gleam                   # waffle/version (public API)
     internal/
       faer/
@@ -92,7 +92,7 @@ priv/                       # Compiled .so/.dll/.dylib (gitignored)
 
 test/
   matrix_test.gleam         # Matrix tests
-  solver_test.gleam         # Solver tests
+  linalg_test.gleam         # Linear algebra tests
   version_test.gleam        # Version tests
   waffle_test.gleam         # Main test entry
 ```
@@ -182,7 +182,7 @@ Use [docs.rs](https://docs.rs) for Rust crate documentation. Key crates:
 ### Gleam tests (public API)
 
 - Test `matrix.from_list` / `matrix.to_list` round-trips
-- Test `solver.solve` with known solutions (e.g., identity matrix, simple 2x2, 3x3)
+- Test `linalg.solve` with known solutions (e.g., identity matrix, simple 2x2, 3x3)
 - Test error cases: singular matrices, dimension mismatches, empty inputs
 
 ### Rust unit tests (validation)
@@ -237,7 +237,7 @@ Gleam/user input is naturally row-major (`[[1, 2], [3, 4]]`). faer expects colum
 
 ### Adding a pure Gleam function
 
-1. Add the function in the appropriate module (`waffle/matrix.gleam`, `waffle/solver.gleam`).
+1. Add the function in the appropriate module (`waffle/matrix.gleam`, `waffle/linalg.gleam`).
 2. Write tests in `test/`.
 3. No Rust or Erlang changes needed.
 

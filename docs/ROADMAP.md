@@ -34,11 +34,11 @@ Step-by-step implementation plan.
 
 ---
 
-## Phase 1: Module Organization (mirroring `faer`) [todo-phase-1](/docs/todo-phase-1-matrix.md)
+## ✅ Phase 1: Module Organization (mirroring `faer`) [todo-phase-1](/docs/todo-phase-1-matrix.md)
 
 **Goal:** Reorganize modules to mirror `faer`'s structure for clarity and maintainability. Keep `Matrix` as float-only (no generics needed).
 
-- [ ] **`matrix.gleam` (mirrors `faer::Mat`)**
+- [x] **`matrix.gleam` (mirrors `faer::Mat`)**
   - `Matrix` type (opaque, float-only).
   - Constructors: `from_list`, `to_list`, `from_binary`, `to_binary`, `identity`, `zeros`, `ones`, `diagonal`.
   - Accessors: `rows`, `cols`, `get`.
@@ -46,13 +46,13 @@ Step-by-step implementation plan.
   - Basic arithmetic: `add`, `subtract`, `multiply`, `scale`.
   - Basic properties: `trace`.
 
-- [ ] **`linalg.gleam` (mirrors `faer::linalg::*`)**
+- [x] **`linalg.gleam` (mirrors `faer::linalg::*`)**
   - Decomposition types: `LU`, `QR`, `SVD`.
   - Decompositions: `lu`, `qr`, `svd`.
   - Advanced properties: `determinant`, `inverse`, `symmetric_eigenvalues`.
   - Solver: `solve(a, b)`.
 
-- [ ] **Cleanup**
+- [x] **Cleanup**
   - Delete `solver.gleam` (move `solve` to `linalg.gleam`).
   - Update tests and imports.
 
