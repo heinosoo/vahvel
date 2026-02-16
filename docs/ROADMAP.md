@@ -58,27 +58,27 @@ Step-by-step implementation plan.
 
 ---
 
-## Phase 2: The "Numpy" Essentials (Functional API) [todo-phase-2](/docs/todo-phase-2-essentials.md)
+## ✅ Phase 2: The "Numpy" Essentials (Functional API) [todo-phase-2](/docs/todo-phase-2-essentials.md)
 
 **Goal:** Make the library "gleam-idiomatic" and ergonomic by adding functional array manipulations and statistical generation.
 
-- [ ] **Functional Transformations**
+- [x] **Functional Transformations**
   - `matrix.map(Matrix, fn(Float) -> Float) -> Matrix`
   - `matrix.fold(Matrix, acc, fn(acc, Float) -> acc)` (Sum, max, min, etc).
   - `matrix.zip_with(Matrix, Matrix, fn(Float, Float) -> Float)` (Element-wise operations).
 
-- [ ] **Randomness & Distributions**
+- [x] **Randomness & Distributions**
   - Create `src/waffle/random.gleam`.
   - Implement `uniform(rows, cols, min, max) -> Matrix`.
   - Implement `normal(rows, cols, mean, std_dev) -> Matrix`.
   - Implement `bernoulli(rows, cols, p) -> Matrix` (0.0/1.0 masks).
 
-- [ ] **Views & Slicing**
+- [x] **Views & Slicing**
   - `matrix.slice(Matrix, row_start, row_len, col_start, col_len) -> Matrix`
   - `matrix.row(Matrix, index) -> List(Float)`
   - `matrix.col(Matrix, index) -> List(Float)`
 
-- [ ] **Utilities**
+- [x] **Utilities**
   - `matrix.reshape`
   - `matrix.vstack` / `matrix.hstack`
   - Pretty printing (`to_string` with alignment).

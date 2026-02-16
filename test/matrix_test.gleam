@@ -1,3 +1,5 @@
+import gleam/float
+import gleam/string
 import gleeunit/should
 import waffle/matrix
 
@@ -311,4 +313,145 @@ pub fn multiply_dimension_mismatch_test() {
   let assert Ok(b) = matrix.from_list([[1.0, 2.0]])
   // 1x2 * 1x2 should fail (inner dims: 2 != 1)
   matrix.multiply(a, b) |> should.be_error()
+}
+
+// ---------------------------------------------------------------------------
+// Utilities: reshape, vstack, hstack, to_string
+// ---------------------------------------------------------------------------
+
+pub fn reshape_2x3_to_3x2_test() {
+  let assert Ok(m) = matrix.from_list([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+  let assert Ok(reshaped) = matrix.reshape(m, 3, 2)
+  matrix.rows(reshaped) |> should.equal(3)
+  matrix.cols(reshaped) |> should.equal(2)
+  matrix.to_list(reshaped) |> should.equal([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
+}
+
+pub fn reshape_invalid_test() {
+  let assert Ok(m) = matrix.from_list([[1.0, 2.0], [3.0, 4.0]])
+  matrix.reshape(m, 3, 3) |> should.be_error()
+}
+
+pub fn vstack_basic_test() {
+  let assert Ok(top) = matrix.from_list([[1.0, 2.0]])
+  let assert Ok(bottom) = matrix.from_list([[3.0, 4.0]])
+  let assert Ok(result) = matrix.vstack(top, bottom)
+  matrix.rows(result) |> should.equal(2)
+  matrix.cols(result) |> should.equal(2)
+  matrix.to_list(result) |> should.equal([[1.0, 2.0], [3.0, 4.0]])
+}
+
+pub fn vstack_column_mismatch_test() {
+  let assert Ok(a) = matrix.from_list([[1.0, 2.0]])
+  let assert Ok(b) = matrix.from_list([[1.0]])
+  matrix.vstack(a, b) |> should.be_error()
+}
+
+pub fn hstack_basic_test() {
+  let assert Ok(left) = matrix.from_list([[1.0], [3.0]])
+  let assert Ok(right) = matrix.from_list([[2.0], [4.0]])
+  let assert Ok(result) = matrix.hstack(left, right)
+  matrix.rows(result) |> should.equal(2)
+  matrix.cols(result) |> should.equal(2)
+  matrix.to_list(result) |> should.equal([[1.0, 2.0], [3.0, 4.0]])
+}
+
+pub fn hstack_row_mismatch_test() {
+  let assert Ok(a) = matrix.from_list([[1.0, 2.0]])
+  let assert Ok(b) = matrix.from_list([[1.0], [2.0]])
+  matrix.hstack(a, b) |> should.be_error()
+}
+
+pub fn to_string_test() {
+  let assert Ok(m) = matrix.from_list([[1.0, 2.0], [3.0, 4.0]])
+  let s = matrix.to_string(m)
+  should.be_true(string.contains(s, "1.0"))
+  should.be_true(string.contains(s, "4.0"))
+}
+
+// ---------------------------------------------------------------------------
+// Views & Slicing
+// ---------------------------------------------------------------------------
+
+pub fn slice_top_left_test() {
+  let assert Ok(m) =
+    matrix.from_list([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]])
+  let assert Ok(s) = matrix.slice(m, 0, 2, 0, 2)
+  matrix.to_list(s) |> should.equal([[1.0, 2.0], [4.0, 5.0]])
+}
+
+pub fn slice_bottom_right_test() {
+  let assert Ok(m) =
+    matrix.from_list([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]])
+  let assert Ok(s) = matrix.slice(m, 1, 2, 1, 2)
+  matrix.to_list(s) |> should.equal([[5.0, 6.0], [8.0, 9.0]])
+}
+
+pub fn slice_out_of_bounds_test() {
+  let assert Ok(m) = matrix.from_list([[1.0, 2.0], [3.0, 4.0]])
+  matrix.slice(m, 0, 3, 0, 2) |> should.be_error()
+}
+
+pub fn row_test() {
+  let assert Ok(m) = matrix.from_list([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+  let assert Ok(r) = matrix.row(m, 1)
+  r |> should.equal([4.0, 5.0, 6.0])
+}
+
+pub fn row_out_of_bounds_test() {
+  let assert Ok(m) = matrix.from_list([[1.0, 2.0]])
+  matrix.row(m, 5) |> should.be_error()
+}
+
+pub fn col_test() {
+  let assert Ok(m) = matrix.from_list([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+  let assert Ok(c) = matrix.col(m, 1)
+  c |> should.equal([2.0, 5.0])
+}
+
+pub fn col_out_of_bounds_test() {
+  let assert Ok(m) = matrix.from_list([[1.0, 2.0]])
+  matrix.col(m, 5) |> should.be_error()
+}
+
+// ---------------------------------------------------------------------------
+// Functional Transformations
+// ---------------------------------------------------------------------------
+
+pub fn map_test() {
+  let assert Ok(m) = matrix.from_list([[1.0, 2.0], [3.0, 4.0]])
+  let result = matrix.map(m, fn(x) { x *. 2.0 })
+  matrix.to_list(result) |> should.equal([[2.0, 4.0], [6.0, 8.0]])
+}
+
+pub fn fold_sum_test() {
+  let assert Ok(m) = matrix.from_list([[1.0, 2.0], [3.0, 4.0]])
+  let sum = matrix.fold(m, 0.0, fn(acc, x) { acc +. x })
+  sum |> should.equal(10.0)
+}
+
+pub fn fold_max_test() {
+  let assert Ok(m) = matrix.from_list([[1.0, 5.0], [3.0, 2.0]])
+  let max = matrix.fold(m, 0.0, fn(acc, x) { float.max(acc, x) })
+  max |> should.equal(5.0)
+}
+
+pub fn zip_with_add_test() {
+  let assert Ok(a) = matrix.from_list([[1.0, 2.0], [3.0, 4.0]])
+  let assert Ok(b) = matrix.from_list([[5.0, 6.0], [7.0, 8.0]])
+  let assert Ok(result) = matrix.zip_with(a, b, fn(x, y) { x +. y })
+  matrix.to_list(result) |> should.equal([[6.0, 8.0], [10.0, 12.0]])
+}
+
+pub fn zip_with_multiply_test() {
+  let assert Ok(a) = matrix.from_list([[1.0, 2.0], [3.0, 4.0]])
+  let assert Ok(b) = matrix.from_list([[2.0, 0.0], [1.0, 1.0]])
+  let assert Ok(result) = matrix.zip_with(a, b, fn(x, y) { x *. y })
+  matrix.to_list(result) |> should.equal([[2.0, 0.0], [3.0, 4.0]])
+}
+
+pub fn zip_with_dimension_mismatch_test() {
+  let assert Ok(a) = matrix.from_list([[1.0, 2.0]])
+  let assert Ok(b) = matrix.from_list([[1.0], [2.0]])
+  matrix.zip_with(a, b, fn(x, y) { x +. y }) |> should.be_error()
 }

@@ -9,5 +9,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 rustler = "0.37"
-faer = "0.19"
-bytemuck = "1.21"
+faer = "0.24"
+bytemuck = "1.25"
+rand = "0.10"
+rand_distr = "0.6"

@@ -72,12 +72,14 @@ src/
   waffle/
     matrix.gleam                    # waffle/matrix  (public API)
     linalg.gleam                    # waffle/linalg  (public API)
+    random.gleam                    # waffle/random  (public API)
     version.gleam                   # waffle/version (public API)
     internal/
       faer/
         mat.gleam                   # waffle/internal/faer/mat
         linalg/
           solvers.gleam             # waffle/internal/faer/linalg/solvers
+      random.gleam                  # waffle/internal/random (NIF bindings)
       ffi/
         nif.erl                     # Erlang NIF loader (module name = "nif")
         platform.erl                # Platform detection (module name = "platform")
@@ -93,6 +95,7 @@ priv/                       # Compiled .so/.dll/.dylib (gitignored)
 test/
   matrix_test.gleam         # Matrix tests
   linalg_test.gleam         # Linear algebra tests
+  random_test.gleam         # Random generation tests
   version_test.gleam        # Version tests
   waffle_test.gleam         # Main test entry
 ```
@@ -117,6 +120,30 @@ test/
 - **Zero-copy input, copied output.** Input binaries are viewed in-place (no copy). Results are copied into new Erlang binaries.
 - **Little-endian assumption.** f64 bytes are interpreted as little-endian. This holds on x86 and ARM.
 - **Column-major layout.** Matrices are stored column-major (Fortran order), matching faer's native layout.
+
+### NIF tuple encoding
+
+When returning multiple values from a NIF, use nested tuples for Gleam pattern matching:
+
+```rust
+// Wrong - Gleam sees this as 4-element tuple
+(atom_ok(env), rows, cols, bin).encode(env)
+
+// Correct - Gleam pattern matches {ok, {rows, cols, bin}}
+(atom_ok(env), (rows, cols, bin)).encode(env)
+```
+
+### Rust dependencies
+
+Use [docs.rs](https://docs.rs) for Rust crate documentation. Key crates:
+
+| Crate | Purpose | Rationale |
+|-------|---------|-----------|
+| `rustler` | Erlang NIF bindings | Safe Rust wrappers for NIF creation; handles type conversion |
+| `faer` | Linear algebra | High-performance dense linear algebra; native column-major layout |
+| `bytemuck` | Zero-copy binary casting | Safe abstraction over `unsafe` pointer casting; eliminates UB class |
+| `rand` + `rand_distr` | Quality RNG | ChaCha20 CSPRNG; efficient for large matrices; seeded variants for reproducibility |
+
 
 ---
 
@@ -171,9 +198,7 @@ Target the interface (`pub` lines). Stop at the signature.
 
 ### Rust dependencies
 
-Use [docs.rs](https://docs.rs) for Rust crate documentation. Key crates:
-- `rustler` — Erlang NIF bindings for Rust
-- `faer` — Linear algebra (MatRef, Mat, SpSolver, partial_piv_lu)
+Use [docs.rs](https://docs.rs) for Rust crate documentation. See the dependency table in the NIF Development Guidelines section for key crates.
 
 ---
 

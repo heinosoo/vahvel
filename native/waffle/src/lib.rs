@@ -1,6 +1,10 @@
-use faer::linalg::solvers::SolverCore;
+use faer::linalg::solvers::DenseSolveCore;
 use faer::prelude::*;
-use faer::Side;
+use faer::{Side, Unbind};
+use rand::distr::{Bernoulli, Uniform};
+use rand::rngs::StdRng;
+use rand::{rng, RngExt, SeedableRng};
+use rand_distr::Normal;
 use rustler::{Atom, Binary, Encoder, Env, NifResult, OwnedBinary, Term};
 
 // ---------------------------------------------------------------------------
@@ -176,7 +180,7 @@ fn matrix_scale<'a>(
         return Ok(err_string(env, &msg));
     }
     let mat = mat_from_binary(rows, cols, data_bin.as_slice());
-    let result = faer::scale(scalar) * &mat;
+    let result = faer::Scale(scalar) * &mat;
     Ok(ok_mat(env, result.as_ref()))
 }
 
@@ -236,18 +240,18 @@ fn matrix_lu<'a>(env: Env<'a>, n: usize, data_bin: Binary<'a>) -> NifResult<Term
     let mat = mat_from_binary(n, n, data_bin.as_slice());
     let lu = mat.partial_piv_lu();
 
-    let l = lu.compute_l();
-    let u = lu.compute_u();
-    let (fwd, _inv) = lu.row_permutation().arrays();
-    let pivot: Vec<u64> = fwd.iter().map(|&x| x as u64).collect();
+    let l = lu.L();
+    let u = lu.U();
+    let p = lu.P();
 
-    let l_bin = mat_to_binary(l.as_ref(), env);
-    let u_bin = mat_to_binary(u.as_ref(), env);
+    let pivot: Vec<u64> = p.arrays().0.iter().map(|&x| x.unbound() as u64).collect();
+
+    let l_bin = mat_to_binary(l, env);
+    let u_bin = mat_to_binary(u, env);
     let pivot_bin = floats_to_binary(bytemuck::cast_slice(&pivot), env);
 
     match (l_bin, u_bin, pivot_bin) {
         (Some(lb), Some(ub), Some(pb)) => {
-            // Nested tuples: {ok, {{l_r, l_c, l_bin}, {u_r, u_c, u_bin}, {n, pivot_bin}}}
             Ok((atom_ok(env), ((n, n, lb), (n, n, ub), (n, pb))).encode(env))
         }
         _ => Ok(err_string(env, "Failed to allocate result binaries")),
@@ -267,8 +271,8 @@ fn matrix_qr<'a>(
     let mat = mat_from_binary(rows, cols, data_bin.as_slice());
     let qr = mat.qr();
 
-    let q = qr.compute_thin_q();
-    let r = qr.compute_thin_r();
+    let q = qr.compute_thin_Q();
+    let r = qr.R();
 
     let q_rows = q.nrows();
     let q_cols = q.ncols();
@@ -280,7 +284,6 @@ fn matrix_qr<'a>(
 
     match (q_bin, r_bin) {
         (Some(qb), Some(rb)) => {
-            // {ok, {{q_r, q_c, q_bin}, {r_r, r_c, r_bin}}}
             Ok((atom_ok(env), ((q_rows, q_cols, qb), (r_rows, r_cols, rb))).encode(env))
         }
         _ => Ok(err_string(env, "Failed to allocate result binaries")),
@@ -298,11 +301,14 @@ fn matrix_svd<'a>(
         return Ok(err_string(env, &msg));
     }
     let mat = mat_from_binary(rows, cols, data_bin.as_slice());
-    let svd = mat.thin_svd();
+    let svd = match mat.thin_svd() {
+        Ok(s) => s,
+        Err(_) => return Ok(err_string(env, "SVD computation failed")),
+    };
 
-    let u = svd.u();
-    let s: Vec<f64> = svd.s_diagonal().iter().copied().collect();
-    let v = svd.v();
+    let u = svd.U();
+    let s: Vec<f64> = svd.S().column_vector().iter().copied().collect();
+    let v = svd.V();
 
     let u_rows = u.nrows();
     let u_cols = u.ncols();
@@ -315,14 +321,11 @@ fn matrix_svd<'a>(
     let v_bin = mat_to_binary(v, env);
 
     match (u_bin, s_bin, v_bin) {
-        (Some(ub), Some(sb), Some(vb)) => {
-            // {ok, {{u_r, u_c, u_bin}, {s_len, s_bin}, {v_r, v_c, v_bin}}}
-            Ok((
-                atom_ok(env),
-                ((u_rows, u_cols, ub), (s_len, sb), (v_rows, v_cols, vb)),
-            )
-                .encode(env))
-        }
+        (Some(ub), Some(sb), Some(vb)) => Ok((
+            atom_ok(env),
+            ((u_rows, u_cols, ub), (s_len, sb), (v_rows, v_cols, vb)),
+        )
+            .encode(env)),
         _ => Ok(err_string(env, "Failed to allocate result binaries")),
     }
 }
@@ -337,9 +340,164 @@ fn matrix_symmetric_eigenvalues<'a>(
         return Ok(err_string(env, &msg));
     }
     let mat = mat_from_binary(n, n, data_bin.as_slice());
-    let eigenvalues = mat.selfadjoint_eigenvalues(Side::Lower);
+    let eigenvalues = match mat.self_adjoint_eigenvalues(Side::Lower) {
+        Ok(e) => e,
+        Err(_) => return Ok(err_string(env, "Eigenvalue computation failed")),
+    };
     match floats_to_binary(&eigenvalues, env) {
         Some(bin) => Ok((atom_ok(env), bin).encode(env)),
+        None => Ok(err_string(env, "Failed to allocate result binary")),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Random matrix generation
+// ---------------------------------------------------------------------------
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn random_uniform<'a>(
+    env: Env<'a>,
+    rows: usize,
+    cols: usize,
+    min: f64,
+    max: f64,
+) -> NifResult<Term<'a>> {
+    if rows == 0 || cols == 0 {
+        return Ok(err_string(env, "Dimensions must be positive"));
+    }
+    let dist = match Uniform::new(min, max) {
+        Ok(d) => d,
+        Err(_) => return Ok(err_string(env, "Invalid uniform distribution parameters")),
+    };
+    let mut rng = rng();
+    let data: Vec<f64> = (0..rows * cols).map(|_| rng.sample(dist)).collect();
+    match floats_to_binary(&data, env) {
+        Some(bin) => Ok((atom_ok(env), (rows, cols, bin)).encode(env)),
+        None => Ok(err_string(env, "Failed to allocate result binary")),
+    }
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn random_uniform_seeded<'a>(
+    env: Env<'a>,
+    rows: usize,
+    cols: usize,
+    min: f64,
+    max: f64,
+    seed: u64,
+) -> NifResult<Term<'a>> {
+    if rows == 0 || cols == 0 {
+        return Ok(err_string(env, "Dimensions must be positive"));
+    }
+    let dist = match Uniform::new(min, max) {
+        Ok(d) => d,
+        Err(_) => return Ok(err_string(env, "Invalid uniform distribution parameters")),
+    };
+    let mut rng = StdRng::seed_from_u64(seed);
+    let data: Vec<f64> = (0..rows * cols).map(|_| rng.sample(dist)).collect();
+    match floats_to_binary(&data, env) {
+        Some(bin) => Ok((atom_ok(env), (rows, cols, bin)).encode(env)),
+        None => Ok(err_string(env, "Failed to allocate result binary")),
+    }
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn random_normal<'a>(
+    env: Env<'a>,
+    rows: usize,
+    cols: usize,
+    mean: f64,
+    std_dev: f64,
+) -> NifResult<Term<'a>> {
+    if rows == 0 || cols == 0 {
+        return Ok(err_string(env, "Dimensions must be positive"));
+    }
+    let dist = match Normal::new(mean, std_dev) {
+        Ok(d) => d,
+        Err(_) => return Ok(err_string(env, "Invalid normal distribution parameters")),
+    };
+    let mut rng = rng();
+    let data: Vec<f64> = (0..rows * cols).map(|_| rng.sample(dist)).collect();
+    match floats_to_binary(&data, env) {
+        Some(bin) => Ok((atom_ok(env), (rows, cols, bin)).encode(env)),
+        None => Ok(err_string(env, "Failed to allocate result binary")),
+    }
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn random_normal_seeded<'a>(
+    env: Env<'a>,
+    rows: usize,
+    cols: usize,
+    mean: f64,
+    std_dev: f64,
+    seed: u64,
+) -> NifResult<Term<'a>> {
+    if rows == 0 || cols == 0 {
+        return Ok(err_string(env, "Dimensions must be positive"));
+    }
+    let dist = match Normal::new(mean, std_dev) {
+        Ok(d) => d,
+        Err(_) => return Ok(err_string(env, "Invalid normal distribution parameters")),
+    };
+    let mut rng = StdRng::seed_from_u64(seed);
+    let data: Vec<f64> = (0..rows * cols).map(|_| rng.sample(dist)).collect();
+    match floats_to_binary(&data, env) {
+        Some(bin) => Ok((atom_ok(env), (rows, cols, bin)).encode(env)),
+        None => Ok(err_string(env, "Failed to allocate result binary")),
+    }
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn random_bernoulli<'a>(env: Env<'a>, rows: usize, cols: usize, p: f64) -> NifResult<Term<'a>> {
+    if rows == 0 || cols == 0 {
+        return Ok(err_string(env, "Dimensions must be positive"));
+    }
+    let dist = match Bernoulli::new(p) {
+        Ok(d) => d,
+        Err(_) => {
+            return Ok(err_string(
+                env,
+                "Invalid bernoulli probability (must be in [0, 1])",
+            ))
+        }
+    };
+    let mut rng = rng();
+    let data: Vec<f64> = (0..rows * cols)
+        .map(|_| if rng.sample(dist) { 1.0 } else { 0.0 })
+        .collect();
+    match floats_to_binary(&data, env) {
+        Some(bin) => Ok((atom_ok(env), (rows, cols, bin)).encode(env)),
+        None => Ok(err_string(env, "Failed to allocate result binary")),
+    }
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn random_bernoulli_seeded<'a>(
+    env: Env<'a>,
+    rows: usize,
+    cols: usize,
+    p: f64,
+    seed: u64,
+) -> NifResult<Term<'a>> {
+    if rows == 0 || cols == 0 {
+        return Ok(err_string(env, "Dimensions must be positive"));
+    }
+    let dist = match Bernoulli::new(p) {
+        Ok(d) => d,
+        Err(_) => {
+            return Ok(err_string(
+                env,
+                "Invalid bernoulli probability (must be in [0, 1])",
+            ))
+        }
+    };
+    let mut rng = StdRng::seed_from_u64(seed);
+    let data: Vec<f64> = (0..rows * cols)
+        .map(|_| if rng.sample(dist) { 1.0 } else { 0.0 })
+        .collect();
+    match floats_to_binary(&data, env) {
+        Some(bin) => Ok((atom_ok(env), (rows, cols, bin)).encode(env)),
         None => Ok(err_string(env, "Failed to allocate result binary")),
     }
 }
