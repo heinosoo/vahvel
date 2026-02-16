@@ -43,9 +43,13 @@ fn read_float_at(data: BitArray, index: Int) -> Float {
   }
 }
 
-/// Returns a string representation of matrix dimensions as "rowsxcols".
-pub fn dim_string(matrix: Matrix) -> String {
+fn dim_string(matrix: Matrix) -> String {
   int.to_string(matrix.rows) <> "x" <> int.to_string(matrix.cols)
+}
+
+/// Get the dimensions of a matrix as #(rows, cols).
+pub fn dims(matrix: Matrix) -> #(Int, Int) {
+  #(matrix.rows, matrix.cols)
 }
 
 /// Validates that a matrix is square. Returns an error if rows != cols.
@@ -597,6 +601,22 @@ pub fn fold(matrix: Matrix, acc: a, f: fn(a, Float) -> a) -> a {
   list.fold(list.range(0, matrix.rows * matrix.cols - 1), acc, fn(current, i) {
     let val = read_float_at(matrix.data, i)
     f(current, val)
+  })
+}
+
+/// Fold over all elements with their row and column indices.
+/// Elements are visited in column-major order.
+pub fn fold_with_indices(
+  matrix: Matrix,
+  acc: a,
+  f: fn(a, Int, Int, Float) -> a,
+) -> a {
+  list.fold(list.range(0, matrix.cols - 1), acc, fn(col_acc, col) {
+    list.fold(list.range(0, matrix.rows - 1), col_acc, fn(row_acc, row) {
+      let index = col * matrix.rows + row
+      let val = read_float_at(matrix.data, index)
+      f(row_acc, row, col, val)
+    })
   })
 }
 

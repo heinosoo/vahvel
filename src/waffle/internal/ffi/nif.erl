@@ -9,7 +9,10 @@
     matrix_lu/2, matrix_qr/3, matrix_svd/3, matrix_symmetric_eigenvalues/2,
     random_uniform/4, random_uniform_seeded/5,
     random_normal/4, random_normal_seeded/5,
-    random_bernoulli/3, random_bernoulli_seeded/4
+    random_bernoulli/3, random_bernoulli_seeded/4,
+    sparse_from_triplets/5, sparse_to_dense/6,
+    sparse_from_dense/3, sparse_transpose/6, sparse_multiply_dense/9,
+    sparse_multiply/12, sparse_add/12, sparse_subtract/12, sparse_scale/7
 ]).
 
 init() ->
@@ -81,4 +84,31 @@ random_bernoulli(_Rows, _Cols, _P) ->
     erlang:nif_error(nif_not_loaded).
 
 random_bernoulli_seeded(_Rows, _Cols, _P, _Seed) ->
+    erlang:nif_error(nif_not_loaded).
+
+sparse_from_triplets(_Rows, _Cols, _RowIndices, _ColIndices, _Values) ->
+    erlang:nif_error(nif_not_loaded).
+
+sparse_to_dense(_Rows, _Cols, _Nnz, _ColPtr, _RowIndices, _Values) ->
+    erlang:nif_error(nif_not_loaded).
+
+sparse_from_dense(_Rows, _Cols, _Data) ->
+    erlang:nif_error(nif_not_loaded).
+
+sparse_transpose(_Rows, _Cols, _Nnz, _ColPtr, _RowIndices, _Values) ->
+    erlang:nif_error(nif_not_loaded).
+
+sparse_multiply_dense(_SpRows, _SpCols, _SpNnz, _SpColPtr, _SpRowIndices, _SpValues, _DRows, _DCols, _DData) ->
+    erlang:nif_error(nif_not_loaded).
+
+sparse_multiply(_ARows, _ACols, _ANnz, _AColPtr, _ARowIndices, _AValues, _BRows, _BCols, _BNnz, _BColPtr, _BRowIndices, _BValues) ->
+    erlang:nif_error(nif_not_loaded).
+
+sparse_add(_ARows, _ACols, _ANnz, _AColPtr, _ARowIndices, _AValues, _BRows, _BCols, _BNnz, _BColPtr, _BRowIndices, _BValues) ->
+    erlang:nif_error(nif_not_loaded).
+
+sparse_subtract(_ARows, _ACols, _ANnz, _AColPtr, _ARowIndices, _AValues, _BRows, _BCols, _BNnz, _BColPtr, _BRowIndices, _BValues) ->
+    erlang:nif_error(nif_not_loaded).
+
+sparse_scale(_Rows, _Cols, _Nnz, _ColPtr, _RowIndices, _Values, _Scalar) ->
     erlang:nif_error(nif_not_loaded).

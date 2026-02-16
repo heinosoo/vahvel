@@ -6,7 +6,7 @@
 |----------|---------------|
 | This file (`AGENTS.md`) | Orient here first. Coding standards, pitfalls, getting started. |
 | `README.md` | User-facing landing page with basic project and usage information. |
-| `ROADMAP.md` | Step-by-step implementation plan with checkboxes. |
+| `docs/ROADMAP.md` | Step-by-step implementation plan with checkboxes. |
 
 ---
 
@@ -151,6 +151,11 @@ Use [docs.rs](https://docs.rs) for Rust crate documentation. Key crates:
 
 The project uses a `justfile` for unified dev commands across both languages. Install [just](https://github.com/casey/just) and run recipes from the project root:
 
+**Always use `just` commands.** Don't run `gleam` or `cargo` directly. The justfile ensures:
+- Both languages are formatted together
+- Linting happens before tests
+- The NIF is built when needed
+
 | Command | What it does |
 |---------|-------------|
 | `just` | Default: format-check + lint + test (run before committing) |
@@ -219,6 +224,16 @@ Use [docs.rs](https://docs.rs) for Rust crate documentation. See the dependency 
 
 `gleam test` exercises the full path: Gleam → Erlang FFI → Rust NIF → faer → result back to Gleam.
 
+### Test Writing Tips
+
+- **Iteration order is column-major.** `fold` and `fold_with_indices` iterate column-by-column (Fortran order). When collecting results into a list, the order differs from natural row-major reading. Either:
+  - Match the actual column-major order in expected output
+  - Use order-insensitive checks (e.g., sort before comparing)
+
+- **String tests should be flexible.** For `to_string` tests, prefer `string.contains()` over exact equality unless the format is critical. String representations may evolve.
+
+- **Verify with `just`, not LSP.** After edits, the LSP may show stale errors. Run `just lint` for the real diagnostics.
+
 ---
 
 ## Known Pitfalls
@@ -247,6 +262,10 @@ The build script and FFI loader must handle all three.
 ### Column-major vs row-major
 
 Gleam/user input is naturally row-major (`[[1, 2], [3, 4]]`). faer expects column-major. The `waffle/matrix` module must transpose during `from_list`.
+
+### LSP stale errors
+
+After editing imports or adding modules, the Gleam LSP may show false errors. Run `just lint` to verify—the compiler is the source of truth, not the LSP.
 
 ---
 

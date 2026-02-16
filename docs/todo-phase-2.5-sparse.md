@@ -2,32 +2,91 @@
 
 **Goal:** Support sparse matrices to enable efficient solving of large-scale optimization problems.
 
+**Status:** ✅ Complete
+
 ## 1. Sparse Matrix Type
 
-- [ ] **Define Type**
-  - Create `src/waffle/sparse.gleam`.
-  - Define `opaque type SparseMatrix` (likely holding CSR data: `values`, `col_indices`, `row_ptr`).
-- [ ] **Construction**
-  - Implement `from_triplets(List(#(Int, Int, Float))) -> SparseMatrix`.
-  - *Note:* This is the most user-friendly way to build sparse matrices in Gleam.
-  - Implement `to_dense(SparseMatrix) -> Matrix`.
-- [ ] **NIF Implementation**
-  - Add sparse matrix struct in `lib.rs` (compatible with `faer::sparse` or `highs` input format).
-  - Implement conversion NIFs.
+- [x] **Define Type**
+  - Created `src/waffle/sparse.gleam`.
+  - Defined `opaque type SparseMatrix` holding CSC data: `rows`, `cols`, `nnz`, `col_ptr`, `row_indices`, `values`.
+- [x] **Construction**
+  - Implemented `from_triplets(List(#(Int, Int, Float))) -> SparseMatrix`.
+  - Implemented `to_dense(SparseMatrix) -> Matrix`.
+  - Implemented `from_dense(Matrix) -> SparseMatrix`.
+- [x] **NIF Implementation**
+  - Added sparse matrix NIFs in `lib.rs` using `faer::sparse::SparseColMat`.
+  - Implemented conversion NIFs: `sparse_from_triplets`, `sparse_to_dense`, `sparse_from_dense`.
 
 ## 2. Basic Operations
 
-- [ ] **Structural**
+- [x] **Structural**
   - `dims(SparseMatrix) -> #(Int, Int)`
+  - `rows(SparseMatrix) -> Int`
+  - `cols(SparseMatrix) -> Int`
+  - `nnz(SparseMatrix) -> Int`
   - `transpose(SparseMatrix) -> SparseMatrix`
-- [ ] **Validation**
-  - Ensure indices are within bounds during construction.
+  - `get(SparseMatrix, row, col) -> Result(Float, SparseError)`
+  - `to_triplets(SparseMatrix) -> List(#(Int, Int, Float))`
+  - `to_string(SparseMatrix) -> String`
+  - `validate_square(SparseMatrix) -> Result(Nil, SparseError)`
+- [x] **Row/Column Extraction**
+  - `row(SparseMatrix, index) -> Result(List(Float), SparseError)`
+  - `col(SparseMatrix, index) -> Result(List(Float), SparseError)`
+- [x] **Validation**
+  - Indices validated within bounds during construction.
+  - Returns `IndexOutOfBounds` error for invalid indices.
 
-## 3. Integration Prep
+## 3. Arithmetic Operations
 
-- [ ] **Solver Compatibility**
-  - Ensure the internal Rust representation matches what `highs` expects (CSR) to minimize copying in Phase 3.
+- [x] **Sparse × Dense Multiplication**
+  - `multiply_dense(SparseMatrix, Matrix) -> Result(Matrix, SparseError)`
+  - Implemented in Rust using `faer`'s sparse-dense matrix multiplication.
 
+- [x] **Sparse × Sparse Multiplication**
+  - `multiply(SparseMatrix, SparseMatrix) -> Result(SparseMatrix, SparseError)`
+  - Implemented in Rust using `faer`'s sparse-sparse matrix multiplication.
+
+- [x] **Sparse Addition**
+  - `add(SparseMatrix, SparseMatrix) -> Result(SparseMatrix, SparseError)`
+  - Element-wise addition of sparse matrices.
+
+- [x] **Sparse Subtraction**
+  - `subtract(SparseMatrix, SparseMatrix) -> Result(SparseMatrix, SparseError)`
+  - Element-wise subtraction of sparse matrices.
+
+- [x] **Scalar Multiplication**
+  - `scale(SparseMatrix, Float) -> Result(SparseMatrix, SparseError)`
+  - Scale all non-zero elements by a scalar.
+
+- [x] **Element-wise Binary Operations**
+  - `zip_with(SparseMatrix, SparseMatrix, fn(Float, Float) -> Float) -> Result(SparseMatrix, SparseError)`
+  - Apply binary function element-wise to two sparse matrices.
+
+## 4. Functional Transformations
+
+- [x] **Mapping and Folding**
+  - `map(SparseMatrix, fn(Float) -> Float) -> SparseMatrix`
+  - `fold(SparseMatrix, acc, fn(acc, Float) -> acc) -> acc`
+  - `fold_with_indices(SparseMatrix, acc, fn(acc, Int, Int, Float) -> acc) -> acc`
+
+## 5. Integration Prep
+
+- [x] **Solver Compatibility**
+  - Internal Rust representation uses **CSC** format (matches `faer::sparse`).
+  - HiGHS (Phase 3) natively supports CSC via `kHighsMatrixFormatColwise` - no format conversion needed.
+
+## 6. API Consistency (Feb 2026)
+
+- [x] **Removed dead code**
+  - Removed unused `DuplicateEntry` variant from `SparseError`.
+  - Made `dim_string()` internal (not exported).
+- [x] **Added consistency with dense API**
+  - `sparse.row()` / `sparse.col()` match `matrix.row()` / `matrix.col()`.
+  - `sparse.to_string()` matches `matrix.to_string()`.
+  - `sparse.validate_square()` for symmetry checks.
+  - `sparse.zip_with()` for element-wise operations.
+  - `matrix.dims()` added for consistency with `sparse.dims()`.
+  - `matrix.fold_with_indices()` added for consistency with `sparse.fold_with_indices()`.
 
 ## FAQ and Gotchas
 
@@ -42,3 +101,5 @@
 **Recommendation:**
 * **Pick one canonical format.** Use **CSC** as the internal standard to match `faer` (your primary math engine).
 * **Convert at boundaries.** Only convert to CSR when absolutely necessary (e.g., strictly required by a specific `highs` API call), or rely on `highs`'s ability to ingest CSC. Avoid maintaining two internal formats.
+
+**Decision:** Using CSC. HiGHS accepts CSC directly via `kHighsMatrixFormatColwise`.

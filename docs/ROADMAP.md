@@ -85,18 +85,32 @@ Step-by-step implementation plan.
 
 ---
 
-## Phase 2.5: Sparse Matrix Support [todo-phase-2.5](/docs/todo-phase-2.5-sparse.md)
+## ✅ Phase 2.5: Sparse Matrix Support [todo-phase-2.5](/docs/todo-phase-2.5-sparse.md)
 
 **Goal:** Support sparse matrices to enable efficient solving of large-scale optimization problems.
 
-- [ ] **Sparse Types**
-  - Define `SparseMatrix` type (CSR or Triplet format).
+- [x] **Sparse Types**
+  - Define `SparseMatrix` type (CSC format).
   - Implement `from_triplets(List(#(Int, Int, Float))) -> SparseMatrix`.
   - Implement `to_dense(SparseMatrix) -> Matrix`.
+  - Implement `from_dense(Matrix) -> SparseMatrix`.
 
-- [ ] **Sparse Operations (Basic)**
-  - Implement `transpose`, `dims` for sparse matrices.
-  - *Note:* Full sparse arithmetic is deferred; focus on construction and passing to solver.
+- [x] **Sparse Operations (Basic)**
+  - Implement `transpose`, `dims`, `rows`, `cols`, `nnz`, `get`, `to_triplets` for sparse matrices.
+  - Implement `multiply_dense(SparseMatrix, Matrix) -> Matrix`.
+
+- [x] **Sparse Operations (Advanced)**
+  - Implement `multiply(SparseMatrix, SparseMatrix) -> SparseMatrix`.
+  - Implement `add`, `subtract(SparseMatrix, SparseMatrix) -> SparseMatrix`.
+  - Implement `scale(SparseMatrix, Float) -> SparseMatrix`.
+  - Implement `map(SparseMatrix, fn(Float) -> Float) -> SparseMatrix`.
+  - Implement `fold(SparseMatrix, acc, fn(acc, Float) -> acc)`.
+  - Implement `fold_with_indices(SparseMatrix, acc, fn(acc, Int, Int, Float) -> acc)`.
+
+- [x] **API Consistency (Feb 2026)**
+  - `row`, `col`, `zip_with`, `to_string`, `validate_square` for sparse matrices.
+  - `dims`, `fold_with_indices` for dense matrices.
+  - Removed dead code (`DuplicateEntry` error, internal `dim_string`).
 
 ---
 

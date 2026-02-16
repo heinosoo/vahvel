@@ -1,6 +1,6 @@
 use faer::linalg::solvers::DenseSolveCore;
 use faer::prelude::*;
-use faer::{Side, Unbind};
+use faer::{sparse, Side, Unbind};
 use rand::distr::{Bernoulli, Uniform};
 use rand::rngs::StdRng;
 use rand::{rng, RngExt, SeedableRng};
@@ -499,6 +499,658 @@ fn random_bernoulli_seeded<'a>(
     match floats_to_binary(&data, env) {
         Some(bin) => Ok((atom_ok(env), (rows, cols, bin)).encode(env)),
         None => Ok(err_string(env, "Failed to allocate result binary")),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Sparse matrix operations
+// ---------------------------------------------------------------------------
+
+fn ints_to_binary<'a>(data: &[i64], env: Env<'a>) -> Option<Binary<'a>> {
+    let mut owned = OwnedBinary::new(data.len() * 8)?;
+    owned
+        .as_mut_slice()
+        .copy_from_slice(bytemuck::cast_slice(data));
+    Some(owned.release(env))
+}
+
+fn sparse_col_mat_to_csc(
+    mat: &sparse::SparseColMat<usize, f64>,
+) -> (usize, Vec<i64>, Vec<i64>, Vec<f64>) {
+    let symbolic = mat.symbolic();
+    let numeric = mat.val();
+
+    let nnz = symbolic.compute_nnz();
+    let ncols = symbolic.ncols();
+
+    let mut col_ptr: Vec<i64> = Vec::with_capacity(ncols + 1);
+    let mut row_indices: Vec<i64> = Vec::with_capacity(nnz);
+    let mut values: Vec<f64> = Vec::with_capacity(nnz);
+
+    let row_idx_slice = symbolic.row_idx();
+    for col in 0..ncols {
+        col_ptr.push(row_indices.len() as i64);
+        let col_range = symbolic.col_range(col);
+        for idx in col_range {
+            let row = row_idx_slice[idx] as i64;
+            let val = numeric[idx];
+            row_indices.push(row);
+            values.push(val);
+        }
+    }
+    col_ptr.push(row_indices.len() as i64);
+
+    (nnz, col_ptr, row_indices, values)
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn sparse_from_triplets<'a>(
+    env: Env<'a>,
+    rows: usize,
+    cols: usize,
+    row_indices_bin: Binary<'a>,
+    col_indices_bin: Binary<'a>,
+    values_bin: Binary<'a>,
+) -> NifResult<Term<'a>> {
+    if rows == 0 || cols == 0 {
+        return Ok(err_string(env, "Dimensions must be positive"));
+    }
+
+    let row_indices = bytemuck::cast_slice::<u8, i64>(row_indices_bin.as_slice());
+    let col_indices = bytemuck::cast_slice::<u8, i64>(col_indices_bin.as_slice());
+    let values = bytemuck::cast_slice::<u8, f64>(values_bin.as_slice());
+
+    if row_indices.len() != col_indices.len() || row_indices.len() != values.len() {
+        return Ok(err_string(env, "Triplet arrays must have equal length"));
+    }
+
+    if row_indices.is_empty() {
+        return Ok(err_string(env, "Triplet list cannot be empty"));
+    }
+
+    let triplets: Vec<sparse::Triplet<usize, usize, f64>> = row_indices
+        .iter()
+        .zip(col_indices.iter())
+        .zip(values.iter())
+        .filter_map(|((&r, &c), &v)| {
+            if r < 0 || c < 0 || (r as usize) >= rows || (c as usize) >= cols {
+                None
+            } else {
+                Some(sparse::Triplet::new(r as usize, c as usize, v))
+            }
+        })
+        .collect();
+
+    if triplets.is_empty() {
+        return Ok(err_string(env, "No valid triplets after index validation"));
+    }
+
+    let result: Result<sparse::SparseColMat<usize, f64>, _> =
+        sparse::SparseColMat::try_new_from_triplets(rows, cols, &triplets);
+
+    let sparse_mat = match result {
+        Ok(m) => m,
+        Err(e) => {
+            return Ok(err_string(
+                env,
+                &format!("Failed to create sparse matrix: {:?}", e),
+            ))
+        }
+    };
+
+    let (nnz, col_ptr, row_idx, vals) = sparse_col_mat_to_csc(&sparse_mat);
+
+    let col_ptr_bin = ints_to_binary(&col_ptr, env);
+    let row_idx_bin = ints_to_binary(&row_idx, env);
+    let vals_bin = floats_to_binary(&vals, env);
+
+    match (col_ptr_bin, row_idx_bin, vals_bin) {
+        (Some(cp), Some(ri), Some(v)) => Ok((atom_ok(env), (nnz, cp, ri, v)).encode(env)),
+        _ => Ok(err_string(env, "Failed to allocate result binaries")),
+    }
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn sparse_to_dense<'a>(
+    env: Env<'a>,
+    rows: usize,
+    cols: usize,
+    nnz: usize,
+    col_ptr_bin: Binary<'a>,
+    row_indices_bin: Binary<'a>,
+    values_bin: Binary<'a>,
+) -> NifResult<Term<'a>> {
+    if rows == 0 || cols == 0 {
+        return Ok(err_string(env, "Dimensions must be positive"));
+    }
+
+    let col_ptr = bytemuck::cast_slice::<u8, i64>(col_ptr_bin.as_slice());
+    let row_indices = bytemuck::cast_slice::<u8, i64>(row_indices_bin.as_slice());
+    let values = bytemuck::cast_slice::<u8, f64>(values_bin.as_slice());
+
+    if col_ptr.len() != cols + 1 {
+        return Ok(err_string(env, "col_ptr length must be cols + 1"));
+    }
+
+    if row_indices.len() != nnz || values.len() != nnz {
+        return Ok(err_string(
+            env,
+            "row_indices and values length must equal nnz",
+        ));
+    }
+
+    let mut dense: Vec<f64> = vec![0.0; rows * cols];
+
+    for col in 0..cols {
+        let start = col_ptr[col] as usize;
+        let end = col_ptr[col + 1] as usize;
+        for idx in start..end {
+            let row = row_indices[idx] as usize;
+            if row >= rows {
+                return Ok(err_string(env, "Row index out of bounds"));
+            }
+            dense[col * rows + row] = values[idx];
+        }
+    }
+
+    match floats_to_binary(&dense, env) {
+        Some(bin) => Ok((atom_ok(env), bin).encode(env)),
+        None => Ok(err_string(env, "Failed to allocate result binary")),
+    }
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn sparse_from_dense<'a>(
+    env: Env<'a>,
+    rows: usize,
+    cols: usize,
+    data_bin: Binary<'a>,
+) -> NifResult<Term<'a>> {
+    if let Err(msg) = validate_binary_len(data_bin.as_slice(), rows, cols) {
+        return Ok(err_string(env, &msg));
+    }
+
+    let data = bytemuck::cast_slice::<u8, f64>(data_bin.as_slice());
+
+    let mut triplets: Vec<sparse::Triplet<usize, usize, f64>> = Vec::new();
+    for col in 0..cols {
+        for row in 0..rows {
+            let val = data[col * rows + row];
+            if val != 0.0 {
+                triplets.push(sparse::Triplet::new(row, col, val));
+            }
+        }
+    }
+
+    if triplets.is_empty() {
+        let col_ptr = vec![0i64; cols + 1];
+        let col_ptr_bin = ints_to_binary(&col_ptr, env);
+        let empty_vals = floats_to_binary(&[], env);
+        let empty_rows = ints_to_binary(&[], env);
+
+        match (col_ptr_bin, empty_rows, empty_vals) {
+            (Some(cp), Some(ri), Some(v)) => {
+                return Ok((atom_ok(env), (0usize, cp, ri, v)).encode(env));
+            }
+            _ => return Ok(err_string(env, "Failed to allocate result binaries")),
+        }
+    }
+
+    let result: Result<sparse::SparseColMat<usize, f64>, _> =
+        sparse::SparseColMat::try_new_from_triplets(rows, cols, &triplets);
+
+    let sparse_mat = match result {
+        Ok(m) => m,
+        Err(e) => {
+            return Ok(err_string(
+                env,
+                &format!("Failed to create sparse matrix: {:?}", e),
+            ))
+        }
+    };
+
+    let (nnz, col_ptr, row_idx, vals) = sparse_col_mat_to_csc(&sparse_mat);
+
+    let col_ptr_bin = ints_to_binary(&col_ptr, env);
+    let row_idx_bin = ints_to_binary(&row_idx, env);
+    let vals_bin = floats_to_binary(&vals, env);
+
+    match (col_ptr_bin, row_idx_bin, vals_bin) {
+        (Some(cp), Some(ri), Some(v)) => Ok((atom_ok(env), (nnz, cp, ri, v)).encode(env)),
+        _ => Ok(err_string(env, "Failed to allocate result binaries")),
+    }
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn sparse_transpose<'a>(
+    env: Env<'a>,
+    rows: usize,
+    cols: usize,
+    nnz: usize,
+    col_ptr_bin: Binary<'a>,
+    row_indices_bin: Binary<'a>,
+    values_bin: Binary<'a>,
+) -> NifResult<Term<'a>> {
+    if rows == 0 || cols == 0 {
+        return Ok(err_string(env, "Dimensions must be positive"));
+    }
+
+    let col_ptr = bytemuck::cast_slice::<u8, i64>(col_ptr_bin.as_slice());
+    let row_indices = bytemuck::cast_slice::<u8, i64>(row_indices_bin.as_slice());
+    let values = bytemuck::cast_slice::<u8, f64>(values_bin.as_slice());
+
+    if col_ptr.len() != cols + 1 {
+        return Ok(err_string(env, "col_ptr length must be cols + 1"));
+    }
+
+    let mut triplets: Vec<sparse::Triplet<usize, usize, f64>> = Vec::with_capacity(nnz);
+    for col in 0..cols {
+        let start = col_ptr[col] as usize;
+        let end = col_ptr[col + 1] as usize;
+        for idx in start..end {
+            let row = row_indices[idx] as usize;
+            let val = values[idx];
+            triplets.push(sparse::Triplet::new(col, row, val));
+        }
+    }
+
+    let result: Result<sparse::SparseColMat<usize, f64>, _> =
+        sparse::SparseColMat::try_new_from_triplets(cols, rows, &triplets);
+
+    let sparse_mat = match result {
+        Ok(m) => m,
+        Err(e) => return Ok(err_string(env, &format!("Failed to transpose: {:?}", e))),
+    };
+
+    let (new_nnz, new_col_ptr, new_row_idx, new_vals) = sparse_col_mat_to_csc(&sparse_mat);
+
+    let col_ptr_bin = ints_to_binary(&new_col_ptr, env);
+    let row_idx_bin = ints_to_binary(&new_row_idx, env);
+    let vals_bin = floats_to_binary(&new_vals, env);
+
+    match (col_ptr_bin, row_idx_bin, vals_bin) {
+        (Some(cp), Some(ri), Some(v)) => {
+            Ok((atom_ok(env), (cols, rows, new_nnz, cp, ri, v)).encode(env))
+        }
+        _ => Ok(err_string(env, "Failed to allocate result binaries")),
+    }
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+#[allow(clippy::too_many_arguments)]
+fn sparse_multiply_dense<'a>(
+    env: Env<'a>,
+    sp_rows: usize,
+    sp_cols: usize,
+    sp_nnz: usize,
+    sp_col_ptr_bin: Binary<'a>,
+    sp_row_indices_bin: Binary<'a>,
+    sp_values_bin: Binary<'a>,
+    d_rows: usize,
+    d_cols: usize,
+    d_data_bin: Binary<'a>,
+) -> NifResult<Term<'a>> {
+    if sp_cols != d_rows {
+        return Ok(err_string(env, "Inner dimensions do not match"));
+    }
+
+    if let Err(msg) = validate_binary_len(d_data_bin.as_slice(), d_rows, d_cols) {
+        return Ok(err_string(env, &msg));
+    }
+
+    let sp_col_ptr = bytemuck::cast_slice::<u8, i64>(sp_col_ptr_bin.as_slice());
+    let sp_row_indices = bytemuck::cast_slice::<u8, i64>(sp_row_indices_bin.as_slice());
+    let sp_values = bytemuck::cast_slice::<u8, f64>(sp_values_bin.as_slice());
+    let d_data = bytemuck::cast_slice::<u8, f64>(d_data_bin.as_slice());
+
+    if sp_col_ptr.len() != sp_cols + 1 {
+        return Ok(err_string(env, "Sparse col_ptr length mismatch"));
+    }
+
+    let mut triplets: Vec<sparse::Triplet<usize, usize, f64>> = Vec::with_capacity(sp_nnz);
+    for col in 0..sp_cols {
+        let start = sp_col_ptr[col] as usize;
+        let end = sp_col_ptr[col + 1] as usize;
+        for idx in start..end {
+            let row = sp_row_indices[idx] as usize;
+            let val = sp_values[idx];
+            triplets.push(sparse::Triplet::new(row, col, val));
+        }
+    }
+
+    let sparse_result: Result<sparse::SparseColMat<usize, f64>, _> =
+        sparse::SparseColMat::try_new_from_triplets(sp_rows, sp_cols, &triplets);
+
+    let sparse_mat = match sparse_result {
+        Ok(m) => m,
+        Err(e) => {
+            return Ok(err_string(
+                env,
+                &format!("Failed to create sparse matrix: {:?}", e),
+            ))
+        }
+    };
+
+    let dense_mat = mat_from_binary(d_rows, d_cols, bytemuck::cast_slice(d_data));
+
+    let result = &sparse_mat * &dense_mat;
+
+    Ok(ok_mat(env, result.as_ref()))
+}
+
+fn csc_to_sparse_col_mat(
+    rows: usize,
+    cols: usize,
+    nnz: usize,
+    col_ptr: &[i64],
+    row_indices: &[i64],
+    values: &[f64],
+) -> Result<sparse::SparseColMat<usize, f64>, String> {
+    let mut triplets: Vec<sparse::Triplet<usize, usize, f64>> = Vec::with_capacity(nnz);
+    for col in 0..cols {
+        let start = col_ptr[col] as usize;
+        let end = col_ptr[col + 1] as usize;
+        for idx in start..end {
+            let row = row_indices[idx] as usize;
+            let val = values[idx];
+            triplets.push(sparse::Triplet::new(row, col, val));
+        }
+    }
+
+    sparse::SparseColMat::try_new_from_triplets(rows, cols, &triplets)
+        .map_err(|e| format!("Failed to create sparse matrix: {:?}", e))
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+#[allow(clippy::too_many_arguments)]
+fn sparse_multiply<'a>(
+    env: Env<'a>,
+    a_rows: usize,
+    a_cols: usize,
+    a_nnz: usize,
+    a_col_ptr_bin: Binary<'a>,
+    a_row_indices_bin: Binary<'a>,
+    a_values_bin: Binary<'a>,
+    b_rows: usize,
+    b_cols: usize,
+    b_nnz: usize,
+    b_col_ptr_bin: Binary<'a>,
+    b_row_indices_bin: Binary<'a>,
+    b_values_bin: Binary<'a>,
+) -> NifResult<Term<'a>> {
+    if a_cols != b_rows {
+        return Ok(err_string(
+            env,
+            "Inner dimensions do not match for sparse multiply",
+        ));
+    }
+
+    let a_col_ptr = bytemuck::cast_slice::<u8, i64>(a_col_ptr_bin.as_slice());
+    let a_row_indices = bytemuck::cast_slice::<u8, i64>(a_row_indices_bin.as_slice());
+    let a_values = bytemuck::cast_slice::<u8, f64>(a_values_bin.as_slice());
+
+    let b_col_ptr = bytemuck::cast_slice::<u8, i64>(b_col_ptr_bin.as_slice());
+    let b_row_indices = bytemuck::cast_slice::<u8, i64>(b_row_indices_bin.as_slice());
+    let b_values = bytemuck::cast_slice::<u8, f64>(b_values_bin.as_slice());
+
+    let a_mat =
+        match csc_to_sparse_col_mat(a_rows, a_cols, a_nnz, a_col_ptr, a_row_indices, a_values) {
+            Ok(m) => m,
+            Err(e) => return Ok(err_string(env, &e)),
+        };
+
+    let b_mat =
+        match csc_to_sparse_col_mat(b_rows, b_cols, b_nnz, b_col_ptr, b_row_indices, b_values) {
+            Ok(m) => m,
+            Err(e) => return Ok(err_string(env, &e)),
+        };
+
+    let result = &a_mat * &b_mat;
+
+    let (nnz, col_ptr, row_idx, vals) = sparse_col_mat_to_csc(&result);
+
+    let col_ptr_bin = ints_to_binary(&col_ptr, env);
+    let row_idx_bin = ints_to_binary(&row_idx, env);
+    let vals_bin = floats_to_binary(&vals, env);
+
+    match (col_ptr_bin, row_idx_bin, vals_bin) {
+        (Some(cp), Some(ri), Some(v)) => {
+            Ok((atom_ok(env), (a_rows, b_cols, nnz, cp, ri, v)).encode(env))
+        }
+        _ => Ok(err_string(env, "Failed to allocate result binaries")),
+    }
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+#[allow(clippy::too_many_arguments)]
+fn sparse_add<'a>(
+    env: Env<'a>,
+    a_rows: usize,
+    a_cols: usize,
+    a_nnz: usize,
+    a_col_ptr_bin: Binary<'a>,
+    a_row_indices_bin: Binary<'a>,
+    a_values_bin: Binary<'a>,
+    b_rows: usize,
+    b_cols: usize,
+    b_nnz: usize,
+    b_col_ptr_bin: Binary<'a>,
+    b_row_indices_bin: Binary<'a>,
+    b_values_bin: Binary<'a>,
+) -> NifResult<Term<'a>> {
+    if a_rows != b_rows || a_cols != b_cols {
+        return Ok(err_string(env, "Dimensions must match for sparse addition"));
+    }
+
+    let a_col_ptr = bytemuck::cast_slice::<u8, i64>(a_col_ptr_bin.as_slice());
+    let a_row_indices = bytemuck::cast_slice::<u8, i64>(a_row_indices_bin.as_slice());
+    let a_values = bytemuck::cast_slice::<u8, f64>(a_values_bin.as_slice());
+
+    let b_col_ptr = bytemuck::cast_slice::<u8, i64>(b_col_ptr_bin.as_slice());
+    let b_row_indices = bytemuck::cast_slice::<u8, i64>(b_row_indices_bin.as_slice());
+    let b_values = bytemuck::cast_slice::<u8, f64>(b_values_bin.as_slice());
+
+    let a_mat =
+        match csc_to_sparse_col_mat(a_rows, a_cols, a_nnz, a_col_ptr, a_row_indices, a_values) {
+            Ok(m) => m,
+            Err(e) => return Ok(err_string(env, &e)),
+        };
+
+    let b_mat =
+        match csc_to_sparse_col_mat(b_rows, b_cols, b_nnz, b_col_ptr, b_row_indices, b_values) {
+            Ok(m) => m,
+            Err(e) => return Ok(err_string(env, &e)),
+        };
+
+    let a_dense = a_mat.to_dense();
+    let b_dense = b_mat.to_dense();
+    let result = &a_dense + &b_dense;
+
+    let triplets: Vec<sparse::Triplet<usize, usize, f64>> = result
+        .col_iter()
+        .enumerate()
+        .flat_map(|(col, col_vec)| {
+            col_vec.iter().enumerate().filter_map(move |(row, &val)| {
+                if val != 0.0 {
+                    Some(sparse::Triplet::new(row, col, val))
+                } else {
+                    None
+                }
+            })
+        })
+        .collect();
+
+    if triplets.is_empty() {
+        let col_ptr = vec![0i64; a_cols + 1];
+        let col_ptr_bin = ints_to_binary(&col_ptr, env);
+        let empty_vals = floats_to_binary(&[], env);
+        let empty_rows = ints_to_binary(&[], env);
+
+        match (col_ptr_bin, empty_rows, empty_vals) {
+            (Some(cp), Some(ri), Some(v)) => {
+                return Ok((atom_ok(env), (a_rows, a_cols, 0usize, cp, ri, v)).encode(env));
+            }
+            _ => return Ok(err_string(env, "Failed to allocate result binaries")),
+        }
+    }
+
+    let sparse_result: Result<sparse::SparseColMat<usize, f64>, _> =
+        sparse::SparseColMat::try_new_from_triplets(a_rows, a_cols, &triplets);
+
+    let sparse_mat = match sparse_result {
+        Ok(m) => m,
+        Err(e) => {
+            return Ok(err_string(
+                env,
+                &format!("Failed to create sparse matrix: {:?}", e),
+            ))
+        }
+    };
+
+    let (nnz, col_ptr, row_idx, vals) = sparse_col_mat_to_csc(&sparse_mat);
+
+    let col_ptr_bin = ints_to_binary(&col_ptr, env);
+    let row_idx_bin = ints_to_binary(&row_idx, env);
+    let vals_bin = floats_to_binary(&vals, env);
+
+    match (col_ptr_bin, row_idx_bin, vals_bin) {
+        (Some(cp), Some(ri), Some(v)) => {
+            Ok((atom_ok(env), (a_rows, a_cols, nnz, cp, ri, v)).encode(env))
+        }
+        _ => Ok(err_string(env, "Failed to allocate result binaries")),
+    }
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+#[allow(clippy::too_many_arguments)]
+fn sparse_subtract<'a>(
+    env: Env<'a>,
+    a_rows: usize,
+    a_cols: usize,
+    a_nnz: usize,
+    a_col_ptr_bin: Binary<'a>,
+    a_row_indices_bin: Binary<'a>,
+    a_values_bin: Binary<'a>,
+    b_rows: usize,
+    b_cols: usize,
+    b_nnz: usize,
+    b_col_ptr_bin: Binary<'a>,
+    b_row_indices_bin: Binary<'a>,
+    b_values_bin: Binary<'a>,
+) -> NifResult<Term<'a>> {
+    if a_rows != b_rows || a_cols != b_cols {
+        return Ok(err_string(
+            env,
+            "Dimensions must match for sparse subtraction",
+        ));
+    }
+
+    let a_col_ptr = bytemuck::cast_slice::<u8, i64>(a_col_ptr_bin.as_slice());
+    let a_row_indices = bytemuck::cast_slice::<u8, i64>(a_row_indices_bin.as_slice());
+    let a_values = bytemuck::cast_slice::<u8, f64>(a_values_bin.as_slice());
+
+    let b_col_ptr = bytemuck::cast_slice::<u8, i64>(b_col_ptr_bin.as_slice());
+    let b_row_indices = bytemuck::cast_slice::<u8, i64>(b_row_indices_bin.as_slice());
+    let b_values = bytemuck::cast_slice::<u8, f64>(b_values_bin.as_slice());
+
+    let a_mat =
+        match csc_to_sparse_col_mat(a_rows, a_cols, a_nnz, a_col_ptr, a_row_indices, a_values) {
+            Ok(m) => m,
+            Err(e) => return Ok(err_string(env, &e)),
+        };
+
+    let b_mat =
+        match csc_to_sparse_col_mat(b_rows, b_cols, b_nnz, b_col_ptr, b_row_indices, b_values) {
+            Ok(m) => m,
+            Err(e) => return Ok(err_string(env, &e)),
+        };
+
+    let a_dense = a_mat.to_dense();
+    let b_dense = b_mat.to_dense();
+    let result = &a_dense - &b_dense;
+
+    let triplets: Vec<sparse::Triplet<usize, usize, f64>> = result
+        .col_iter()
+        .enumerate()
+        .flat_map(|(col, col_vec)| {
+            col_vec.iter().enumerate().filter_map(move |(row, &val)| {
+                if val != 0.0 {
+                    Some(sparse::Triplet::new(row, col, val))
+                } else {
+                    None
+                }
+            })
+        })
+        .collect();
+
+    if triplets.is_empty() {
+        let col_ptr = vec![0i64; a_cols + 1];
+        let col_ptr_bin = ints_to_binary(&col_ptr, env);
+        let empty_vals = floats_to_binary(&[], env);
+        let empty_rows = ints_to_binary(&[], env);
+
+        match (col_ptr_bin, empty_rows, empty_vals) {
+            (Some(cp), Some(ri), Some(v)) => {
+                return Ok((atom_ok(env), (a_rows, a_cols, 0usize, cp, ri, v)).encode(env));
+            }
+            _ => return Ok(err_string(env, "Failed to allocate result binaries")),
+        }
+    }
+
+    let sparse_result: Result<sparse::SparseColMat<usize, f64>, _> =
+        sparse::SparseColMat::try_new_from_triplets(a_rows, a_cols, &triplets);
+
+    let sparse_mat = match sparse_result {
+        Ok(m) => m,
+        Err(e) => {
+            return Ok(err_string(
+                env,
+                &format!("Failed to create sparse matrix: {:?}", e),
+            ))
+        }
+    };
+
+    let (nnz, col_ptr, row_idx, vals) = sparse_col_mat_to_csc(&sparse_mat);
+
+    let col_ptr_bin = ints_to_binary(&col_ptr, env);
+    let row_idx_bin = ints_to_binary(&row_idx, env);
+    let vals_bin = floats_to_binary(&vals, env);
+
+    match (col_ptr_bin, row_idx_bin, vals_bin) {
+        (Some(cp), Some(ri), Some(v)) => {
+            Ok((atom_ok(env), (a_rows, a_cols, nnz, cp, ri, v)).encode(env))
+        }
+        _ => Ok(err_string(env, "Failed to allocate result binaries")),
+    }
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+#[allow(clippy::too_many_arguments)]
+fn sparse_scale<'a>(
+    env: Env<'a>,
+    rows: usize,
+    cols: usize,
+    nnz: usize,
+    col_ptr_bin: Binary<'a>,
+    row_indices_bin: Binary<'a>,
+    values_bin: Binary<'a>,
+    scalar: f64,
+) -> NifResult<Term<'a>> {
+    let col_ptr = bytemuck::cast_slice::<u8, i64>(col_ptr_bin.as_slice());
+    let row_indices = bytemuck::cast_slice::<u8, i64>(row_indices_bin.as_slice());
+    let values = bytemuck::cast_slice::<u8, f64>(values_bin.as_slice());
+
+    let scaled_values: Vec<f64> = values.iter().map(|&v| v * scalar).collect();
+
+    let vals_bin = floats_to_binary(&scaled_values, env);
+    let col_ptr_bin = ints_to_binary(col_ptr, env);
+    let row_idx_bin = ints_to_binary(row_indices, env);
+
+    match (col_ptr_bin, row_idx_bin, vals_bin) {
+        (Some(cp), Some(ri), Some(v)) => {
+            Ok((atom_ok(env), (rows, cols, nnz, cp, ri, v)).encode(env))
+        }
+        _ => Ok(err_string(env, "Failed to allocate result binaries")),
     }
 }
 

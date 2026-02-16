@@ -1,4 +1,5 @@
 import gleam/bit_array
+import gleam/int
 import gleam/list
 import gleam/result
 import waffle/internal/faer/linalg/solvers
@@ -169,14 +170,21 @@ fn validate_dimensions(
   case is_square, is_column && rows_match {
     False, _ ->
       Error(matrix.InvalidDimensions(
-        "Expected square matrix, got " <> matrix.dim_string(a),
+        "Expected square matrix, got "
+        <> int.to_string(matrix.rows(a))
+        <> "x"
+        <> int.to_string(matrix.cols(a)),
       ))
     _, False ->
       Error(matrix.DimensionMismatch(
         "Dimension mismatch: A is "
-        <> matrix.dim_string(a)
+        <> int.to_string(matrix.rows(a))
+        <> "x"
+        <> int.to_string(matrix.cols(a))
         <> ", b is "
-        <> matrix.dim_string(b),
+        <> int.to_string(matrix.rows(b))
+        <> "x"
+        <> int.to_string(matrix.cols(b)),
       ))
     True, True -> Ok(Nil)
   }

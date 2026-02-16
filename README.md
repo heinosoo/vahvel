@@ -13,6 +13,7 @@ There is no linear algebra library in the Gleam ecosystem. faer is fast (often o
 ## Features
 
 - **Matrix arithmetic** — add, subtract, scale, multiply, transpose
+- **Sparse matrices** — CSC format, sparse arithmetic, conversion to/from dense
 - **Decompositions** — LU (partial pivoting), QR (thin), SVD (thin)
 - **Properties** — determinant, inverse, symmetric eigenvalues, trace
 - **Linear solver** — solve `Ax = b` via LU decomposition
@@ -25,6 +26,7 @@ There is no linear algebra library in the Gleam ecosystem. faer is fast (often o
 ```gleam
 import waffle/matrix
 import waffle/linalg
+import waffle/sparse
 
 pub fn main() {
   let assert Ok(a) = matrix.from_list([[2.0, 1.0], [1.0, 3.0]])
@@ -41,6 +43,10 @@ pub fn main() {
   let assert Ok(linalg.LU(l, u, pivot)) = linalg.lu(a)
   let assert Ok(det) = linalg.determinant(a)
   let assert Ok(inv) = linalg.inverse(a)
+
+  // Sparse matrices (efficient for matrices with many zeros)
+  let assert Ok(s) = sparse.from_triplets(3, 3, [#(0, 0, 1.0), #(1, 1, 2.0), #(2, 2, 3.0)])
+  let assert Ok(dense) = sparse.to_dense(s)
 }
 ```
 
@@ -79,4 +85,4 @@ The setup script builds the native library from source using Cargo. It skips the
 
 ## Status
 
-Early development. See [ROADMAP.md](ROADMAP.md) for the implementation plan.
+Early development. See [docs/ROADMAP.md](docs/ROADMAP.md) for the implementation plan.

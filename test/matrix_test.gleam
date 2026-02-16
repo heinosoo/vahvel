@@ -38,6 +38,11 @@ pub fn cols_test() {
   matrix.cols(m) |> should.equal(2)
 }
 
+pub fn dims_test() {
+  let assert Ok(m) = matrix.from_list([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
+  matrix.dims(m) |> should.equal(#(3, 2))
+}
+
 pub fn identity_2x2_test() {
   let assert Ok(m) = matrix.identity(2)
   let expected = [[1.0, 0.0], [0.0, 1.0]]
@@ -434,6 +439,16 @@ pub fn fold_max_test() {
   let assert Ok(m) = matrix.from_list([[1.0, 5.0], [3.0, 2.0]])
   let max = matrix.fold(m, 0.0, fn(acc, x) { float.max(acc, x) })
   max |> should.equal(5.0)
+}
+
+pub fn fold_with_indices_test() {
+  let assert Ok(m) = matrix.from_list([[1.0, 2.0], [3.0, 4.0]])
+  let result =
+    matrix.fold_with_indices(m, [], fn(acc, row, col, val) {
+      [#(row, col, val), ..acc]
+    })
+  result
+  |> should.equal([#(1, 1, 4.0), #(0, 1, 2.0), #(1, 0, 3.0), #(0, 0, 1.0)])
 }
 
 pub fn zip_with_add_test() {
