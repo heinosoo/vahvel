@@ -24,3 +24,11 @@ build:
 clean:
     gleam clean
     cargo clean --manifest-path native/waffle/Cargo.toml
+
+# Update dependencies and lockfiles
+update:
+    python3 scripts/update_deps.py update
+
+# Update lockfiles only
+update-locked:
+    python3 scripts/update_deps.py update-locked
