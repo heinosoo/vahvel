@@ -46,6 +46,7 @@ import gleam/list
 import gleam/result
 import gleam/string
 import waffle/internal/faer
+import waffle/internal/range
 
 /// Errors that can occur when creating or manipulating matrices.
 pub type MatrixError {
@@ -133,8 +134,8 @@ pub fn validate_symmetric(matrix: Matrix) -> Result(Nil, MatrixError) {
   use _ <- result.try(validate_square(matrix))
   let n = matrix.rows
   let is_symmetric =
-    list.all(list.range(0, n - 1), fn(i) {
-      list.all(list.range(i + 1, n - 1), fn(j) {
+    range.all(0, n, fn(i) {
+      range.all(i + 1, n, fn(j) {
         let aij = read_float_at(matrix.data, j * n + i)
         let aji = read_float_at(matrix.data, i * n + j)
         float.loosely_equals(aij, aji, tolerating: 1.0e-10)
@@ -205,7 +206,7 @@ pub fn identity(n: Int) -> Result(Matrix, MatrixError) {
     _ if n < 1 -> Error(InvalidDimensions("Matrix size must be at least 1"))
     _ -> {
       let data =
-        list.fold(list.range(0, n * n - 1), <<>>, fn(acc, i) {
+        int.range(from: 0, to: n * n, with: <<>>, run: fn(acc, i) {
           let col = i / n
           let row = i % n
           let value = case row == col {
@@ -249,7 +250,7 @@ pub fn ones(rows: Int, cols: Int) -> Result(Matrix, MatrixError) {
       ))
     False -> {
       let data =
-        list.fold(list.range(0, rows * cols - 1), <<>>, fn(acc, _) {
+        int.range(from: 0, to: rows * cols, with: <<>>, run: fn(acc, _) {
           <<acc:bits, 1.0:float-little-size(64)>>
         })
       Ok(Matrix(rows: rows, cols: cols, data: data))
@@ -265,8 +266,7 @@ pub fn diagonal(values: List(Float)) -> Result(Matrix, MatrixError) {
     _ -> {
       let data =
         list.index_fold(values, <<>>, fn(acc, val, col) {
-          // For each column, write n values: val at row==col, 0 elsewhere
-          list.fold(list.range(0, n - 1), acc, fn(inner_acc, row) {
+          int.range(from: 0, to: n, with: acc, run: fn(inner_acc, row) {
             let value = case row == col {
               True -> val
               False -> 0.0
@@ -319,10 +319,8 @@ pub fn to_list(matrix: Matrix) -> List(List(Float)) {
   let rows = matrix.rows
   let cols = matrix.cols
 
-  list.map(list.range(0, rows - 1), fn(row) {
-    list.map(list.range(0, cols - 1), fn(col) {
-      read_float_at(data, col * rows + row)
-    })
+  range.map(0, rows, fn(row) {
+    range.map(0, cols, fn(col) { read_float_at(data, col * rows + row) })
   })
 }
 
@@ -360,7 +358,7 @@ pub fn trace(matrix: Matrix) -> Result(Float, MatrixError) {
   use _ <- result.try(validate_square(matrix))
   let n = matrix.rows
   let sum =
-    list.fold(list.range(0, n - 1), 0.0, fn(acc, i) {
+    int.range(from: 0, to: n, with: 0.0, run: fn(acc, i) {
       acc +. read_float_at(matrix.data, i * n + i)
     })
   Ok(sum)
@@ -444,8 +442,8 @@ pub fn reshape(
 }
 
 fn pack_to_column_major(elements: List(Float), rows: Int, cols: Int) -> BitArray {
-  list.fold(list.range(0, cols - 1), <<>>, fn(acc, col) {
-    list.fold(list.range(0, rows - 1), acc, fn(inner_acc, row) {
+  int.range(from: 0, to: cols, with: <<>>, run: fn(acc, col) {
+    int.range(from: 0, to: rows, with: acc, run: fn(inner_acc, row) {
       let idx = row * cols + col
       let val = list_at(elements, idx)
       <<inner_acc:bits, val:float-little-size(64)>>
@@ -474,7 +472,7 @@ pub fn vstack(top: Matrix, bottom: Matrix) -> Result(Matrix, MatrixError) {
       let cols = top.cols
       let new_rows = top.rows + bottom.rows
       let data =
-        list.fold(list.range(0, cols - 1), <<>>, fn(acc, col) {
+        int.range(from: 0, to: cols, with: <<>>, run: fn(acc, col) {
           let top_col = extract_col_bits(top.data, col, top.rows)
           let bottom_col = extract_col_bits(bottom.data, col, bottom.rows)
           <<acc:bits, top_col:bits, bottom_col:bits>>
@@ -504,7 +502,7 @@ pub fn hstack(left: Matrix, right: Matrix) -> Result(Matrix, MatrixError) {
 }
 
 fn extract_col_bits(data: BitArray, col: Int, rows: Int) -> BitArray {
-  list.fold(list.range(0, rows - 1), <<>>, fn(acc, row) {
+  int.range(from: 0, to: rows, with: <<>>, run: fn(acc, row) {
     let index = col * rows + row
     let val = read_float_at(data, index)
     <<acc:bits, val:float-little-size(64)>>
@@ -542,15 +540,20 @@ pub fn slice(
     col_count,
   ))
   let data =
-    list.fold(list.range(0, col_count - 1), <<>>, fn(acc, col_offset) {
+    int.range(from: 0, to: col_count, with: <<>>, run: fn(acc, col_offset) {
       let col = col_start + col_offset
       let col_data =
-        list.fold(list.range(0, row_count - 1), <<>>, fn(inner_acc, row_offset) {
-          let row = row_start + row_offset
-          let index = col * matrix.rows + row
-          let val = read_float_at(matrix.data, index)
-          <<inner_acc:bits, val:float-little-size(64)>>
-        })
+        int.range(
+          from: 0,
+          to: row_count,
+          with: <<>>,
+          run: fn(inner_acc, row_offset) {
+            let row = row_start + row_offset
+            let index = col * matrix.rows + row
+            let val = read_float_at(matrix.data, index)
+            <<inner_acc:bits, val:float-little-size(64)>>
+          },
+        )
       <<acc:bits, col_data:bits>>
     })
   Ok(Matrix(rows: row_count, cols: col_count, data: data))
@@ -586,7 +589,7 @@ pub fn row(matrix: Matrix, index: Int) -> Result(List(Float), MatrixError) {
   case index >= 0 && index < matrix.rows {
     True -> {
       let result =
-        list.map(list.range(0, matrix.cols - 1), fn(col) {
+        range.map(0, matrix.cols, fn(col) {
           read_float_at(matrix.data, col * matrix.rows + index)
         })
       Ok(result)
@@ -607,7 +610,7 @@ pub fn col(matrix: Matrix, index: Int) -> Result(List(Float), MatrixError) {
   case index >= 0 && index < matrix.cols {
     True -> {
       let result =
-        list.map(list.range(0, matrix.rows - 1), fn(row) {
+        range.map(0, matrix.rows, fn(row) {
           read_float_at(matrix.data, index * matrix.rows + row)
         })
       Ok(result)
@@ -630,19 +633,29 @@ pub fn col(matrix: Matrix, index: Int) -> Result(List(Float), MatrixError) {
 /// Apply a function to each element of the matrix.
 pub fn map(matrix: Matrix, f: fn(Float) -> Float) -> Matrix {
   let new_data =
-    list.fold(list.range(0, matrix.rows * matrix.cols - 1), <<>>, fn(acc, i) {
-      let val = read_float_at(matrix.data, i)
-      <<acc:bits, f(val):float-little-size(64)>>
-    })
+    int.range(
+      from: 0,
+      to: matrix.rows * matrix.cols,
+      with: <<>>,
+      run: fn(acc, i) {
+        let val = read_float_at(matrix.data, i)
+        <<acc:bits, f(val):float-little-size(64)>>
+      },
+    )
   Matrix(rows: matrix.rows, cols: matrix.cols, data: new_data)
 }
 
 /// Fold over all elements of the matrix in column-major order.
 pub fn fold(matrix: Matrix, acc: a, f: fn(a, Float) -> a) -> a {
-  list.fold(list.range(0, matrix.rows * matrix.cols - 1), acc, fn(current, i) {
-    let val = read_float_at(matrix.data, i)
-    f(current, val)
-  })
+  int.range(
+    from: 0,
+    to: matrix.rows * matrix.cols,
+    with: acc,
+    run: fn(current, i) {
+      let val = read_float_at(matrix.data, i)
+      f(current, val)
+    },
+  )
 }
 
 /// Fold over all elements with their row and column indices.
@@ -652,8 +665,8 @@ pub fn fold_with_indices(
   acc: a,
   f: fn(a, Int, Int, Float) -> a,
 ) -> a {
-  list.fold(list.range(0, matrix.cols - 1), acc, fn(col_acc, col) {
-    list.fold(list.range(0, matrix.rows - 1), col_acc, fn(row_acc, row) {
+  int.range(from: 0, to: matrix.cols, with: acc, run: fn(col_acc, col) {
+    int.range(from: 0, to: matrix.rows, with: col_acc, run: fn(row_acc, row) {
       let index = col * matrix.rows + row
       let val = read_float_at(matrix.data, index)
       f(row_acc, row, col, val)
@@ -669,7 +682,7 @@ pub fn zip_with(
 ) -> Result(Matrix, MatrixError) {
   use _ <- result.try(validate_same_dimensions(a, b))
   let new_data =
-    list.fold(list.range(0, a.rows * a.cols - 1), <<>>, fn(acc, i) {
+    int.range(from: 0, to: a.rows * a.cols, with: <<>>, run: fn(acc, i) {
       let va = read_float_at(a.data, i)
       let vb = read_float_at(b.data, i)
       <<acc:bits, f(va, vb):float-little-size(64)>>

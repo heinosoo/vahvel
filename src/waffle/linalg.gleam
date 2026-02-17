@@ -29,9 +29,9 @@
 
 import gleam/bit_array
 import gleam/int
-import gleam/list
 import gleam/result
 import waffle/internal/faer
+import waffle/internal/range
 import waffle/matrix
 
 /// LU decomposition with partial pivoting: PA = LU.
@@ -60,7 +60,7 @@ pub type SVD {
 }
 
 fn unpack_pivot(data: BitArray, count: Int) -> List(Int) {
-  list.map(list.range(0, count - 1), fn(i) {
+  range.map(0, count, fn(i) {
     let offset = i * 8
     case bit_array.slice(data, offset, 8) {
       Ok(<<v:little-size(64)>>) -> v
@@ -70,7 +70,7 @@ fn unpack_pivot(data: BitArray, count: Int) -> List(Int) {
 }
 
 fn unpack_floats(data: BitArray, count: Int) -> List(Float) {
-  list.map(list.range(0, count - 1), fn(i) {
+  range.map(0, count, fn(i) {
     let offset = i * 8
     case bit_array.slice(data, offset, 8) {
       Ok(<<x:float-little-size(64)>>) -> x

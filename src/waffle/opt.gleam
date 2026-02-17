@@ -312,18 +312,13 @@ fn add_vars(
   upper_bound: Float,
   var_type: VariableType,
 ) -> #(Model, List(VarId)) {
-  list.range(0, count - 1)
-  |> list.fold(#(model, []), fn(acc, i) {
+  int.range(from: count - 1, to: -1, with: #(model, []), run: fn(acc, i) {
     let #(model, vars) = acc
     let name = prefix <> "_" <> int.to_string(i)
     let #(model, var) =
       add_variable(model, name, coeff, lower_bound, upper_bound, var_type)
     #(model, [var, ..vars])
   })
-  |> fn(pair) {
-    let #(model, vars) = pair
-    #(model, list.reverse(vars))
-  }
 }
 
 fn add_vars_with_bounds(

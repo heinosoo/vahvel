@@ -43,6 +43,7 @@ import gleam/list
 import gleam/result
 import gleam/string
 import waffle/internal/faer as nif
+import waffle/internal/range
 import waffle/matrix
 
 /// Errors that can occur when creating or manipulating sparse matrices.
@@ -344,17 +345,21 @@ pub fn to_triplets(matrix: SparseMatrix) -> List(#(Int, Int, Float)) {
   let values = matrix.values
   let cols = matrix.cols
 
-  list.fold(list.range(0, cols - 1), [], fn(acc, col) {
+  int.range(from: cols - 1, to: -1, with: [], run: fn(acc, col) {
     let col_start = read_int_at(col_ptr, col)
     let col_end = read_int_at(col_ptr, col + 1)
 
-    list.fold(list.range(col_start, col_end - 1), acc, fn(inner_acc, idx) {
-      let row = read_int_at(row_indices, idx)
-      let value = read_float_at(values, idx)
-      [#(row, col, value), ..inner_acc]
-    })
+    int.range(
+      from: col_end - 1,
+      to: col_start - 1,
+      with: acc,
+      run: fn(inner_acc, idx) {
+        let row = read_int_at(row_indices, idx)
+        let value = read_float_at(values, idx)
+        [#(row, col, value), ..inner_acc]
+      },
+    )
   })
-  |> list.reverse()
 }
 
 /// Multiply two sparse matrices.
@@ -557,7 +562,7 @@ pub fn fold(matrix: SparseMatrix, acc: a, f: fn(a, Float) -> a) -> a {
   let values = matrix.values
   let nnz = matrix.nnz
 
-  list.fold(list.range(0, nnz - 1), acc, fn(current, i) {
+  int.range(from: 0, to: nnz, with: acc, run: fn(current, i) {
     let val = read_float_at(values, i)
     f(current, val)
   })
@@ -593,7 +598,7 @@ pub fn row(matrix: SparseMatrix, index: Int) -> Result(List(Float), SparseError)
       ))
     True -> {
       let result =
-        list.map(list.range(0, matrix.cols - 1), fn(col) {
+        range.map(0, matrix.cols, fn(col) {
           let assert Ok(v) = get(matrix, index, col)
           v
         })
@@ -618,7 +623,7 @@ pub fn col(matrix: SparseMatrix, index: Int) -> Result(List(Float), SparseError)
       ))
     True -> {
       let result =
-        list.map(list.range(0, matrix.rows - 1), fn(row) {
+        range.map(0, matrix.rows, fn(row) {
           let assert Ok(v) = get(matrix, row, index)
           v
         })
