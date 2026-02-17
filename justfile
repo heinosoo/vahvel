@@ -14,7 +14,7 @@ fmt:
 lint:
     gleam format --check src test
     cargo fmt --manifest-path native/waffle/Cargo.toml --check
-    cargo clippy --manifest-path native/waffle/Cargo.toml -- -D warnings
+    cargo clippy --no-deps --manifest-path native/waffle/Cargo.toml -- -D warnings
 
 # Compile NIF from source
 build:
@@ -24,3 +24,15 @@ build:
 clean:
     gleam clean
     cargo clean --manifest-path native/waffle/Cargo.toml
+
+# Update lockfiles within current constraints
+update:
+    gleam deps update
+    cargo update --manifest-path native/waffle/Cargo.toml
+
+# Upgrade dependency constraints and tooling to latest compatible versions
+upgrade:
+    gleam add gleam_stdlib shellout simplifile
+    gleam add --dev gleeunit tom
+    cargo add faer rustler highs bytemuck rand rand_distr --manifest-path native/waffle/Cargo.toml
+    mise upgrade --bump

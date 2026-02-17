@@ -45,6 +45,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -101,16 +105,18 @@ jobs:
           TARGET="${{ steps.version.outputs.target }}"
           sed -i "s/^pub const package_version = \".*\"/pub const package_version = \"${TARGET}\"/" src/waffle/version.gleam
 
-      - uses: erlef/setup-beam@v1
+      - uses: jdx/mise-action@v3
         with:
-          otp-version: "28"
-          gleam-version: "1.14.0"
-          rebar3-version: "3"
-      - uses: dtolnay/rust-toolchain@stable
+          install: true
+      - run: rustup component add rustfmt clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: native/waffle
-
+      - uses: actions/cache@v4
+        with:
+          path: build/packages
+          key: gleam-deps-${{ hashFiles('gleam.toml', 'manifest.toml') }}
+          restore-keys: gleam-deps-
       - run: gleam deps download
       - name: Build NIF
         run: gleam run -m waffle_build

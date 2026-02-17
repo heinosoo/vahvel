@@ -1,7 +1,7 @@
 [tools]
-erlang = "latest" # or "27.0"
-gleam = "latest"  # or "1.6.3"
-rust = "latest"
-just = "latest"
-rebar = "latest"
-cmake = "latest"
+erlang = "28.3.1"
+gleam = "1.14.0"
+rust = { version = "1.93.1", profile = "default" }
+just = "1.46.0"
+rebar = "3.26.0"
+cmake = "4.2.3"
