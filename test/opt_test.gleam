@@ -175,6 +175,20 @@ pub fn int_vars_with_bounds_test() {
   should.equal(solution.status, opt.Optimal)
 }
 
+pub fn le_constraint_negative_test() {
+  let model = opt.new()
+  let model = opt.set_direction(model, opt.Minimize)
+
+  let #(model, x) = opt.cont_var(model, "x", 1.0, -10.0, 10.0)
+
+  let assert Ok(model) = opt.add_le_constraint(model, 5.0, [#(x, 1.0)])
+
+  let assert Ok(solution) = opt.solve(model)
+
+  should.equal(solution.status, opt.Optimal)
+  should.be_true(float.loosely_equals(solution.objective_value, -10.0, 0.001))
+}
+
 pub fn cont_vars_test() {
   let model = opt.new()
 

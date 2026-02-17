@@ -349,7 +349,7 @@ fn add_vars_with_bounds(
 /// # Arguments
 ///
 /// - `model`: The optimization model
-/// - `lower`: Lower bound for the constraint expression (use `0.0e308` for -infinity)
+/// - `lower`: Lower bound for the constraint expression (use `-1.0e308` for -infinity)
 /// - `upper`: Upper bound for the constraint expression (use `1.0e308` for +infinity)
 /// - `coefficients`: List of `(VarId, coefficient)` pairs
 ///
@@ -417,7 +417,7 @@ pub fn add_le_constraint(
   upper: Float,
   coefficients: List(#(VarId, Float)),
 ) -> Result(Model, OptError) {
-  add_constraint(model, 0.0e308, upper, coefficients)
+  add_constraint(model, -1.0e308, upper, coefficients)
 }
 
 /// Add a greater-than-or-equal constraint: `sum(coefficients) >= lower`.
