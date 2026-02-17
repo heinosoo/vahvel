@@ -6,6 +6,26 @@ use crate::utils::{
 use faer::sparse::{SparseColMat, SparseColMatRef, SymbolicSparseColMatRef, Triplet};
 use rustler::{Binary, Encoder, Env, NifResult, Term};
 
+/// Parses three CSC binaries (col_ptr, row_indices, values) into typed slices.
+/// Returns early with an error term if any binary has a length not divisible by 8.
+macro_rules! parse_sparse {
+    ($col_ptr:ident, $row_idx:ident, $vals:ident, $env:expr,
+     $col_ptr_bin:expr, $row_idx_bin:expr, $vals_bin:expr) => {
+        let $col_ptr = match binary_to_cow_u64($col_ptr_bin.as_slice()) {
+            Ok(s) => s,
+            Err(e) => return Ok(err_term($env, &e)),
+        };
+        let $row_idx = match binary_to_cow_u64($row_idx_bin.as_slice()) {
+            Ok(s) => s,
+            Err(e) => return Ok(err_term($env, &e)),
+        };
+        let $vals = match binary_to_cow_f64($vals_bin.as_slice()) {
+            Ok(s) => s,
+            Err(e) => return Ok(err_term($env, &e)),
+        };
+    };
+}
+
 struct CscOutput {
     rows: usize,
     cols: usize,
@@ -67,7 +87,21 @@ fn make_sparse_mat<'a>(
             cols
         )));
     }
-    let nnz = (col_ptr[cols] - col_ptr[0]) as usize;
+
+    // Validate col_ptr is monotonically non-decreasing
+    for window in col_ptr.windows(2) {
+        if window[0] > window[1] {
+            return Err(WaffleError::InvalidInput(
+                "col_ptr is not monotonically non-decreasing".to_string(),
+            ));
+        }
+    }
+
+    let nnz = col_ptr[cols]
+        .checked_sub(col_ptr[0])
+        .ok_or_else(|| WaffleError::InvalidInput("col_ptr[cols] < col_ptr[0]".to_string()))?
+        as usize;
+
     if row_indices.len() < nnz || values.len() < nnz {
         return Err(WaffleError::DimensionMismatch(format!(
             "indices/values length too small for nnz {}",
@@ -75,6 +109,28 @@ fn make_sparse_mat<'a>(
         )));
     }
 
+    // Validate row indices are in-range and sorted within each column
+    let rows_u64 = rows as u64;
+    for window in col_ptr.windows(2) {
+        let start = window[0] as usize;
+        let end = window[1] as usize;
+        let col_rows = &row_indices[start..end];
+        for (i, &idx) in col_rows.iter().enumerate() {
+            if idx >= rows_u64 {
+                return Err(WaffleError::InvalidInput(format!(
+                    "row index {} out of range for {} rows",
+                    idx, rows
+                )));
+            }
+            if i > 0 && col_rows[i - 1] > idx {
+                return Err(WaffleError::InvalidInput(
+                    "row indices are not sorted within a column".to_string(),
+                ));
+            }
+        }
+    }
+
+    // Safety: we validated all conditions that new_checked asserts
     let symbolic = SymbolicSparseColMatRef::new_checked(rows, cols, col_ptr, None, row_indices);
 
     Ok(SparseColMatRef::new(symbolic, values))
@@ -89,9 +145,18 @@ pub fn sparse_from_triplets<'a>(
     col_indices_bin: Binary<'a>,
     values_bin: Binary<'a>,
 ) -> NifResult<Term<'a>> {
-    let row_indices = binary_to_cow_u64(row_indices_bin.as_slice());
-    let col_indices = binary_to_cow_u64(col_indices_bin.as_slice());
-    let values = binary_to_cow_f64(values_bin.as_slice());
+    let row_indices = match binary_to_cow_u64(row_indices_bin.as_slice()) {
+        Ok(s) => s,
+        Err(e) => return Ok(err_term(env, &e)),
+    };
+    let col_indices = match binary_to_cow_u64(col_indices_bin.as_slice()) {
+        Ok(s) => s,
+        Err(e) => return Ok(err_term(env, &e)),
+    };
+    let values = match binary_to_cow_f64(values_bin.as_slice()) {
+        Ok(s) => s,
+        Err(e) => return Ok(err_term(env, &e)),
+    };
 
     if row_indices.len() != col_indices.len() || row_indices.len() != values.len() {
         return Ok(err_term(
@@ -131,9 +196,15 @@ pub fn sparse_to_dense<'a>(
     row_indices_bin: Binary<'a>,
     values_bin: Binary<'a>,
 ) -> NifResult<Term<'a>> {
-    let col_ptr = binary_to_cow_u64(col_ptr_bin.as_slice());
-    let row_indices = binary_to_cow_u64(row_indices_bin.as_slice());
-    let values = binary_to_cow_f64(values_bin.as_slice());
+    parse_sparse!(
+        col_ptr,
+        row_indices,
+        values,
+        env,
+        col_ptr_bin,
+        row_indices_bin,
+        values_bin
+    );
 
     let sparse_mat = match make_sparse_mat(rows, cols, &col_ptr, &row_indices, &values) {
         Ok(m) => m,
@@ -190,9 +261,15 @@ pub fn sparse_transpose<'a>(
     row_indices_bin: Binary<'a>,
     values_bin: Binary<'a>,
 ) -> NifResult<Term<'a>> {
-    let col_ptr = binary_to_cow_u64(col_ptr_bin.as_slice());
-    let row_indices = binary_to_cow_u64(row_indices_bin.as_slice());
-    let values = binary_to_cow_f64(values_bin.as_slice());
+    parse_sparse!(
+        col_ptr,
+        row_indices,
+        values,
+        env,
+        col_ptr_bin,
+        row_indices_bin,
+        values_bin
+    );
 
     let sparse_mat = match make_sparse_mat(rows, cols, &col_ptr, &row_indices, &values) {
         Ok(m) => m,
@@ -237,9 +314,15 @@ pub fn sparse_multiply_dense<'a>(
         ));
     }
 
-    let sp_col_ptr = binary_to_cow_u64(sp_col_ptr_bin.as_slice());
-    let sp_row_indices = binary_to_cow_u64(sp_row_indices_bin.as_slice());
-    let sp_values = binary_to_cow_f64(sp_values_bin.as_slice());
+    parse_sparse!(
+        sp_col_ptr,
+        sp_row_indices,
+        sp_values,
+        env,
+        sp_col_ptr_bin,
+        sp_row_indices_bin,
+        sp_values_bin
+    );
 
     let sparse_mat =
         match make_sparse_mat(sp_rows, sp_cols, &sp_col_ptr, &sp_row_indices, &sp_values) {
@@ -278,18 +361,30 @@ pub fn sparse_multiply<'a>(
         ));
     }
 
-    let a_col_ptr = binary_to_cow_u64(a_col_ptr_bin.as_slice());
-    let a_row_indices = binary_to_cow_u64(a_row_indices_bin.as_slice());
-    let a_values = binary_to_cow_f64(a_values_bin.as_slice());
+    parse_sparse!(
+        a_col_ptr,
+        a_row_indices,
+        a_values,
+        env,
+        a_col_ptr_bin,
+        a_row_indices_bin,
+        a_values_bin
+    );
 
     let a_mat = match make_sparse_mat(a_rows, a_cols, &a_col_ptr, &a_row_indices, &a_values) {
         Ok(m) => m,
         Err(e) => return Ok(err_term(env, &e)),
     };
 
-    let b_col_ptr = binary_to_cow_u64(b_col_ptr_bin.as_slice());
-    let b_row_indices = binary_to_cow_u64(b_row_indices_bin.as_slice());
-    let b_values = binary_to_cow_f64(b_values_bin.as_slice());
+    parse_sparse!(
+        b_col_ptr,
+        b_row_indices,
+        b_values,
+        env,
+        b_col_ptr_bin,
+        b_row_indices_bin,
+        b_values_bin
+    );
 
     let b_mat = match make_sparse_mat(b_rows, b_cols, &b_col_ptr, &b_row_indices, &b_values) {
         Ok(m) => m,
@@ -326,18 +421,30 @@ pub fn sparse_add<'a>(
         ));
     }
 
-    let a_col_ptr = binary_to_cow_u64(a_col_ptr_bin.as_slice());
-    let a_row_indices = binary_to_cow_u64(a_row_indices_bin.as_slice());
-    let a_values = binary_to_cow_f64(a_values_bin.as_slice());
+    parse_sparse!(
+        a_col_ptr,
+        a_row_indices,
+        a_values,
+        env,
+        a_col_ptr_bin,
+        a_row_indices_bin,
+        a_values_bin
+    );
 
     let a_mat = match make_sparse_mat(a_rows, a_cols, &a_col_ptr, &a_row_indices, &a_values) {
         Ok(m) => m,
         Err(e) => return Ok(err_term(env, &e)),
     };
 
-    let b_col_ptr = binary_to_cow_u64(b_col_ptr_bin.as_slice());
-    let b_row_indices = binary_to_cow_u64(b_row_indices_bin.as_slice());
-    let b_values = binary_to_cow_f64(b_values_bin.as_slice());
+    parse_sparse!(
+        b_col_ptr,
+        b_row_indices,
+        b_values,
+        env,
+        b_col_ptr_bin,
+        b_row_indices_bin,
+        b_values_bin
+    );
 
     let b_mat = match make_sparse_mat(b_rows, b_cols, &b_col_ptr, &b_row_indices, &b_values) {
         Ok(m) => m,
@@ -374,18 +481,30 @@ pub fn sparse_subtract<'a>(
         ));
     }
 
-    let a_col_ptr = binary_to_cow_u64(a_col_ptr_bin.as_slice());
-    let a_row_indices = binary_to_cow_u64(a_row_indices_bin.as_slice());
-    let a_values = binary_to_cow_f64(a_values_bin.as_slice());
+    parse_sparse!(
+        a_col_ptr,
+        a_row_indices,
+        a_values,
+        env,
+        a_col_ptr_bin,
+        a_row_indices_bin,
+        a_values_bin
+    );
 
     let a_mat = match make_sparse_mat(a_rows, a_cols, &a_col_ptr, &a_row_indices, &a_values) {
         Ok(m) => m,
         Err(e) => return Ok(err_term(env, &e)),
     };
 
-    let b_col_ptr = binary_to_cow_u64(b_col_ptr_bin.as_slice());
-    let b_row_indices = binary_to_cow_u64(b_row_indices_bin.as_slice());
-    let b_values = binary_to_cow_f64(b_values_bin.as_slice());
+    parse_sparse!(
+        b_col_ptr,
+        b_row_indices,
+        b_values,
+        env,
+        b_col_ptr_bin,
+        b_row_indices_bin,
+        b_values_bin
+    );
 
     let b_mat = match make_sparse_mat(b_rows, b_cols, &b_col_ptr, &b_row_indices, &b_values) {
         Ok(m) => m,
@@ -410,11 +529,17 @@ pub fn sparse_scale<'a>(
     values_bin: Binary<'a>,
     scalar: f64,
 ) -> NifResult<Term<'a>> {
-    let values = binary_to_cow_f64(values_bin.as_slice());
-    let scaled: Vec<f64> = values.iter().map(|v| v * scalar).collect();
+    parse_sparse!(
+        col_ptr,
+        row_indices,
+        values,
+        env,
+        col_ptr_bin,
+        row_indices_bin,
+        values_bin
+    );
 
-    let col_ptr = binary_to_cow_u64(col_ptr_bin.as_slice());
-    let row_indices = binary_to_cow_u64(row_indices_bin.as_slice());
+    let scaled: Vec<f64> = values.iter().map(|v| v * scalar).collect();
 
     let col_ptr_bin_out = u64s_to_binary(&col_ptr, env);
     let row_idx_bin_out = u64s_to_binary(&row_indices, env);

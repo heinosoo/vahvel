@@ -21,12 +21,30 @@ pub fn solve_ilp<'a>(
     var_bounds_bin: Binary<'a>,
     var_types_bin: Binary<'a>,
 ) -> NifResult<Term<'a>> {
-    let obj_coeffs = binary_to_cow_f64(obj_coeffs_bin.as_slice());
-    let con_col_ptr = binary_to_cow_u64(con_col_ptr_bin.as_slice());
-    let con_row_idx = binary_to_cow_u64(con_row_idx_bin.as_slice());
-    let con_vals = binary_to_cow_f64(con_vals_bin.as_slice());
-    let con_bounds = binary_to_cow_f64(con_bounds_bin.as_slice());
-    let var_bounds = binary_to_cow_f64(var_bounds_bin.as_slice());
+    let obj_coeffs = match binary_to_cow_f64(obj_coeffs_bin.as_slice()) {
+        Ok(s) => s,
+        Err(e) => return Ok(err_term(env, &e)),
+    };
+    let con_col_ptr = match binary_to_cow_u64(con_col_ptr_bin.as_slice()) {
+        Ok(s) => s,
+        Err(e) => return Ok(err_term(env, &e)),
+    };
+    let con_row_idx = match binary_to_cow_u64(con_row_idx_bin.as_slice()) {
+        Ok(s) => s,
+        Err(e) => return Ok(err_term(env, &e)),
+    };
+    let con_vals = match binary_to_cow_f64(con_vals_bin.as_slice()) {
+        Ok(s) => s,
+        Err(e) => return Ok(err_term(env, &e)),
+    };
+    let con_bounds = match binary_to_cow_f64(con_bounds_bin.as_slice()) {
+        Ok(s) => s,
+        Err(e) => return Ok(err_term(env, &e)),
+    };
+    let var_bounds = match binary_to_cow_f64(var_bounds_bin.as_slice()) {
+        Ok(s) => s,
+        Err(e) => return Ok(err_term(env, &e)),
+    };
     let var_types = var_types_bin.as_slice();
 
     if obj_coeffs.len() != con_cols {

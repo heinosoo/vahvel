@@ -46,9 +46,15 @@ pub fn ok_float<'a>(env: Env<'a>, val: f64) -> Term<'a> {
 }
 
 #[inline]
-pub fn binary_to_cow_f64(bin: &[u8]) -> Cow<'_, [f64]> {
+pub fn binary_to_cow_f64(bin: &[u8]) -> Result<Cow<'_, [f64]>, WaffleError> {
+    if !bin.len().is_multiple_of(8) {
+        return Err(WaffleError::InvalidInput(format!(
+            "f64 binary length {} is not divisible by 8",
+            bin.len()
+        )));
+    }
     match bytemuck::try_cast_slice(bin) {
-        Ok(slice) => Cow::Borrowed(slice),
+        Ok(slice) => Ok(Cow::Borrowed(slice)),
         Err(_) => {
             let len = bin.len() / 8;
             let mut vec = Vec::with_capacity(len);
@@ -57,15 +63,21 @@ pub fn binary_to_cow_f64(bin: &[u8]) -> Cow<'_, [f64]> {
                 let val = f64::from_ne_bytes(chunk.try_into().unwrap());
                 vec.push(val);
             }
-            Cow::Owned(vec)
+            Ok(Cow::Owned(vec))
         }
     }
 }
 
 #[inline]
-pub fn binary_to_cow_u64(bin: &[u8]) -> Cow<'_, [u64]> {
+pub fn binary_to_cow_u64(bin: &[u8]) -> Result<Cow<'_, [u64]>, WaffleError> {
+    if !bin.len().is_multiple_of(8) {
+        return Err(WaffleError::InvalidInput(format!(
+            "u64 binary length {} is not divisible by 8",
+            bin.len()
+        )));
+    }
     match bytemuck::try_cast_slice(bin) {
-        Ok(slice) => Cow::Borrowed(slice),
+        Ok(slice) => Ok(Cow::Borrowed(slice)),
         Err(_) => {
             let len = bin.len() / 8;
             let mut vec = Vec::with_capacity(len);
@@ -74,14 +86,15 @@ pub fn binary_to_cow_u64(bin: &[u8]) -> Cow<'_, [u64]> {
                 let val = u64::from_ne_bytes(chunk.try_into().unwrap());
                 vec.push(val);
             }
-            Cow::Owned(vec)
+            Ok(Cow::Owned(vec))
         }
     }
 }
 
 #[inline]
 pub fn mat_to_binary<'a>(mat: MatRef<'_, f64>, env: Env<'a>) -> Option<Binary<'a>> {
-    let mut owned = OwnedBinary::new(mat.nrows() * mat.ncols() * 8)?;
+    let byte_len = mat.nrows().checked_mul(mat.ncols())?.checked_mul(8)?;
+    let mut owned = OwnedBinary::new(byte_len)?;
     let dest_bytes = owned.as_mut_slice();
     let mut offset = 0;
 
@@ -104,7 +117,8 @@ pub fn mat_to_binary<'a>(mat: MatRef<'_, f64>, env: Env<'a>) -> Option<Binary<'a
 
 #[inline]
 pub fn floats_to_binary<'a>(data: &[f64], env: Env<'a>) -> Option<Binary<'a>> {
-    let mut owned = OwnedBinary::new(data.len() * 8)?;
+    let byte_len = data.len().checked_mul(8)?;
+    let mut owned = OwnedBinary::new(byte_len)?;
     owned
         .as_mut_slice()
         .copy_from_slice(bytemuck::cast_slice(data));
@@ -113,7 +127,8 @@ pub fn floats_to_binary<'a>(data: &[f64], env: Env<'a>) -> Option<Binary<'a>> {
 
 #[inline]
 pub fn u64s_to_binary<'a>(data: &[u64], env: Env<'a>) -> Option<Binary<'a>> {
-    let mut owned = OwnedBinary::new(data.len() * 8)?;
+    let byte_len = data.len().checked_mul(8)?;
+    let mut owned = OwnedBinary::new(byte_len)?;
     owned
         .as_mut_slice()
         .copy_from_slice(bytemuck::cast_slice(data));
@@ -129,8 +144,22 @@ pub fn has_nan_or_inf(mat: MatRef<'_, f64>) -> bool {
 #[macro_export]
 macro_rules! parse_mat {
     ($mat:ident, $env:expr, $rows:expr, $cols:expr, $bin:expr) => {
-        let slice = $crate::utils::binary_to_cow_f64($bin.as_slice());
-        if slice.len() != $rows * $cols {
+        let slice = match $crate::utils::binary_to_cow_f64($bin.as_slice()) {
+            Ok(s) => s,
+            Err(e) => return Ok($crate::utils::err_term($env, &e)),
+        };
+        let expected = match ($rows as usize).checked_mul($cols as usize) {
+            Some(n) => n,
+            None => {
+                return Ok($crate::utils::err_term(
+                    $env,
+                    &$crate::utils::WaffleError::InvalidInput(
+                        "rows * cols overflows usize".to_string(),
+                    ),
+                ))
+            }
+        };
+        if slice.len() != expected {
             return Ok($crate::utils::err_term(
                 $env,
                 &$crate::utils::WaffleError::DimensionMismatch(
