@@ -298,16 +298,6 @@ pub fn to_string_test() {
   should.be_true(string.contains(str, "(1, 1): 2.5"))
 }
 
-pub fn validate_square_test() {
-  let assert Ok(s) = sparse.from_triplets(3, 3, [#(0, 0, 1.0)])
-  sparse.validate_square(s) |> should.equal(Ok(Nil))
-}
-
-pub fn validate_square_non_square_test() {
-  let assert Ok(s) = sparse.from_triplets(2, 3, [#(0, 0, 1.0)])
-  sparse.validate_square(s) |> should.be_error()
-}
-
 pub fn from_triplets_duplicate_entries_summed_test() {
   let triplets = [#(0, 0, 1.0), #(0, 0, 2.0), #(1, 1, 3.0)]
   let assert Ok(s) = sparse.from_triplets(2, 2, triplets)

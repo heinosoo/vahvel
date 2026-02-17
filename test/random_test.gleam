@@ -115,33 +115,23 @@ pub fn bernoulli_seeded_p_too_high_test() {
   random.bernoulli_seeded(2, 2, 1.1, 42)
   |> should.be_error()
 }
-// ---------------------------------------------------------------------------
-// KNOWN RUST BUGS: These tests are commented out because the Rust NIF
-// currently does not reject std_dev <= 0 for normal distributions.
-// Uncomment after fixing native/waffle/src/lib.rs random_normal* functions.
-// ---------------------------------------------------------------------------
 
-// pub fn normal_zero_std_dev_test() {
-//   // BUG: Rust NIF should return error for std_dev = 0.0, but returns a matrix.
-//   // rand_distr::Normal::new(0.0, 0.0) returns Err but we don't handle it.
-//   random.normal(2, 2, 0.0, 0.0)
-//   |> should.be_error()
-// }
-//
-// pub fn normal_negative_std_dev_test() {
-//   // BUG: Rust NIF should return error for std_dev < 0, but returns a matrix.
-//   random.normal(2, 2, 0.0, -1.0)
-//   |> should.be_error()
-// }
-//
-// pub fn normal_seeded_zero_std_dev_test() {
-//   // BUG: Rust NIF should return error for std_dev = 0.0.
-//   random.normal_seeded(2, 2, 0.0, 0.0, 42)
-//   |> should.be_error()
-// }
-//
-// pub fn normal_seeded_negative_std_dev_test() {
-//   // BUG: Rust NIF should return error for std_dev < 0.
-//   random.normal_seeded(2, 2, 0.0, -1.0, 42)
-//   |> should.be_error()
-// }
+pub fn normal_zero_std_dev_test() {
+  random.normal(2, 2, 0.0, 0.0)
+  |> should.be_error()
+}
+
+pub fn normal_negative_std_dev_test() {
+  random.normal(2, 2, 0.0, -1.0)
+  |> should.be_error()
+}
+
+pub fn normal_seeded_zero_std_dev_test() {
+  random.normal_seeded(2, 2, 0.0, 0.0, 42)
+  |> should.be_error()
+}
+
+pub fn normal_seeded_negative_std_dev_test() {
+  random.normal_seeded(2, 2, 0.0, -1.0, 42)
+  |> should.be_error()
+}

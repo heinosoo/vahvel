@@ -99,8 +99,8 @@ pub fn mat_to_binary<'a>(mat: MatRef<'_, f64>, env: Env<'a>) -> Option<Binary<'a
     let mut offset = 0;
 
     for col in mat.col_iter() {
-        if col.row_stride() == 1 {
-            let col_slice = unsafe { std::slice::from_raw_parts(col.as_ptr(), col.nrows()) };
+        if let Some(col) = col.try_as_col_major() {
+            let col_slice = col.as_slice();
             let byte_len = col_slice.len() * 8;
             let src_bytes = bytemuck::cast_slice(col_slice);
             dest_bytes[offset..offset + byte_len].copy_from_slice(src_bytes);

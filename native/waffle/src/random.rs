@@ -90,6 +90,12 @@ pub fn random_normal<'a>(
         Err(e) => return Ok(err_term(env, &e)),
     };
 
+    if std_dev <= 0.0 {
+        return Ok(err_term(
+            env,
+            &WaffleError::InvalidInput("std_dev must be positive".to_string()),
+        ));
+    }
     let dist = match Normal::new(mean, std_dev) {
         Ok(d) => d,
         Err(_) => {
@@ -121,6 +127,12 @@ pub fn random_normal_seeded<'a>(
         Err(e) => return Ok(err_term(env, &e)),
     };
 
+    if std_dev <= 0.0 {
+        return Ok(err_term(
+            env,
+            &WaffleError::InvalidInput("std_dev must be positive".to_string()),
+        ));
+    }
     let dist = match Normal::new(mean, std_dev) {
         Ok(d) => d,
         Err(_) => {

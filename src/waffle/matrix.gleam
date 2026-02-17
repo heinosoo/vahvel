@@ -19,7 +19,6 @@
 //// - `get(m, row, col)` — single element
 //// - `row(m, index)` / `col(m, index)` — extract row/column as list
 //// - `to_list(m)` — convert to nested list (row-major output)
-//// - `to_binary(m)` / `from_binary(rows, cols, data)` — raw binary access
 ////
 //// ## Operations
 ////
@@ -94,7 +93,7 @@ pub fn dims(matrix: Matrix) -> #(Int, Int) {
   #(matrix.rows, matrix.cols)
 }
 
-/// Validates that a matrix is square. Returns an error if rows != cols.
+@internal
 pub fn validate_square(matrix: Matrix) -> Result(Nil, MatrixError) {
   case matrix.rows == matrix.cols {
     True -> Ok(Nil)
@@ -129,7 +128,7 @@ fn validate_multipliable(a: Matrix, b: Matrix) -> Result(Nil, MatrixError) {
   }
 }
 
-/// Validates that a matrix is symmetric. Returns an error if not square or not symmetric.
+@internal
 pub fn validate_symmetric(matrix: Matrix) -> Result(Nil, MatrixError) {
   use _ <- result.try(validate_square(matrix))
   let n = matrix.rows
@@ -323,12 +322,12 @@ pub fn to_list(matrix: Matrix) -> List(List(Float)) {
   })
 }
 
-/// Get the binary data from a matrix.
+@internal
 pub fn to_binary(matrix: Matrix) -> BitArray {
   matrix.data
 }
 
-/// Create a matrix from binary data.
+@internal
 pub fn from_binary(
   rows: Int,
   cols: Int,

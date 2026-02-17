@@ -671,7 +671,7 @@ fn matrix_error_to_string(error: matrix.MatrixError) -> String {
   }
 }
 
-/// Validates that a sparse matrix is square. Returns an error if rows != cols.
+@internal
 pub fn validate_square(matrix: SparseMatrix) -> Result(Nil, SparseError) {
   case matrix.rows == matrix.cols {
     True -> Ok(Nil)
@@ -716,8 +716,7 @@ pub fn to_string(matrix: SparseMatrix) -> String {
   }
 }
 
-/// Get the raw CSC data components (nnz, col_ptr, row_indices, values).
-/// This is useful for passing to NIFs.
+@internal
 pub fn to_csc_data(matrix: SparseMatrix) -> #(Int, BitArray, BitArray, BitArray) {
   #(matrix.nnz, matrix.col_ptr, matrix.row_indices, matrix.values)
 }
