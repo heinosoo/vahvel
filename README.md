@@ -4,11 +4,11 @@ Linear algebra for Gleam, powered by Rust.
 
 ## What
 
-A Gleam linear algebra library. Matrix arithmetic, decompositions (LU, QR, SVD), and linear solvers — all backed by [faer](https://github.com/sarah-ek/faer-rs), a pure Rust linear algebra crate with no C/Fortran dependencies.
+A Gleam linear algebra library. Matrix arithmetic, decompositions (LU, QR, SVD), and linear solvers — backed by [faer](https://github.com/sarah-ek/faer-rs), a pure Rust linear algebra crate. Also includes optimization via [HiGHS](https://highs.dev).
 
 ## Why
 
-There is no linear algebra library in the Gleam ecosystem. faer is fast (often outperforms OpenBLAS), safe, and compiles anywhere Rust does.
+There is no linear algebra library in the Gleam ecosystem. faer is fast (often outperforms OpenBLAS), safe, and has no BLAS/LAPACK dependencies.
 
 ## Features
 
@@ -95,8 +95,13 @@ The setup script builds the native library from source using Cargo. It skips the
 
 - Gleam
 - Erlang/OTP
-- Rust (required for building the native library)
+- Rust (install via https://rustup.rs/)
+- cmake (required to build the native library)
 
 ## Status
 
 Early development. See [docs/ROADMAP.md](docs/ROADMAP.md) for the implementation plan.
+
+## Learn More
+
+- [Architecture](docs/ARCHITECTURE.md) — System design, data flow, and key decisions

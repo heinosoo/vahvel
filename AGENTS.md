@@ -6,6 +6,7 @@
 |----------|---------------|
 | This file (`AGENTS.md`) | Orient here first. Coding standards, pitfalls, getting started. |
 | `README.md` | User-facing landing page with basic project and usage information. |
+| `docs/ARCHITECTURE.md` | System architecture with diagrams. Human-focused onboarding. |
 | `docs/ROADMAP.md` | Step-by-step implementation plan with checkboxes. |
 
 ---
@@ -119,7 +120,7 @@ Use [docs.rs](https://docs.rs) for Rust crate documentation. Key crates:
 |-------|---------|-----------|
 | `rustler` | Erlang NIF bindings | Safe Rust wrappers for NIF creation; handles type conversion |
 | `faer` | Linear algebra | High-performance dense linear algebra; native column-major layout |
-| `highs` | Optimization | Mixed-integer linear programming solver; CSC-friendly API |
+| `highs` | Optimization | Mixed-integer linear programming solver; CSC-friendly API; requires cmake |
 | `bytemuck` | Zero-copy binary casting | Safe abstraction over `unsafe` pointer casting; eliminates UB class |
 | `rand` + `rand_distr` | Quality RNG | ChaCha20 CSPRNG; efficient for large matrices; seeded variants for reproducibility |
 
