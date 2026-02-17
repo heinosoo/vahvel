@@ -175,9 +175,8 @@ fn validate_and_get_dimensions(
 ) -> Result(#(Int, Int), MatrixError) {
   case data {
     [] -> Error(EmptyInput)
-    _ -> {
+    [first_row, ..] -> {
       let rows = list.length(data)
-      let first_row = list.first(data) |> result.unwrap([])
       let cols = list.length(first_row)
 
       case cols {
@@ -445,17 +444,13 @@ fn pack_to_column_major(elements: List(Float), rows: Int, cols: Int) -> BitArray
   int.range(from: 0, to: cols, with: <<>>, run: fn(acc, col) {
     int.range(from: 0, to: rows, with: acc, run: fn(inner_acc, row) {
       let idx = row * cols + col
-      let val = list_at(elements, idx)
+      let val =
+        list.drop(elements, idx)
+        |> list.first
+        |> result.unwrap(0.0)
       <<inner_acc:bits, val:float-little-size(64)>>
     })
   })
-}
-
-fn list_at(lst: List(a), index: Int) -> a {
-  case list.drop(lst, index) {
-    [x, ..] -> x
-    _ -> panic as "list_at: index out of bounds"
-  }
 }
 
 /// Vertically stack two matrices (top on bottom). Must have same column count.

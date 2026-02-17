@@ -104,7 +104,6 @@ pub fn inverse(m: matrix.Matrix) -> Result(matrix.Matrix, matrix.MatrixError) {
     |> result.map_error(nif_error_to_matrix_error),
   )
   matrix.from_binary(n, n, data)
-  |> result.map_error(fn(err) { err })
 }
 
 /// Compute the LU decomposition with partial pivoting of a square matrix.

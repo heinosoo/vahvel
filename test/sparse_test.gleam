@@ -185,6 +185,15 @@ pub fn map_sparse_test() {
   matrix.to_list(dense) |> should.equal([[10.0, 0.0], [0.0, 20.0]])
 }
 
+pub fn map_all_to_zero_test() {
+  let assert Ok(s) = sparse.from_triplets(2, 3, [#(0, 0, 1.0), #(1, 2, 2.0)])
+  let mapped = sparse.map(s, fn(_) { 0.0 })
+  sparse.nnz(mapped) |> should.equal(0)
+  let assert Ok(dense) = sparse.to_dense(mapped)
+  matrix.to_list(dense)
+  |> should.equal([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]])
+}
+
 pub fn fold_sparse_sum_test() {
   let assert Ok(s) =
     sparse.from_triplets(2, 2, [#(0, 0, 1.0), #(0, 1, 2.0), #(1, 0, 3.0)])

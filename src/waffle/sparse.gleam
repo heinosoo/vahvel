@@ -418,48 +418,33 @@ pub fn add(
   a: SparseMatrix,
   b: SparseMatrix,
 ) -> Result(SparseMatrix, SparseError) {
-  case a.rows == b.rows && a.cols == b.cols {
-    False ->
-      Error(InvalidDimensions(
-        "Cannot add "
-        <> int.to_string(a.rows)
-        <> "x"
-        <> int.to_string(a.cols)
-        <> " sparse to "
-        <> int.to_string(b.rows)
-        <> "x"
-        <> int.to_string(b.cols)
-        <> " sparse: dimensions do not match",
-      ))
-    True -> {
-      use #(rows, cols, nnz, col_ptr, row_idx, values) <- result.try(
-        nif.sparse_add(
-          a.rows,
-          a.cols,
-          a.nnz,
-          a.col_ptr,
-          a.row_indices,
-          a.values,
-          b.rows,
-          b.cols,
-          b.nnz,
-          b.col_ptr,
-          b.row_indices,
-          b.values,
-        )
-        |> result.map_error(fn(msg) { InvalidDimensions(msg) }),
-      )
+  use _ <- result.try(validate_same_dimensions(a, b))
+  use #(rows, cols, nnz, col_ptr, row_idx, values) <- result.try(
+    nif.sparse_add(
+      a.rows,
+      a.cols,
+      a.nnz,
+      a.col_ptr,
+      a.row_indices,
+      a.values,
+      b.rows,
+      b.cols,
+      b.nnz,
+      b.col_ptr,
+      b.row_indices,
+      b.values,
+    )
+    |> result.map_error(fn(msg) { InvalidDimensions(msg) }),
+  )
 
-      Ok(SparseMatrix(
-        rows: rows,
-        cols: cols,
-        nnz: nnz,
-        col_ptr: col_ptr,
-        row_indices: row_idx,
-        values: values,
-      ))
-    }
-  }
+  Ok(SparseMatrix(
+    rows: rows,
+    cols: cols,
+    nnz: nnz,
+    col_ptr: col_ptr,
+    row_indices: row_idx,
+    values: values,
+  ))
 }
 
 /// Subtract two sparse matrices element-wise (a - b).
@@ -468,48 +453,33 @@ pub fn subtract(
   a: SparseMatrix,
   b: SparseMatrix,
 ) -> Result(SparseMatrix, SparseError) {
-  case a.rows == b.rows && a.cols == b.cols {
-    False ->
-      Error(InvalidDimensions(
-        "Cannot subtract "
-        <> int.to_string(b.rows)
-        <> "x"
-        <> int.to_string(b.cols)
-        <> " sparse from "
-        <> int.to_string(a.rows)
-        <> "x"
-        <> int.to_string(a.cols)
-        <> " sparse: dimensions do not match",
-      ))
-    True -> {
-      use #(rows, cols, nnz, col_ptr, row_idx, values) <- result.try(
-        nif.sparse_subtract(
-          a.rows,
-          a.cols,
-          a.nnz,
-          a.col_ptr,
-          a.row_indices,
-          a.values,
-          b.rows,
-          b.cols,
-          b.nnz,
-          b.col_ptr,
-          b.row_indices,
-          b.values,
-        )
-        |> result.map_error(fn(msg) { InvalidDimensions(msg) }),
-      )
+  use _ <- result.try(validate_same_dimensions(a, b))
+  use #(rows, cols, nnz, col_ptr, row_idx, values) <- result.try(
+    nif.sparse_subtract(
+      a.rows,
+      a.cols,
+      a.nnz,
+      a.col_ptr,
+      a.row_indices,
+      a.values,
+      b.rows,
+      b.cols,
+      b.nnz,
+      b.col_ptr,
+      b.row_indices,
+      b.values,
+    )
+    |> result.map_error(fn(msg) { InvalidDimensions(msg) }),
+  )
 
-      Ok(SparseMatrix(
-        rows: rows,
-        cols: cols,
-        nnz: nnz,
-        col_ptr: col_ptr,
-        row_indices: row_idx,
-        values: values,
-      ))
-    }
-  }
+  Ok(SparseMatrix(
+    rows: rows,
+    cols: cols,
+    nnz: nnz,
+    col_ptr: col_ptr,
+    row_indices: row_idx,
+    values: values,
+  ))
 }
 
 /// Scale all non-zero elements of a sparse matrix by a scalar.
@@ -542,18 +512,40 @@ pub fn scale(
 
 /// Apply a function to each non-zero element of the sparse matrix.
 /// Returns a new sparse matrix with transformed values.
+/// Values that become 0.0 after mapping are removed.
 pub fn map(matrix: SparseMatrix, f: fn(Float) -> Float) -> SparseMatrix {
   let triplets = to_triplets(matrix)
   let mapped =
-    list.map(triplets, fn(t) {
+    list.filter_map(triplets, fn(t) {
       let #(row, col, val) = t
-      #(row, col, f(val))
+      let new_val = f(val)
+      case new_val == 0.0 {
+        True -> Error(Nil)
+        False -> Ok(#(row, col, new_val))
+      }
     })
 
-  case from_triplets(matrix.rows, matrix.cols, mapped) {
-    Ok(result) -> result
-    Error(_) -> matrix
+  case mapped {
+    [] -> empty_sparse(matrix.rows, matrix.cols)
+    _ ->
+      from_triplets(matrix.rows, matrix.cols, mapped)
+      |> result.unwrap(empty_sparse(matrix.rows, matrix.cols))
   }
+}
+
+fn empty_sparse(rows: Int, cols: Int) -> SparseMatrix {
+  let col_ptr =
+    int.range(from: 0, to: cols + 1, with: <<>>, run: fn(acc, _) {
+      <<acc:bits, 0:int-little-size(64)>>
+    })
+  SparseMatrix(
+    rows: rows,
+    cols: cols,
+    nnz: 0,
+    col_ptr: col_ptr,
+    row_indices: <<>>,
+    values: <<>>,
+  )
 }
 
 /// Fold over all non-zero elements of the sparse matrix.
@@ -599,8 +591,7 @@ pub fn row(matrix: SparseMatrix, index: Int) -> Result(List(Float), SparseError)
     True -> {
       let result =
         range.map(0, matrix.cols, fn(col) {
-          let assert Ok(v) = get(matrix, index, col)
-          v
+          get(matrix, index, col) |> result.unwrap(0.0)
         })
       Ok(result)
     }
@@ -624,8 +615,7 @@ pub fn col(matrix: SparseMatrix, index: Int) -> Result(List(Float), SparseError)
     True -> {
       let result =
         range.map(0, matrix.rows, fn(row) {
-          let assert Ok(v) = get(matrix, row, index)
-          v
+          get(matrix, row, index) |> result.unwrap(0.0)
         })
       Ok(result)
     }
@@ -640,31 +630,33 @@ pub fn zip_with(
   b: SparseMatrix,
   f: fn(Float, Float) -> Float,
 ) -> Result(SparseMatrix, SparseError) {
+  use _ <- result.try(validate_same_dimensions(a, b))
+  use a_dense <- result.try(to_dense(a))
+  use b_dense <- result.try(to_dense(b))
+  use zipped <- result.try(
+    matrix.zip_with(a_dense, b_dense, f)
+    |> result.map_error(fn(e) { InvalidDimensions(matrix_error_to_string(e)) }),
+  )
+  from_dense(zipped)
+}
+
+fn validate_same_dimensions(
+  a: SparseMatrix,
+  b: SparseMatrix,
+) -> Result(Nil, SparseError) {
   case a.rows == b.rows && a.cols == b.cols {
+    True -> Ok(Nil)
     False ->
       Error(InvalidDimensions(
-        "Cannot zip "
+        "Dimension mismatch: "
         <> int.to_string(a.rows)
         <> "x"
         <> int.to_string(a.cols)
-        <> " sparse with "
+        <> " vs "
         <> int.to_string(b.rows)
         <> "x"
-        <> int.to_string(b.cols)
-        <> " sparse: dimensions do not match",
+        <> int.to_string(b.cols),
       ))
-    True -> {
-      case to_dense(a), to_dense(b) {
-        Ok(a_dense), Ok(b_dense) -> {
-          case matrix.zip_with(a_dense, b_dense, f) {
-            Ok(zipped) -> from_dense(zipped)
-            Error(e) -> Error(InvalidDimensions(matrix_error_to_string(e)))
-          }
-        }
-        Error(e), _ -> Error(e)
-        _, Error(e) -> Error(e)
-      }
-    }
   }
 }
 
@@ -705,7 +697,7 @@ pub fn to_string(matrix: SparseMatrix) -> String {
       <> ", "
       <> int.to_string(col)
       <> "): "
-      <> float_to_string(val)
+      <> float.to_string(val)
     })
   case lines {
     [] ->
@@ -722,10 +714,6 @@ pub fn to_string(matrix: SparseMatrix) -> String {
       <> ":\n"
       <> string.join(lines, "\n")
   }
-}
-
-fn float_to_string(x: Float) -> String {
-  float.to_string(x)
 }
 
 /// Get the raw CSC data components (nnz, col_ptr, row_indices, values).
