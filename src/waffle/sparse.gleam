@@ -1,3 +1,41 @@
+//// Sparse matrix operations using CSC (Compressed Sparse Column) format.
+////
+//// Sparse matrices efficiently store matrices with many zero elements by
+//// only storing non-zero values. This module uses CSC format, which is
+//// optimal for column-wise operations and arithmetic with sparse matrices.
+////
+//// ## Creating sparse matrices
+////
+//// Use `from_triplets` to create from coordinate format:
+////
+//// ```gleam
+//// let assert Ok(s) = from_triplets(3, 3, [#(0, 0, 1.0), #(1, 1, 2.0)])
+//// ```
+////
+//// Or convert from dense: `from_dense(dense_matrix)`
+////
+//// ## Conversions
+////
+//// - `to_dense(s)` / `from_dense(m)` — convert between sparse and dense
+//// - `to_triplets(s)` — extract as list of (row, col, value)
+////
+//// ## Operations
+////
+//// Arithmetic: `add`, `subtract`, `scale`, `multiply`
+////
+//// Matrix-vector: `multiply_dense(sparse, dense)` — sparse-dense multiplication
+////
+//// Transformations: `transpose`, `map`, `fold`, `fold_with_indices`
+////
+//// Access: `get(s, row, col)`, `row(s, index)`, `col(s, index)`
+////
+//// ## Error handling
+////
+//// Operations return `Result(a, SparseError)`. Common errors:
+//// - `EmptyInput` — input was empty
+//// - `InvalidDimensions` — dimensions were invalid
+//// - `IndexOutOfBounds` — index outside matrix bounds
+
 import gleam/bit_array
 import gleam/float
 import gleam/int

@@ -1,3 +1,44 @@
+//// Matrix operations for linear algebra.
+////
+//// This module provides a `Matrix` type stored in column-major order as f64
+//// values, along with constructors, accessors, and operations for working
+//// with dense matrices.
+////
+//// ## Creating matrices
+////
+//// Use `from_list` to create a matrix from a nested list (row-major input):
+////
+//// ```gleam
+//// let assert Ok(m) = from_list([[1.0, 2.0], [3.0, 4.0]])
+//// ```
+////
+//// Convenience constructors: `identity`, `zeros`, `ones`, `diagonal`.
+////
+//// ## Accessing data
+////
+//// - `get(m, row, col)` — single element
+//// - `row(m, index)` / `col(m, index)` — extract row/column as list
+//// - `to_list(m)` — convert to nested list (row-major output)
+//// - `to_binary(m)` / `from_binary(rows, cols, data)` — raw binary access
+////
+//// ## Operations
+////
+//// Arithmetic: `add`, `subtract`, `scale`, `multiply`
+////
+//// Transformations: `transpose`, `reshape`, `map`, `fold`, `zip_with`
+////
+//// Combining: `vstack`, `hstack`
+////
+//// Slicing: `slice(m, row_start, row_count, col_start, col_count)`
+////
+//// ## Error handling
+////
+//// Most operations return `Result(a, MatrixError)`. Common errors:
+//// - `EmptyInput` — input was `[]`
+//// - `RaggedRows` — rows had different lengths
+//// - `DimensionMismatch` — incompatible dimensions for operation
+//// - `SingularMatrix` — matrix cannot be inverted
+
 import gleam/bit_array
 import gleam/float
 import gleam/int

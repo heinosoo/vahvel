@@ -87,15 +87,21 @@ type VariableType {
 
 /// The optimization direction.
 pub type Direction {
+  /// Minimize the objective function.
   Minimize
+  /// Maximize the objective function.
   Maximize
 }
 
 /// The status of a solution returned by the solver.
 pub type SolutionStatus {
+  /// An optimal solution was found.
   Optimal
+  /// The problem is infeasible (no solution exists).
   Infeasible
+  /// The problem is unbounded (objective can go to infinity).
   Unbounded
+  /// The solver could not determine the status.
   Unknown
 }
 
@@ -143,7 +149,9 @@ pub opaque type Model {
 
 /// Errors that can occur during optimization.
 pub type OptError {
+  /// The solver encountered an internal error.
   SolverError(String)
+  /// Invalid input was provided to the model.
   InvalidInput(String)
 }
 

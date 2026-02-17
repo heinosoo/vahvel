@@ -8,8 +8,8 @@ Step-by-step implementation plan.
 
 ## Documentation
 
-- [ ] Write module docs (`waffle/matrix`).
-- [ ] Write module docs (`waffle/linalg`).
+- [x] Write module docs (`waffle/matrix`).
+- [x] Write module docs (`waffle/linalg`).
 - [x] Write optimization docs (`waffle/opt`) with examples.
 
 ## Benchmarks

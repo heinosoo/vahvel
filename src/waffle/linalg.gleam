@@ -1,3 +1,32 @@
+//// Linear algebra operations for matrices.
+////
+//// This module provides numerical algorithms for solving linear systems,
+//// matrix decompositions, and related computations. All operations work
+//// with the `Matrix` type from `waffle/matrix`.
+////
+//// ## Solving linear systems
+////
+//// ```gleam
+//// let assert Ok(a) = from_list([[2.0, 1.0], [1.0, 3.0]])
+//// let assert Ok(b) = from_list([[4.0], [5.0]])
+//// let assert Ok(x) = linalg.solve(a, b)
+//// ```
+////
+//// ## Decompositions
+////
+//// - `lu(m)` — LU decomposition with partial pivoting: PA = LU
+//// - `qr(m)` — Thin QR decomposition: A = QR
+//// - `svd(m)` — Thin singular value decomposition: A = UΣVᵀ
+////
+//// ## Other operations
+////
+//// - `determinant(m)` — determinant of a square matrix
+//// - `inverse(m)` — matrix inverse (returns error for singular matrices)
+//// - `symmetric_eigenvalues(m)` — eigenvalues of a symmetric matrix
+////
+//// All decompositions and operations return `Result` types to handle
+//// dimension mismatches and singular matrices gracefully.
+
 import gleam/bit_array
 import gleam/int
 import gleam/list
@@ -9,6 +38,8 @@ import waffle/matrix
 /// Contains the lower triangular matrix L, upper triangular matrix U,
 /// and the pivot permutation as a list of row indices.
 pub type LU {
+  /// The decomposition result with L (lower triangular), U (upper triangular),
+  /// and pivot permutation.
   LU(l: matrix.Matrix, u: matrix.Matrix, pivot: List(Int))
 }
 
@@ -16,6 +47,7 @@ pub type LU {
 /// Q is an orthogonal matrix with orthonormal columns.
 /// R is an upper triangular matrix.
 pub type QR {
+  /// The decomposition result with Q (orthogonal) and R (upper triangular).
   QR(q: matrix.Matrix, r: matrix.Matrix)
 }
 
@@ -23,6 +55,7 @@ pub type QR {
 /// U has orthonormal columns, V has orthonormal columns,
 /// and S contains the singular values in descending order.
 pub type SVD {
+  /// The decomposition result with U, singular values, and V.
   SVD(u: matrix.Matrix, singular_values: List(Float), v: matrix.Matrix)
 }
 

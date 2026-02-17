@@ -1,3 +1,8 @@
+//// Version information for the Waffle library.
+////
+//// Provides the package version and utilities to check NIF version compatibility.
+//// The NIF must be loaded before `check_nif_version()` can be called.
+
 /// The version of the Gleam package (from gleam.toml).
 pub const package_version = "0.2.1"
 

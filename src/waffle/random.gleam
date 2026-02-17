@@ -1,3 +1,24 @@
+//// Random matrix generation with configurable distributions.
+////
+//// Generate matrices filled with random values from various distributions.
+//// All functions have seeded variants for reproducibility.
+////
+//// ## Distributions
+////
+//// - `uniform(rows, cols, min, max)` — uniform distribution in [min, max)
+//// - `normal(rows, cols, mean, std_dev)` — normal (Gaussian) distribution
+//// - `bernoulli(rows, cols, p)` — Bernoulli (0.0 or 1.0) with probability p
+////
+//// ## Seeded variants
+////
+//// For reproducible results, use the `_seeded` variants:
+////
+//// ```gleam
+//// let assert Ok(m1) = uniform_seeded(3, 3, 0.0, 1.0, 42)
+//// let assert Ok(m2) = uniform_seeded(3, 3, 0.0, 1.0, 42)
+//// // m1 == m2 (same seed produces same matrix)
+//// ```
+
 import gleam/result
 import waffle/internal/random
 import waffle/matrix
