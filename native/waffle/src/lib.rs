@@ -1,3 +1,4 @@
+mod bench;
 mod dense;
 mod opt;
 mod random;

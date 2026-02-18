@@ -143,6 +143,7 @@ The project uses a `justfile` for unified dev commands across both languages. In
 | `just fmt` | Auto-format both Gleam and Rust |
 | `just lint` | Format checks + Clippy (read-only, CI-safe) |
 | `just build` | Compile NIF from source (`gleam run -m waffle_build`) |
+| `just bench` | Run benchmark suite (builds NIF first); `just bench 200` fixes iteration count |
 | `just clean` | Clean all build artifacts |
 
 ### Underlying commands

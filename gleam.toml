@@ -1,6 +1,12 @@
 name = "waffle"
 version = "0.2.2"
-internal_modules = ["waffle/version", "waffle/internal", "waffle/internal/*"]
+internal_modules = [
+  "waffle/version",
+  "waffle/internal",
+  "waffle/internal/*",
+  "bench/*",
+  "waffle_bench",
+]
 
 # Fill out these fields if you intend to generate HTML documentation or publish
 # your project to the Hex package manager.

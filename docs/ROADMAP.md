@@ -14,6 +14,7 @@ Step-by-step implementation plan.
 
 ## Benchmarks
 
+- [x] Internal harness: `just bench` compares Gleam (NIF call path) vs pure Rust for multiply, LU, and solve across matrix sizes. Measures mean ± σ; overhead is roughly constant at ~2–5 μs for small matrices.
 - [ ] Compare performance against Python/NumPy for common ops.
 
 ## Future Enhancements

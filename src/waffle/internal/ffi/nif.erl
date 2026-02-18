@@ -13,7 +13,8 @@
     sparse_from_triplets/5, sparse_to_dense/6,
     sparse_from_dense/3, sparse_transpose/6, sparse_multiply_dense/9,
     sparse_multiply/12, sparse_add/12, sparse_subtract/12, sparse_scale/7,
-    solve_ilp/12
+    solve_ilp/12,
+    bench_multiply_ns/7, bench_solve_ns/5, bench_lu_ns/3
 ]).
 
 init() ->
@@ -116,3 +117,7 @@ sparse_scale(_Rows, _Cols, _Nnz, _ColPtr, _RowIndices, _Values, _Scalar) ->
 
 solve_ilp(_Direction, _ObjOffset, _ObjCoeffs, _ConRows, _ConCols, _ConNnz, _ColPtr, _RowIdx, _ConVals, _ConBounds, _VarBounds, _VarTypes) ->
     erlang:nif_error(nif_not_loaded).
+
+bench_multiply_ns(_ARows, _ACols, _ABin, _BRows, _BCols, _BBin, _Iterations) -> erlang:nif_error(nif_not_loaded).
+bench_solve_ns(_Rows, _Cols, _ABin, _BBin, _Iterations)                      -> erlang:nif_error(nif_not_loaded).
+bench_lu_ns(_N, _ABin, _Iterations)                                           -> erlang:nif_error(nif_not_loaded).
