@@ -43,10 +43,9 @@ fn make_vector(n: Int) -> matrix.Matrix {
   v
 }
 
-pub fn solve_rows(iters_for: fn(Int) -> Int) -> List(BenchRow) {
-  [10, 50, 100, 500]
+pub fn solve_rows(sizes: List(Int), iters: Int) -> List(BenchRow) {
+  sizes
   |> list.map(fn(n) {
-    let iters = iters_for(n)
     let a = make_square(n)
     let b = make_vector(n)
     let gleam_row =
@@ -69,10 +68,9 @@ pub fn solve_rows(iters_for: fn(Int) -> Int) -> List(BenchRow) {
   })
 }
 
-pub fn lu_rows(iters_for: fn(Int) -> Int) -> List(BenchRow) {
-  [10, 50, 100, 500]
+pub fn lu_rows(sizes: List(Int), iters: Int) -> List(BenchRow) {
+  sizes
   |> list.map(fn(n) {
-    let iters = iters_for(n)
     let a = make_square(n)
     let gleam_row =
       harness.run(n, iters, fn() {

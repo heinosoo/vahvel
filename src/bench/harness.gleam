@@ -64,16 +64,6 @@ fn stdev(times: List(Int)) -> Int {
   }
 }
 
-pub fn iterations_for_size(n: Int) -> Int {
-  case n {
-    _ if n <= 10 -> 5000
-    _ if n <= 50 -> 500
-    _ if n <= 100 -> 200
-    _ if n <= 500 -> 50
-    _ -> 10
-  }
-}
-
 pub fn section_header(title: String) -> String {
   title <> "\n" <> string.repeat("=", string.length(title))
 }

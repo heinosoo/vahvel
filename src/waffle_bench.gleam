@@ -9,13 +9,6 @@ import gleam/result
 @external(erlang, "bench_ffi", "argv")
 fn argv() -> List(String)
 
-fn iters_for(fixed: Int) -> fn(Int) -> Int {
-  case fixed > 0 {
-    True -> fn(_) { fixed }
-    False -> harness.iterations_for_size
-  }
-}
-
 fn print_section(title: String, bench: fn() -> List(BenchRow)) -> Nil {
   io.println(harness.section_header(title))
   io.println(harness.format_table(bench()))
@@ -23,24 +16,27 @@ fn print_section(title: String, bench: fn() -> List(BenchRow)) -> Nil {
 }
 
 pub fn main() {
-  let fixed =
+  let iters =
     argv()
     |> list.first
     |> result.try(int.parse)
-    |> result.unwrap(0)
-  let iters = iters_for(fixed)
+    |> result.unwrap(100)
+
+  let sizes = [16, 64, 256, 1024, 4096]
 
   print_section("from_list scaling (Gleam marshalling cost)", fn() {
-    matrix_bench.from_list_rows(iters)
+    matrix_bench.from_list_rows(sizes, iters)
   })
 
-  print_section("matrix.multiply", fn() { matrix_bench.multiply_rows(iters) })
+  print_section("matrix.multiply", fn() {
+    matrix_bench.multiply_rows(sizes, iters)
+  })
 
-  print_section("linalg.solve", fn() { linalg_bench.solve_rows(iters) })
+  print_section("linalg.solve", fn() { linalg_bench.solve_rows(sizes, iters) })
 
-  print_section("linalg.lu", fn() { linalg_bench.lu_rows(iters) })
+  print_section("linalg.lu", fn() { linalg_bench.lu_rows(sizes, iters) })
 
-  print_section("matrix.slice", fn() { matrix_bench.slice_rows(iters) })
+  print_section("matrix.slice", fn() { matrix_bench.slice_rows(sizes, iters) })
 
-  print_section("matrix.vstack", fn() { matrix_bench.vstack_rows(iters) })
+  print_section("matrix.vstack", fn() { matrix_bench.vstack_rows(sizes, iters) })
 }

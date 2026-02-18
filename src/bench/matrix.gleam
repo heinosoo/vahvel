@@ -27,10 +27,9 @@ fn make_matrix(n: Int) -> matrix.Matrix {
   m
 }
 
-pub fn from_list_rows(iters_for: fn(Int) -> Int) -> List(BenchRow) {
-  [10, 50, 100, 500]
+pub fn from_list_rows(sizes: List(Int), iters: Int) -> List(BenchRow) {
+  sizes
   |> list.map(fn(n) {
-    let iters = iters_for(n)
     let rows =
       list.repeat(Nil, n)
       |> list.index_map(fn(_, i) {
@@ -43,10 +42,9 @@ pub fn from_list_rows(iters_for: fn(Int) -> Int) -> List(BenchRow) {
   })
 }
 
-pub fn multiply_rows(iters_for: fn(Int) -> Int) -> List(BenchRow) {
-  [10, 50, 100, 500]
+pub fn multiply_rows(sizes: List(Int), iters: Int) -> List(BenchRow) {
+  sizes
   |> list.map(fn(n) {
-    let iters = iters_for(n)
     let a = make_matrix(n)
     let gleam_row =
       harness.run(n, iters, fn() {
@@ -65,10 +63,9 @@ pub fn multiply_rows(iters_for: fn(Int) -> Int) -> List(BenchRow) {
   })
 }
 
-pub fn slice_rows(iters_for: fn(Int) -> Int) -> List(BenchRow) {
-  [10, 50, 100, 500]
+pub fn slice_rows(sizes: List(Int), iters: Int) -> List(BenchRow) {
+  sizes
   |> list.map(fn(n) {
-    let iters = iters_for(n)
     let a = make_matrix(n)
     let q = n / 4
     let h = n / 2
@@ -80,10 +77,9 @@ pub fn slice_rows(iters_for: fn(Int) -> Int) -> List(BenchRow) {
   })
 }
 
-pub fn vstack_rows(iters_for: fn(Int) -> Int) -> List(BenchRow) {
-  [10, 50, 100, 500]
+pub fn vstack_rows(sizes: List(Int), iters: Int) -> List(BenchRow) {
+  sizes
   |> list.map(fn(n) {
-    let iters = iters_for(n)
     let a = make_matrix(n)
     harness.run(n, iters, fn() {
       let _ = matrix.vstack(a, a)
