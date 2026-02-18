@@ -1,23 +1,22 @@
 import gleam/float
 import gleam/int
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/string
 
 pub type BenchRow {
   BenchRow(
-    label: String,
     size: Int,
     gleam_ns: Int,
     gleam_stdev_ns: Int,
-    rust_ns: Int,
-    rust_stdev_ns: Int,
+    rust_result: Option(#(Int, Int)),
   )
 }
 
 @external(erlang, "bench_ffi", "monotonic_time_ns")
 fn now() -> Int
 
-pub fn run(label: String, size: Int, iterations: Int, f: fn() -> a) -> BenchRow {
+pub fn run(size: Int, iterations: Int, f: fn() -> a) -> BenchRow {
   let warmup = int.max(iterations / 10, 3)
   list.repeat(Nil, warmup) |> list.each(fn(_) { f() })
 
@@ -37,12 +36,10 @@ pub fn run(label: String, size: Int, iterations: Int, f: fn() -> a) -> BenchRow 
     })
 
   BenchRow(
-    label: label,
     size: size,
     gleam_ns: mean_ns,
     gleam_stdev_ns: stdev(times),
-    rust_ns: 0,
-    rust_stdev_ns: 0,
+    rust_result: None,
   )
 }
 
@@ -67,14 +64,8 @@ fn stdev(times: List(Int)) -> Int {
   }
 }
 
-pub fn iterations_for_size(n: Int) -> Int {
-  case n {
-    _ if n <= 10 -> 5000
-    _ if n <= 50 -> 500
-    _ if n <= 100 -> 200
-    _ if n <= 500 -> 50
-    _ -> 10
-  }
+pub fn section_header(title: String) -> String {
+  title <> "\n" <> string.repeat("=", string.length(title))
 }
 
 // Format nanoseconds as "X.Y" microseconds string. Handles negative values.
@@ -98,31 +89,46 @@ fn size_label(size: Int) -> String {
 }
 
 fn rust_str(row: BenchRow) -> String {
-  case row.rust_ns {
-    0 -> "-"
-    r -> format_us(r)
+  case row.rust_result {
+    None -> "-"
+    Some(#(mean, _)) -> format_us(mean)
   }
 }
 
 fn rust_stdev_str(row: BenchRow) -> String {
-  case row.rust_ns {
-    0 -> "-"
-    _ -> format_us(row.rust_stdev_ns)
+  case row.rust_result {
+    None -> "-"
+    Some(#(_, stdev_ns)) -> format_us(stdev_ns)
   }
 }
 
 fn overhead_str(row: BenchRow) -> String {
-  case row.rust_ns {
-    0 -> "-"
-    r -> format_us(row.gleam_ns - r)
+  case row.rust_result {
+    None -> "-"
+    Some(#(rust_ns, _)) -> format_us(row.gleam_ns - rust_ns)
+  }
+}
+
+fn ratio_str(row: BenchRow) -> String {
+  case row.rust_result {
+    None -> "-"
+    Some(#(rust_ns, _)) ->
+      case rust_ns > 0 {
+        False -> "-"
+        True -> {
+          let ratio = int.to_float(row.gleam_ns) /. int.to_float(rust_ns)
+          let tenths = float.round(ratio *. 10.0)
+          let whole = tenths / 10
+          let frac = tenths % 10
+          int.to_string(whole) <> "." <> int.to_string(frac) <> "×"
+        }
+      }
   }
 }
 
 pub fn format_table(rows: List(BenchRow)) -> String {
   let header =
-    string.pad_end("Operation", 20, " ")
-    <> "  "
-    <> string.pad_end("Size", 6, " ")
+    string.pad_end("Size", 8, " ")
     <> "  "
     <> string.pad_start("Gleam (μs)", 10, " ")
     <> "  "
@@ -133,10 +139,10 @@ pub fn format_table(rows: List(BenchRow)) -> String {
     <> string.pad_start("σ(μs)", 7, " ")
     <> "  "
     <> string.pad_start("Overhead", 10, " ")
-  let sep =
-    string.repeat("-", 20)
     <> "  "
-    <> string.repeat("-", 6)
+    <> string.pad_start("Ratio", 7, " ")
+  let sep =
+    string.repeat("-", 8)
     <> "  "
     <> string.repeat("-", 10)
     <> "  "
@@ -147,12 +153,12 @@ pub fn format_table(rows: List(BenchRow)) -> String {
     <> string.repeat("-", 7)
     <> "  "
     <> string.repeat("-", 10)
+    <> "  "
+    <> string.repeat("-", 7)
   let body =
     rows
     |> list.map(fn(row) {
-      string.pad_end(row.label, 20, " ")
-      <> "  "
-      <> string.pad_end(size_label(row.size), 6, " ")
+      string.pad_end(size_label(row.size), 8, " ")
       <> "  "
       <> string.pad_start(format_us(row.gleam_ns), 10, " ")
       <> "  "
@@ -163,6 +169,8 @@ pub fn format_table(rows: List(BenchRow)) -> String {
       <> string.pad_start(rust_stdev_str(row), 7, " ")
       <> "  "
       <> string.pad_start(overhead_str(row), 10, " ")
+      <> "  "
+      <> string.pad_start(ratio_str(row), 7, " ")
     })
     |> string.join("\n")
   header <> "\n" <> sep <> "\n" <> body

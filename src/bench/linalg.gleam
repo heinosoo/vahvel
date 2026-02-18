@@ -1,8 +1,25 @@
 import bench/harness.{type BenchRow, BenchRow}
 import gleam/int
 import gleam/list
+import gleam/option.{None, Some}
 import waffle/linalg
 import waffle/matrix
+
+@external(erlang, "nif", "bench_solve_ns")
+fn rust_bench_solve(
+  rows: Int,
+  cols: Int,
+  a: BitArray,
+  b: BitArray,
+  iterations: Int,
+) -> Result(#(Int, Int), String)
+
+@external(erlang, "nif", "bench_lu_ns")
+fn rust_bench_lu(
+  n: Int,
+  a: BitArray,
+  iterations: Int,
+) -> Result(#(Int, Int), String)
 
 // Diagonally dominant n×n matrix: (n+1) on diagonal, (i+j+1)*0.01 off-diagonal.
 fn make_square(n: Int) -> matrix.Matrix {
@@ -26,22 +43,17 @@ fn make_vector(n: Int) -> matrix.Matrix {
   v
 }
 
-pub fn solve_rows(
-  iters_for: fn(Int) -> Int,
-  rust_bench: fn(Int, Int, BitArray, BitArray, Int) ->
-    Result(#(Int, Int), String),
-) -> List(BenchRow) {
-  [10, 50, 100, 500]
+pub fn solve_rows(sizes: List(Int), iters: Int) -> List(BenchRow) {
+  sizes
   |> list.map(fn(n) {
-    let iters = iters_for(n)
     let a = make_square(n)
     let b = make_vector(n)
     let gleam_row =
-      harness.run("linalg.solve", n, iters, fn() {
+      harness.run(n, iters, fn() {
         let _ = linalg.solve(a, b)
       })
-    let #(rust_ns, rust_stdev_ns) = case
-      rust_bench(
+    let rust_result = case
+      rust_bench_solve(
         matrix.rows(a),
         matrix.cols(a),
         matrix.to_binary(a),
@@ -49,31 +61,27 @@ pub fn solve_rows(
         iters,
       )
     {
-      Ok(#(mean, stdev)) -> #(mean, stdev)
-      Error(_) -> #(0, 0)
+      Ok(#(mean, stdev)) -> Some(#(mean, stdev))
+      Error(_) -> None
     }
-    BenchRow(..gleam_row, rust_ns: rust_ns, rust_stdev_ns: rust_stdev_ns)
+    BenchRow(..gleam_row, rust_result: rust_result)
   })
 }
 
-pub fn lu_rows(
-  iters_for: fn(Int) -> Int,
-  rust_bench: fn(Int, BitArray, Int) -> Result(#(Int, Int), String),
-) -> List(BenchRow) {
-  [10, 50, 100, 500]
+pub fn lu_rows(sizes: List(Int), iters: Int) -> List(BenchRow) {
+  sizes
   |> list.map(fn(n) {
-    let iters = iters_for(n)
     let a = make_square(n)
     let gleam_row =
-      harness.run("linalg.lu", n, iters, fn() {
+      harness.run(n, iters, fn() {
         let _ = linalg.lu(a)
       })
-    let #(rust_ns, rust_stdev_ns) = case
-      rust_bench(matrix.rows(a), matrix.to_binary(a), iters)
+    let rust_result = case
+      rust_bench_lu(matrix.rows(a), matrix.to_binary(a), iters)
     {
-      Ok(#(mean, stdev)) -> #(mean, stdev)
-      Error(_) -> #(0, 0)
+      Ok(#(mean, stdev)) -> Some(#(mean, stdev))
+      Error(_) -> None
     }
-    BenchRow(..gleam_row, rust_ns: rust_ns, rust_stdev_ns: rust_stdev_ns)
+    BenchRow(..gleam_row, rust_result: rust_result)
   })
 }

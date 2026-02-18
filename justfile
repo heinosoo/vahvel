@@ -21,7 +21,7 @@ build:
     gleam run -m waffle_build
 
 # Run benchmarks (builds NIF first). Optional fixed iteration count: just bench 200
-bench iters="0": build
+bench iters="20": build
     gleam run -m waffle_bench -- {{iters}}
 
 # Clean all build artifacts
