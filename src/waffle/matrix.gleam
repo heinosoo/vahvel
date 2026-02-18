@@ -460,7 +460,8 @@ pub fn vstack(top: Matrix, bottom: Matrix) -> Result(Matrix, MatrixError) {
         int.range(from: 0, to: cols, with: <<>>, run: fn(acc, col) {
           let top_offset = col * top.rows * 8
           let top_len = top.rows * 8
-          let assert Ok(top_col) = bit_array.slice(top.data, top_offset, top_len)
+          let assert Ok(top_col) =
+            bit_array.slice(top.data, top_offset, top_len)
 
           let bottom_offset = col * bottom.rows * 8
           let bottom_len = bottom.rows * 8
