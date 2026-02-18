@@ -456,12 +456,19 @@ pub fn vstack(top: Matrix, bottom: Matrix) -> Result(Matrix, MatrixError) {
     True -> {
       let cols = top.cols
       let new_rows = top.rows + bottom.rows
-      let data =
-        int.range(from: 0, to: cols, with: <<>>, run: fn(acc, col) {
-          let top_col = extract_col_bits(top.data, col, top.rows)
-          let bottom_col = extract_col_bits(bottom.data, col, bottom.rows)
-          <<acc:bits, top_col:bits, bottom_col:bits>>
-        })
+      use data <- result.try(
+        range.try_fold(0, cols, <<>>, fn(acc, col) {
+          use top_col <- result.try(
+            bit_array.slice(top.data, col * top.rows * 8, top.rows * 8)
+            |> result.replace_error(DimensionMismatch("vstack: internal error")),
+          )
+          use bottom_col <- result.try(
+            bit_array.slice(bottom.data, col * bottom.rows * 8, bottom.rows * 8)
+            |> result.replace_error(DimensionMismatch("vstack: internal error")),
+          )
+          Ok(<<acc:bits, top_col:bits, bottom_col:bits>>)
+        }),
+      )
       Ok(Matrix(rows: new_rows, cols: cols, data: data))
     }
   }
@@ -484,14 +491,6 @@ pub fn hstack(left: Matrix, right: Matrix) -> Result(Matrix, MatrixError) {
       Ok(Matrix(rows: rows, cols: new_cols, data: data))
     }
   }
-}
-
-fn extract_col_bits(data: BitArray, col: Int, rows: Int) -> BitArray {
-  int.range(from: 0, to: rows, with: <<>>, run: fn(acc, row) {
-    let index = col * rows + row
-    let val = read_float_at(data, index)
-    <<acc:bits, val:float-little-size(64)>>
-  })
 }
 
 /// Convert matrix to a formatted string for display.
@@ -524,23 +523,17 @@ pub fn slice(
     col_start,
     col_count,
   ))
-  let data =
-    int.range(from: 0, to: col_count, with: <<>>, run: fn(acc, col_offset) {
+  use data <- result.try(
+    range.try_fold(0, col_count, <<>>, fn(acc, col_offset) {
       let col = col_start + col_offset
-      let col_data =
-        int.range(
-          from: 0,
-          to: row_count,
-          with: <<>>,
-          run: fn(inner_acc, row_offset) {
-            let row = row_start + row_offset
-            let index = col * matrix.rows + row
-            let val = read_float_at(matrix.data, index)
-            <<inner_acc:bits, val:float-little-size(64)>>
-          },
-        )
-      <<acc:bits, col_data:bits>>
-    })
+      let start = { col * matrix.rows + row_start } * 8
+      use col_data <- result.try(
+        bit_array.slice(matrix.data, start, row_count * 8)
+        |> result.replace_error(InvalidDimensions("slice: internal error")),
+      )
+      Ok(<<acc:bits, col_data:bits>>)
+    }),
+  )
   Ok(Matrix(rows: row_count, cols: col_count, data: data))
 }
 

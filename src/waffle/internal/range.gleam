@@ -12,6 +12,23 @@ fn map_loop(current: Int, stop: Int, f: fn(Int) -> a, acc: List(a)) -> List(a) {
   }
 }
 
+/// Fold over `[start, stop)` with error propagation. Short-circuits on first `Error`.
+pub fn try_fold(
+  from start: Int,
+  to stop: Int,
+  with acc: a,
+  run f: fn(a, Int) -> Result(a, e),
+) -> Result(a, e) {
+  case start >= stop {
+    True -> Ok(acc)
+    False ->
+      case f(acc, start) {
+        Error(e) -> Error(e)
+        Ok(next) -> try_fold(start + 1, stop, next, f)
+      }
+  }
+}
+
 /// Check that all integers in `[start, stop)` satisfy a predicate.
 /// Short-circuits on the first `False`.
 pub fn all(

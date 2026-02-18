@@ -76,4 +76,14 @@ pub fn main() {
   io.println("==========================")
   io.println(harness.format_table(linalg_bench.lu_rows(iters, rust_bench_lu)))
   io.println("")
+
+  io.println("matrix.slice")
+  io.println("============")
+  io.println(harness.format_table(matrix_bench.slice_rows(iters)))
+  io.println("")
+
+  io.println("matrix.vstack")
+  io.println("=============")
+  io.println(harness.format_table(matrix_bench.vstack_rows(iters)))
+  io.println("")
 }

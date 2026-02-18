@@ -56,3 +56,29 @@ pub fn multiply_rows(
     BenchRow(..gleam_row, rust_ns: rust_ns, rust_stdev_ns: rust_stdev_ns)
   })
 }
+
+pub fn slice_rows(iters_for: fn(Int) -> Int) -> List(BenchRow) {
+  [10, 50, 100, 500]
+  |> list.map(fn(n) {
+    let iters = iters_for(n)
+    let a = make_matrix(n)
+    let q = n / 4
+    let h = n / 2
+    // q + h = 3/4 n <= n, so slice bounds are always valid for these inputs.
+
+    harness.run("matrix.slice", n, iters, fn() {
+      let _ = matrix.slice(a, q, h, q, h)
+    })
+  })
+}
+
+pub fn vstack_rows(iters_for: fn(Int) -> Int) -> List(BenchRow) {
+  [10, 50, 100, 500]
+  |> list.map(fn(n) {
+    let iters = iters_for(n)
+    let a = make_matrix(n)
+    harness.run("matrix.vstack", n, iters, fn() {
+      let _ = matrix.vstack(a, a)
+    })
+  })
+}
