@@ -458,8 +458,15 @@ pub fn vstack(top: Matrix, bottom: Matrix) -> Result(Matrix, MatrixError) {
       let new_rows = top.rows + bottom.rows
       let data =
         int.range(from: 0, to: cols, with: <<>>, run: fn(acc, col) {
-          let top_col = extract_col_bits(top.data, col, top.rows)
-          let bottom_col = extract_col_bits(bottom.data, col, bottom.rows)
+          let top_offset = col * top.rows * 8
+          let top_len = top.rows * 8
+          let assert Ok(top_col) = bit_array.slice(top.data, top_offset, top_len)
+
+          let bottom_offset = col * bottom.rows * 8
+          let bottom_len = bottom.rows * 8
+          let assert Ok(bottom_col) =
+            bit_array.slice(bottom.data, bottom_offset, bottom_len)
+
           <<acc:bits, top_col:bits, bottom_col:bits>>
         })
       Ok(Matrix(rows: new_rows, cols: cols, data: data))
@@ -484,14 +491,6 @@ pub fn hstack(left: Matrix, right: Matrix) -> Result(Matrix, MatrixError) {
       Ok(Matrix(rows: rows, cols: new_cols, data: data))
     }
   }
-}
-
-fn extract_col_bits(data: BitArray, col: Int, rows: Int) -> BitArray {
-  int.range(from: 0, to: rows, with: <<>>, run: fn(acc, row) {
-    let index = col * rows + row
-    let val = read_float_at(data, index)
-    <<acc:bits, val:float-little-size(64)>>
-  })
 }
 
 /// Convert matrix to a formatted string for display.
@@ -527,18 +526,14 @@ pub fn slice(
   let data =
     int.range(from: 0, to: col_count, with: <<>>, run: fn(acc, col_offset) {
       let col = col_start + col_offset
-      let col_data =
-        int.range(
-          from: 0,
-          to: row_count,
-          with: <<>>,
-          run: fn(inner_acc, row_offset) {
-            let row = row_start + row_offset
-            let index = col * matrix.rows + row
-            let val = read_float_at(matrix.data, index)
-            <<inner_acc:bits, val:float-little-size(64)>>
-          },
-        )
+      // Calculate byte offset for start of column in original matrix
+      let col_start_byte = col * matrix.rows * 8
+      // Offset within column
+      let row_start_byte = row_start * 8
+      let start = col_start_byte + row_start_byte
+      let length = row_count * 8
+
+      let assert Ok(col_data) = bit_array.slice(matrix.data, start, length)
       <<acc:bits, col_data:bits>>
     })
   Ok(Matrix(rows: row_count, cols: col_count, data: data))

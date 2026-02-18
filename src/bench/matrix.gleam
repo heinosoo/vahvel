@@ -56,3 +56,34 @@ pub fn multiply_rows(
     BenchRow(..gleam_row, rust_ns: rust_ns, rust_stdev_ns: rust_stdev_ns)
   })
 }
+
+pub fn slice_rows(iters_for: fn(Int) -> Int) -> List(BenchRow) {
+  [10, 50, 100, 500]
+  |> list.map(fn(n) {
+    let iters = iters_for(n)
+    let a = make_matrix(n)
+    let half = n / 2
+    let quarter = n / 4
+    // Ensure size is at least 1x1 for small n
+    let q = int.max(quarter, 0)
+    let h = int.max(half, 1)
+
+    // Check bounds to be safe: start + count <= size
+    // quarter + half = 3/4 n <= n. So it fits.
+
+    harness.run("matrix.slice", n, iters, fn() {
+      let _ = matrix.slice(a, q, h, q, h)
+    })
+  })
+}
+
+pub fn vstack_rows(iters_for: fn(Int) -> Int) -> List(BenchRow) {
+  [10, 50, 100, 500]
+  |> list.map(fn(n) {
+    let iters = iters_for(n)
+    let a = make_matrix(n)
+    harness.run("matrix.vstack", n, iters, fn() {
+      let _ = matrix.vstack(a, a)
+    })
+  })
+}
