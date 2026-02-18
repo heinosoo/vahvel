@@ -307,33 +307,13 @@ pub fn get(
       let col_start = read_int_at(matrix.col_ptr, col)
       let col_end = read_int_at(matrix.col_ptr, col + 1)
 
-      find_value_in_column(
+      Ok(find_float_in_col(
         matrix.row_indices,
         matrix.values,
         row,
         col_start,
         col_end,
-      )
-    }
-  }
-}
-
-fn find_value_in_column(
-  row_indices: BitArray,
-  values: BitArray,
-  target_row: Int,
-  start: Int,
-  end: Int,
-) -> Result(Float, SparseError) {
-  case start >= end {
-    True -> Ok(0.0)
-    False -> {
-      let row = read_int_at(row_indices, start)
-      case row == target_row {
-        True -> Ok(read_float_at(values, start))
-        False ->
-          find_value_in_column(row_indices, values, target_row, start + 1, end)
-      }
+      ))
     }
   }
 }
