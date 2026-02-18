@@ -514,22 +514,24 @@ pub fn scale(
 /// Returns a new sparse matrix with transformed values.
 /// Values that become 0.0 after mapping are removed.
 pub fn map(matrix: SparseMatrix, f: fn(Float) -> Float) -> SparseMatrix {
-  let triplets = to_triplets(matrix)
-  let mapped =
-    list.filter_map(triplets, fn(t) {
-      let #(row, col, val) = t
-      let new_val = f(val)
-      case new_val == 0.0 {
-        True -> Error(Nil)
-        False -> Ok(#(row, col, new_val))
-      }
+  let #(new_values, has_zeros) =
+    int.range(from: 0, to: matrix.nnz, with: #(<<>>, False), run: fn(acc, i) {
+      let #(bits, any_zero) = acc
+      let val = f(read_float_at(matrix.values, i))
+      #(<<bits:bits, val:float-little-size(64)>>, any_zero || val == 0.0)
     })
-
-  case mapped {
-    [] -> empty_sparse(matrix.rows, matrix.cols)
-    _ ->
-      from_triplets(matrix.rows, matrix.cols, mapped)
-      |> result.unwrap(empty_sparse(matrix.rows, matrix.cols))
+  case has_zeros {
+    False -> SparseMatrix(..matrix, values: new_values)
+    True -> {
+      let triplets = to_triplets(SparseMatrix(..matrix, values: new_values))
+      let filtered = list.filter(triplets, fn(t) { t.2 != 0.0 })
+      case filtered {
+        [] -> empty_sparse(matrix.rows, matrix.cols)
+        _ ->
+          from_triplets(matrix.rows, matrix.cols, filtered)
+          |> result.unwrap(empty_sparse(matrix.rows, matrix.cols))
+      }
+    }
   }
 }
 
@@ -567,11 +569,32 @@ pub fn fold_with_indices(
   acc: a,
   f: fn(a, Int, Int, Float) -> a,
 ) -> a {
-  let triplets = to_triplets(matrix)
-  list.fold(triplets, acc, fn(current, t) {
-    let #(row, col, val) = t
-    f(current, row, col, val)
+  int.range(from: 0, to: matrix.cols, with: acc, run: fn(col_acc, col) {
+    let col_start = read_int_at(matrix.col_ptr, col)
+    let col_end = read_int_at(matrix.col_ptr, col + 1)
+    int.range(from: col_start, to: col_end, with: col_acc, run: fn(row_acc, i) {
+      let row = read_int_at(matrix.row_indices, i)
+      let val = read_float_at(matrix.values, i)
+      f(row_acc, row, col, val)
+    })
   })
+}
+
+fn find_float_in_col(
+  row_indices: BitArray,
+  values: BitArray,
+  target: Int,
+  start: Int,
+  end: Int,
+) -> Float {
+  case start >= end {
+    True -> 0.0
+    False ->
+      case read_int_at(row_indices, start) == target {
+        True -> read_float_at(values, start)
+        False -> find_float_in_col(row_indices, values, target, start + 1, end)
+      }
+  }
 }
 
 /// Extract a single row as a list of floats.
@@ -591,9 +614,59 @@ pub fn row(matrix: SparseMatrix, index: Int) -> Result(List(Float), SparseError)
     True -> {
       let result =
         range.map(0, matrix.cols, fn(col) {
-          get(matrix, index, col) |> result.unwrap(0.0)
+          let col_start = read_int_at(matrix.col_ptr, col)
+          let col_end = read_int_at(matrix.col_ptr, col + 1)
+          find_float_in_col(
+            matrix.row_indices,
+            matrix.values,
+            index,
+            col_start,
+            col_end,
+          )
         })
       Ok(result)
+    }
+  }
+}
+
+fn build_dense_col(
+  row_indices: BitArray,
+  values: BitArray,
+  entry_idx: Int,
+  entry_end: Int,
+  current_row: Int,
+  total_rows: Int,
+  acc: List(Float),
+) -> List(Float) {
+  case current_row >= total_rows {
+    True -> list.reverse(acc)
+    False -> {
+      let entry_row = case entry_idx < entry_end {
+        True -> read_int_at(row_indices, entry_idx)
+        False -> total_rows
+      }
+      case entry_row == current_row {
+        True ->
+          build_dense_col(
+            row_indices,
+            values,
+            entry_idx + 1,
+            entry_end,
+            current_row + 1,
+            total_rows,
+            [read_float_at(values, entry_idx), ..acc],
+          )
+        False ->
+          build_dense_col(
+            row_indices,
+            values,
+            entry_idx,
+            entry_end,
+            current_row + 1,
+            total_rows,
+            [0.0, ..acc],
+          )
+      }
     }
   }
 }
@@ -613,11 +686,19 @@ pub fn col(matrix: SparseMatrix, index: Int) -> Result(List(Float), SparseError)
         <> " sparse matrix",
       ))
     True -> {
-      let result =
-        range.map(0, matrix.rows, fn(row) {
-          get(matrix, row, index) |> result.unwrap(0.0)
-        })
-      Ok(result)
+      let col_start = read_int_at(matrix.col_ptr, index)
+      let col_end = read_int_at(matrix.col_ptr, index + 1)
+      Ok(
+        build_dense_col(
+          matrix.row_indices,
+          matrix.values,
+          col_start,
+          col_end,
+          0,
+          matrix.rows,
+          [],
+        ),
+      )
     }
   }
 }

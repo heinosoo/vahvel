@@ -72,10 +72,6 @@ pub opaque type Matrix {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-fn pack_floats(floats: List(Float)) -> BitArray {
-  list.fold(floats, <<>>, fn(acc, x) { <<acc:bits, x:float-little-size(64)>> })
-}
-
 fn read_float_at(data: BitArray, index: Int) -> Float {
   let offset = index * 8
   case bit_array.slice(data, offset, 8) {
@@ -160,8 +156,20 @@ fn nif_error_to_matrix_error(msg: String) -> MatrixError {
 /// Create a matrix from a nested list. Input is row-major.
 pub fn from_list(data: List(List(Float))) -> Result(Matrix, MatrixError) {
   use #(rows, cols) <- result.try(validate_and_get_dimensions(data))
-  use _ <- result.try(validate_all_rows(data, cols))
-  let row_major = pack_floats(list.flatten(data))
+  use row_major <- result.try(
+    list.try_fold(data, <<>>, fn(acc, row) {
+      use #(count, packed) <- result.try(
+        list.try_fold(row, #(0, acc), fn(inner, val) {
+          let #(cnt, bits) = inner
+          Ok(#(cnt + 1, <<bits:bits, val:float-little-size(64)>>))
+        }),
+      )
+      case count == cols {
+        True -> Ok(packed)
+        False -> Error(RaggedRows)
+      }
+    }),
+  )
   use column_major <- result.try(
     faer.transpose(cols, rows, row_major)
     |> result.map_error(fn(msg) { InvalidDimensions(msg) }),
@@ -184,18 +192,6 @@ fn validate_and_get_dimensions(
       }
     }
   }
-}
-
-fn validate_all_rows(
-  data: List(List(Float)),
-  expected_cols: Int,
-) -> Result(Nil, MatrixError) {
-  list.try_each(data, fn(row) {
-    case list.length(row) != expected_cols {
-      True -> Error(RaggedRows)
-      False -> Ok(Nil)
-    }
-  })
 }
 
 /// Create an n×n identity matrix.
@@ -421,8 +417,16 @@ pub fn reshape(
   let new_total = new_rows * new_cols
   case new_total == old_total && new_rows > 0 && new_cols > 0 {
     True -> {
-      let elements = list.flatten(to_list(m))
-      let data = pack_to_column_major(elements, new_rows, new_cols)
+      let data =
+        int.range(from: 0, to: new_cols, with: <<>>, run: fn(acc, nc) {
+          int.range(from: 0, to: new_rows, with: acc, run: fn(inner_acc, nr) {
+            let lin = nr * new_cols + nc
+            let old_row = lin / m.cols
+            let old_col = lin % m.cols
+            let val = read_float_at(m.data, old_col * m.rows + old_row)
+            <<inner_acc:bits, val:float-little-size(64)>>
+          })
+        })
       Ok(Matrix(rows: new_rows, cols: new_cols, data: data))
     }
     False ->
@@ -437,19 +441,6 @@ pub fn reshape(
         <> int.to_string(new_cols),
       ))
   }
-}
-
-fn pack_to_column_major(elements: List(Float), rows: Int, cols: Int) -> BitArray {
-  int.range(from: 0, to: cols, with: <<>>, run: fn(acc, col) {
-    int.range(from: 0, to: rows, with: acc, run: fn(inner_acc, row) {
-      let idx = row * cols + col
-      let val =
-        list.drop(elements, idx)
-        |> list.first
-        |> result.unwrap(0.0)
-      <<inner_acc:bits, val:float-little-size(64)>>
-    })
-  })
 }
 
 /// Vertically stack two matrices (top on bottom). Must have same column count.
