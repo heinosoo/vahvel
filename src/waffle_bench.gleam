@@ -23,6 +23,7 @@ pub fn main() {
   }
 
   let sizes = [16, 64, 128, 256]
+  let ilp_sizes = [16, 24, 32]
 
   print_section("from_list scaling (Gleam marshalling cost)", fn() {
     matrix_bench.from_list_rows(sizes, iters)
@@ -40,6 +41,6 @@ pub fn main() {
     opt_bench.solve_cont_rows(sizes, iters)
   })
   print_section("opt.solve (ILP)", fn() {
-    opt_bench.solve_ilp_rows(sizes, iters)
+    opt_bench.solve_ilp_rows(ilp_sizes, iters)
   })
 }

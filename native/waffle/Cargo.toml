@@ -8,7 +8,7 @@ name = "waffle"
 crate-type = ["cdylib"]
 
 [dependencies]
-highs = "2.0"
+microlp = "0.3"
 rustler = "0.37"
 faer = "0.24"
 bytemuck = "1.25"

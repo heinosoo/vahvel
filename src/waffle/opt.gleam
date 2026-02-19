@@ -1,4 +1,4 @@
-//// Mixed-Integer Linear Programming (MILP) solver using HiGHS.
+//// Mixed-Integer Linear Programming (MILP) solver.
 ////
 //// ## Overview
 ////
@@ -75,10 +75,9 @@
 
 import gleam/int
 import gleam/list
+import gleam/order.{Eq}
 import gleam/result
-import gleam/string
-import waffle/internal/highs as nif
-import waffle/sparse
+import waffle/internal/solver_nif as nif
 
 type VariableType {
   Continuous
@@ -234,7 +233,7 @@ pub fn cont_var(
 /// ```gleam
 /// let model = opt.new()
 /// let #(model, vars) = opt.int_vars(model, 3, "x", 1.0, 0.0, 10.0)
-/// // vars = [VarId("x_0", 0), VarId("x_1", 1), VarId("x_2", 2)]
+/// // vars = [VarId("x_0", 0), VarId("x_1", 1), ...]
 /// ```
 pub fn int_vars(
   model: Model,
@@ -468,7 +467,7 @@ fn validate_variable_ids(
 /// # Errors
 ///
 /// - `InvalidInput` if the model has no variables
-/// - `SolverError` if the HiGHS solver encounters an internal error
+/// - `SolverError` if the solver encounters an internal error
 ///
 /// # Example
 ///
@@ -504,9 +503,8 @@ pub fn solve(model: Model) -> Result(Solution, OptError) {
       let var_types = list.reverse(model.variable_types)
       let var_types_bin = pack_var_types(var_types)
 
-      use #(nnz, col_ptr, row_idx, vals, con_bounds_bin) <- result.try(
-        build_constraint_data(model),
-      )
+      let triplets_bin = pack_triplets(model.constraint_triplets)
+      let con_bounds_bin = pack_float_pairs(list.reverse(model.constraint_bounds))
 
       case
         nif.solve_ilp(
@@ -515,10 +513,7 @@ pub fn solve(model: Model) -> Result(Solution, OptError) {
           obj_coeffs_bin,
           model.num_constraints,
           model.num_vars,
-          nnz,
-          col_ptr,
-          row_idx,
-          vals,
+          triplets_bin,
           con_bounds_bin,
           var_bounds_bin,
           var_types_bin,
@@ -541,40 +536,24 @@ pub fn solve(model: Model) -> Result(Solution, OptError) {
   }
 }
 
-fn build_constraint_data(
-  model: Model,
-) -> Result(#(Int, BitArray, BitArray, BitArray, BitArray), OptError) {
-  case model.num_constraints {
-    0 -> Ok(empty_csc_data(model.num_vars))
-    _ -> {
-      use con_matrix <- result.try(
-        sparse.from_triplets(
-          model.num_constraints,
-          model.num_vars,
-          model.constraint_triplets,
-        )
-        |> result.map_error(fn(e) {
-          InvalidInput(
-            "Failed to build constraint matrix: " <> string.inspect(e),
-          )
-        }),
-      )
-      let #(n, cp, ri, v) = sparse.to_csc_data(con_matrix)
-      let cb = pack_float_pairs(list.reverse(model.constraint_bounds))
-      Ok(#(n, cp, ri, v, cb))
+fn pack_triplets(triplets: List(#(Int, Int, Float))) -> BitArray {
+  // Sort by row, then by col
+  triplets
+  |> list.sort(fn(a, b) {
+    case int.compare(a.0, b.0) {
+      Eq -> int.compare(a.1, b.1)
+      other -> other
     }
-  }
-}
-
-fn empty_csc_data(
-  num_vars: Int,
-) -> #(Int, BitArray, BitArray, BitArray, BitArray) {
-  let col_ptr = pack_indices(list.repeat(0, num_vars + 1))
-  #(0, col_ptr, <<>>, <<>>, <<>>)
-}
-
-fn pack_indices(indices: List(Int)) -> BitArray {
-  list.fold(indices, <<>>, fn(acc, x) { <<acc:bits, x:int-little-size(64)>> })
+  })
+  |> list.fold(<<>>, fn(acc, t) {
+    let #(r, c, v) = t
+    <<
+      acc:bits,
+      r:int-little-size(64),
+      c:int-little-size(64),
+      v:float-little-size(64),
+    >>
+  })
 }
 
 fn pack_floats(floats: List(Float)) -> BitArray {

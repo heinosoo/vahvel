@@ -14,6 +14,7 @@ pub enum WaffleError {
     InvalidInput(String),
     ComputationFailed(String),
     AllocationFailed,
+    SolverError(String),
 }
 
 impl std::fmt::Display for WaffleError {
@@ -23,6 +24,7 @@ impl std::fmt::Display for WaffleError {
             WaffleError::InvalidInput(msg) => write!(f, "{}", msg),
             WaffleError::ComputationFailed(msg) => write!(f, "{}", msg),
             WaffleError::AllocationFailed => write!(f, "Failed to allocate result binary"),
+            WaffleError::SolverError(msg) => write!(f, "Solver error: {}", msg),
         }
     }
 }

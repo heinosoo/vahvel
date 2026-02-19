@@ -65,7 +65,7 @@ pub fn unbounded_test() {
   let model = opt.new()
   let model = opt.set_direction(model, opt.Maximize)
 
-  let #(model, _x) = opt.cont_var(model, "x", 1.0, 0.0, 1.0e30)
+  let #(model, _x) = opt.cont_var(model, "x", 1.0, 0.0, 1.0e308)
 
   let assert Ok(solution) = opt.solve(model)
 
