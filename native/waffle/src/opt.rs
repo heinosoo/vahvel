@@ -1,6 +1,4 @@
-use crate::utils::{
-    binary_to_cow_f64, err_term, floats_to_binary, ok, WaffleError,
-};
+use crate::utils::{binary_to_cow_f64, err_term, floats_to_binary, ok, WaffleError};
 use microlp::{ComparisonOp, OptimizationDirection, Problem};
 use rustler::{Binary, Encoder, Env, NifResult, Term};
 use std::panic;
@@ -37,18 +35,19 @@ pub fn solve_ilp<'a>(
     match result {
         Ok(res) => res,
         Err(err) => {
-             let msg = if let Some(s) = err.downcast_ref::<&str>() {
-                 format!("Panic: {}", s)
-             } else if let Some(s) = err.downcast_ref::<String>() {
-                 format!("Panic: {}", s)
-             } else {
-                 "Panic in solver".to_string()
-             };
-             Ok(err_term(env, &WaffleError::SolverError(msg)))
+            let msg = if let Some(s) = err.downcast_ref::<&str>() {
+                format!("Panic: {}", s)
+            } else if let Some(s) = err.downcast_ref::<String>() {
+                format!("Panic: {}", s)
+            } else {
+                "Panic in solver".to_string()
+            };
+            Ok(err_term(env, &WaffleError::SolverError(msg)))
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn solve_ilp_impl<'a>(
     env: Env<'a>,
     direction: i32,
@@ -100,7 +99,7 @@ fn solve_ilp_impl<'a>(
             &WaffleError::DimensionMismatch("Variable types length mismatch".to_string()),
         ));
     }
-    if triplets_data.len() % 24 != 0 {
+    if !triplets_data.len().is_multiple_of(24) {
         return Ok(err_term(
             env,
             &WaffleError::InvalidInput("Triplets binary size not multiple of 24".to_string()),
@@ -124,7 +123,11 @@ fn solve_ilp_impl<'a>(
         let is_int = var_types[i] == 1;
 
         // Handle infinity for microlp
-        let lb_f64 = if lb <= -1.0e308 { f64::NEG_INFINITY } else { lb };
+        let lb_f64 = if lb <= -1.0e308 {
+            f64::NEG_INFINITY
+        } else {
+            lb
+        };
         let ub_f64 = if ub >= 1.0e308 { f64::INFINITY } else { ub };
 
         let var = if is_int {
@@ -223,10 +226,10 @@ fn solve_ilp_impl<'a>(
             // Return empty binaries if no solution
             let primal_bin = floats_to_binary(&[], env);
             let dual_bin = floats_to_binary(&[], env);
-             match (primal_bin, dual_bin) {
+            match (primal_bin, dual_bin) {
                 (Some(pb), Some(db)) => Ok((ok(), (status_int, 0.0, pb, db)).encode(env)),
-                 _ => Ok(err_term(env, &WaffleError::AllocationFailed)),
-             }
+                _ => Ok(err_term(env, &WaffleError::AllocationFailed)),
+            }
         }
     }
 }

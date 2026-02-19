@@ -504,7 +504,8 @@ pub fn solve(model: Model) -> Result(Solution, OptError) {
       let var_types_bin = pack_var_types(var_types)
 
       let triplets_bin = pack_triplets(model.constraint_triplets)
-      let con_bounds_bin = pack_float_pairs(list.reverse(model.constraint_bounds))
+      let con_bounds_bin =
+        pack_float_pairs(list.reverse(model.constraint_bounds))
 
       case
         nif.solve_ilp(
