@@ -5,10 +5,12 @@
 Waffle is a Gleam linear algebra library that uses Rust's `faer` crate via Erlang NIFs (Native Implemented Functions). The current architecture is:
 
 ```
-Gleam (public API) -> Erlang (NIF loader) -> Rust (faer computation)
+Gleam (public API) -> Erlang (NIF loader) -> Rust (faer/HiGHS computation)
 ```
 
 **Question:** Can we support Gleam's JavaScript compilation target by compiling the Rust code to WebAssembly? What architectural changes would be required?
+
+> **Note (updated v0.2.3):** This document was originally written when waffle only exposed `solve()`. The library has since grown to 36 NIFs across four domains (dense, sparse, opt, random). Sections that changed materially are marked.
 
 ---
 
@@ -16,15 +18,17 @@ Gleam (public API) -> Erlang (NIF loader) -> Rust (faer computation)
 
 **Feasibility:** Technically possible but with significant trade-offs
 
-**Difficulty:** Moderate to High
-- Pure compilation: Moderate (faer to WASM is straightforward)
-- Full integration: High (requires dual-target architecture)
+**Difficulty:** High
+- faer to WASM: Moderate (pure Rust, straightforward)
+- HiGHS (`opt` module) to WASM: Hard (C++ library, separate toolchain)
+- Full integration across all 36 NIFs: High (4× more scope than original estimate)
 - Performance: Significant degradation (3-20x slower than native)
 
 **Architectural Changes:** Major refactoring required
 - Need separate implementations for Erlang (NIF) vs JavaScript (WASM)
 - Different build pipelines for each target
 - Shared Gleam API layer with target-specific backends
+- The `opt` module may need to be excluded or deferred (see section 5)
 
 ---
 
@@ -79,46 +83,65 @@ pub fn solve(a: Matrix, b: Matrix) -> Result(Matrix, SolverError)
 
 ### 3. Required Architectural Changes
 
-#### Current Architecture (Erlang-only)
+#### Current Architecture (Erlang-only, v0.2.3)
 
 ```
-src/
-  matrix.gleam              # Pure Gleam (works on all targets)
-  solver.gleam              # Calls Erlang NIF
-  build.gleam               # Downloads/builds .so/.dylib
-  ffi/
-    nif.erl                 # Erlang NIF loader
-    platform.erl            # Platform detection
+src/waffle/
+  matrix.gleam              # Pure Gleam dense matrix API
+  linalg.gleam              # Decompositions & solvers (LU, QR, SVD, etc.)
+  sparse.gleam              # CSC sparse matrix API
+  opt.gleam                 # ILP solver via HiGHS
+  random.gleam              # Seeded matrix generation
+  internal/
+    ffi/
+      nif.erl               # Erlang NIF stubs (36 functions)
+      platform.erl          # OS detection
 
-native/waffle/              # Rust crate with rustler
-  src/lib.rs                # NIF implementation
+native/waffle/
+  Cargo.toml                # rustler + faer + highs + rand + bytemuck
+  src/
+    lib.rs                  # NIF init + registration
+    dense.rs                # 16 NIFs: multiply, LU, QR, SVD, eigenvalues, etc.
+    sparse.rs               # 9 NIFs: from_triplets, multiply_dense, add, etc.
+    opt.rs                  # 2 NIFs: model serialization + HiGHS solve
+    random.rs               # 6 NIFs: uniform, normal, bernoulli (+ seeded)
+    bench.rs                # 3 NIFs: internal benchmarking
+    utils.rs                # Shared binary conversion + validation
 ```
 
 #### Proposed Dual-Target Architecture
 
 ```
-src/
+src/waffle/
   matrix.gleam              # Pure Gleam (unchanged)
-  solver.gleam              # Uses @external for both targets
-  build.gleam               # Updated for dual-target builds
-  ffi/
-    nif.erl                 # Erlang NIF loader (Erlang target only)
+  linalg.gleam              # Uses @external for both targets
+  sparse.gleam              # Uses @external for both targets
+  opt.gleam                 # Erlang target only (see section 5)
+  random.gleam              # Uses @external for both targets
+  internal/
+    ffi/
+      nif.erl               # Erlang NIF loader (Erlang target only)
 
-native/waffle_nif/          # Rust NIF for Erlang
-  Cargo.toml                # rustler dependencies
-  src/lib.rs                # NIF implementation
+native/waffle_nif/          # Rust NIF for Erlang (current native/waffle/)
+  Cargo.toml                # rustler + faer + highs + rand + bytemuck
+  src/                      # dense.rs, sparse.rs, opt.rs, random.rs, etc.
 
-native/waffle_wasm/         # Rust WASM for JavaScript
-  Cargo.toml                # wasm-bindgen dependencies
-  src/lib.rs                # WASM implementation
+native/waffle_wasm/         # Rust WASM for JavaScript (new)
+  Cargo.toml                # wasm-bindgen + faer + rand + bytemuck
+  src/
+    lib.rs                  # wasm_bindgen exports for dense, sparse, random
+    dense.rs                # WASM-adapted dense ops
+    sparse.rs               # WASM-adapted sparse ops
+    random.rs               # WASM-adapted random ops
+    utils.rs                # Shared with NIF crate (or duplicated)
 
-src/waffle_wasm.mjs         # JavaScript glue layer
+src/waffle_wasm.mjs         # JavaScript glue layer (new)
 ```
 
 **Key Changes:**
 
 1. **Split Rust implementations:**
-   - `waffle_nif`: Uses `rustler`, targets `cdylib` for Erlang
+   - `waffle_nif`: Uses `rustler`, targets `cdylib` for Erlang (rename of current crate)
    - `waffle_wasm`: Uses `wasm-bindgen`, targets `wasm32-unknown-unknown`
 
 2. **Dual `@external` declarations** (at the FFI boundary, not the public API):
@@ -161,22 +184,56 @@ src/waffle_wasm.mjs         # JavaScript glue layer
 
 ### 4. Implementation Complexity Breakdown
 
+*Updated for v0.2.3 scope: 36 NIFs across dense, sparse, opt, and random modules.*
+
 | Component | Difficulty | Effort | Notes |
 |-----------|-----------|--------|-------|
-| **Rust WASM port** | Moderate | 2-3 days | Mostly straightforward, disable threading/SIMD |
+| **Rust WASM port (dense)** | Moderate | 2-3 days | faer compiles cleanly; disable threading |
+| **Rust WASM port (sparse)** | Moderate | 2-3 days | CSC data serialization across WASM boundary |
+| **Rust WASM port (random)** | Easy | 1 day | rand + rand_distr compile to WASM |
+| **HiGHS/opt WASM** | Hard | 3-5 days | C++ library; emscripten build; may not be worth it |
 | **wasm-bindgen setup** | Easy | 1 day | Standard tooling, well-documented |
-| **JavaScript glue layer** | Moderate | 1-2 days | Handle async init, data conversion |
-| **Gleam @external setup** | Easy | 0.5 days | Add second `@external` attribute |
-| **Build system updates** | Moderate | 1-2 days | Target detection, dual build paths |
-| **Testing on both targets** | Hard | 2-3 days | Ensure numerical consistency |
-| **CI/CD updates** | Moderate | 1 day | Build WASM in GitHub Actions |
+| **JavaScript glue layer** | Moderate | 2-3 days | 36 functions vs 1 in original estimate |
+| **Gleam @external setup** | Easy | 1 day | Add second `@external` to each internal FFI binding |
+| **Build system updates** | Moderate | 2-3 days | Target detection, dual build paths |
+| **Testing on both targets** | Hard | 3-5 days | Numerical consistency across all operations |
+| **CI/CD updates** | Moderate | 1-2 days | Build WASM in GitHub Actions |
 | **Documentation** | Moderate | 1 day | Document performance trade-offs |
 
-**Total estimated effort:** 1.5-2 weeks for experienced Rust/WASM developer
+**Total estimated effort:** 4-6 weeks for experienced Rust/WASM developer (up from original 1.5-2 weeks due to 4× scope increase and HiGHS complexity)
 
 ---
 
-### 5. Technical Challenges
+### 5. The HiGHS Problem
+
+**This is the most significant change since the original analysis.**
+
+The `opt` module uses **HiGHS**, a C++ mixed-integer linear programming solver built via cmake. The original analysis noted faer's advantage as "Pure Rust with no C/Fortran dependencies" — that no longer applies to the full waffle package.
+
+**Challenges with HiGHS → WASM:**
+- HiGHS has experimental emscripten builds but they are not part of the standard Rust `highs` crate
+- Requires a separate emscripten toolchain alongside wasm-pack
+- Significantly increases build complexity
+- The resulting WASM binary would be substantially larger
+
+**Practical options for the `opt` module:**
+
+1. **Exclude from JS target** — Return a clear `Error("opt module not supported on JavaScript target")`. Cleanest approach.
+   ```gleam
+   @external(erlang, "nif", "highs_solve")
+   @external(javascript, "./waffle_wasm.mjs", "highsSolveNotSupported")
+   fn highs_solve_ffi(...) -> Result(BitArray, String)
+   ```
+
+2. **Port separately with emscripten** — Builds HiGHS to WASM via emscripten. Significant toolchain complexity; deferred to a later phase.
+
+3. **Replace with pure Rust ILP solver** — No pure-Rust MIP solver exists with comparable capability to HiGHS. Not a realistic option.
+
+**Recommended:** Exclude `opt` from the initial JS target with a clear error message. Ship dense + sparse + random support first.
+
+---
+
+### 6. Technical Challenges
 
 #### Challenge 1: Binary Data Conversion
 
@@ -189,6 +246,8 @@ const float64View = new Float64Array(uint8Array.buffer);
 ```
 
 **Risk:** Endianness assumptions (little-endian on x86/ARM/WASM is safe).
+
+For sparse matrices, the glue layer also needs to handle multiple integer arrays (col_ptrs, row_indices as `i32`) alongside the float data array — more conversion logic than the dense case.
 
 ---
 
@@ -259,7 +318,7 @@ fn build_wasm() {
 
 ---
 
-### 6. Alternative Approaches
+### 7. Alternative Approaches
 
 #### Option A: Pure JavaScript Linear Algebra Library
 
@@ -297,7 +356,7 @@ target = "erlang"  # Explicitly Erlang-only
 - Cannot be used in JavaScript-compiled Gleam projects
 - Limits adoption in web/Node.js contexts
 
-**Verdict:** Simplest approach if JavaScript target isn't a priority.
+**Verdict:** Simplest approach if JavaScript target isn't a priority. This is the current state.
 
 ---
 
@@ -325,22 +384,20 @@ pub fn solve(a: Matrix, b: Matrix) -> Result(Matrix, SolverError)
 
 ---
 
-### 7. Recommendations
+### 8. Recommendations
 
-#### Recommended Approach: Dual-Target with WASM
+#### Recommended Approach: Phased WASM
 
-**If you want JavaScript support, implement WASM because:**
-1. Maintains behavioral consistency across targets
-2. Enables offline/client-side usage
-3. Better performance than pure JS libraries
-4. Aligns with Gleam's multi-target philosophy
+**Phase 1 (done):** Complete Erlang/NIF implementation. ✓
 
-**Implementation order:**
-1. Complete Erlang/NIF implementation first (current roadmap)
-2. Add WASM target as Phase 2 (after v1.0)
-3. Document performance differences clearly
+**Phase 2 (current decision point):** Add WASM for dense + sparse + random only.
+- Exclude `opt` module from JS target with a clear error
+- This covers the most common use cases with manageable scope
+- Estimated: 3-4 weeks
 
-#### If JavaScript Support Isn't Critical:
+**Phase 3 (later):** Evaluate HiGHS WASM via emscripten if users need it.
+
+**If JavaScript Support Isn't Critical:**
 
 **Stick with Erlang-only (Option B):**
 - Document clearly in README: "Erlang target only"
@@ -349,7 +406,7 @@ pub fn solve(a: Matrix, b: Matrix) -> Result(Matrix, SolverError)
 
 ---
 
-### 8. Performance Expectations
+### 9. Performance Expectations
 
 If you implement WASM support, set clear expectations:
 
@@ -367,55 +424,58 @@ If you implement WASM support, set clear expectations:
 
 ---
 
-### 9. Required Changes Summary
+### 10. Required Changes Summary
 
 #### Major Architectural Changes:
 
 1. **Rust codebase split:**
-   - Separate NIF and WASM implementations
-   - Shared faer logic, different FFI boundaries
+   - Rename current `native/waffle/` to `native/waffle_nif/`
+   - New `native/waffle_wasm/` crate with wasm-bindgen, covering dense + sparse + random
+   - Shared `utils.rs` logic (or duplicate the small file)
 
 2. **Gleam multi-target API:**
-   - Add `@external(javascript, ...)` declarations
-   - Maintain single public API
+   - Add `@external(javascript, ...)` declarations to each internal FFI binding
+   - `opt` module returns `Error` on JS target
 
 3. **Build system:**
-   - Target detection
+   - Target detection in `waffle_build.gleam` and `waffle_setup.gleam`
    - Dual build paths (cargo for NIF, wasm-pack for WASM)
    - CI updates for WASM builds
 
 4. **JavaScript glue layer:**
-   - New `.mjs` file for WASM initialization and data conversion
-   - Handle async WASM loading
+   - New `waffle_wasm.mjs` for WASM initialization and data conversion
+   - Handles dense (f64 arrays), sparse (mixed i32/f64 arrays), and random
 
 #### Minimal Changes:
 
-- Pure Gleam code (matrix.gleam) requires no changes
-- Public API surface remains identical
-- Tests can run on both targets
+- Pure Gleam code (`matrix.gleam`, `sparse.gleam`, `random.gleam`) requires no changes
+- Public API surface remains identical for supported modules
+- Tests can run on both targets (except `opt` tests)
 
 ---
 
 ## Conclusion
 
 **How hard would it be?**
-- Moderate difficulty - Technically straightforward but requires careful planning
-- 1.5-2 weeks of focused development
+- High difficulty overall, due to scope growth and the HiGHS dependency
+- 4-6 weeks of focused development (was 1.5-2 weeks before scope expanded)
 - Significant testing required to ensure correctness across targets
+- The `opt` module is a blocker for full parity — pragmatic to exclude it initially
 
 **Would we need major architectural changes?**
-- Yes, but the changes are well-structured:
-  - Split Rust implementation into NIF and WASM variants
+- Yes, but well-structured:
+  - Split Rust implementation into NIF and WASM crates
   - Add `@external` declarations for multi-target support
   - Create JavaScript glue layer
   - Update build system for dual targets
 
 **The trade-off is clear:**
-- **Benefit:** JavaScript target support enables browser/Node.js usage
-- **Cost:** 1.5-2 weeks development + ongoing maintenance + 3-20x performance loss on JavaScript
+- **Benefit:** JavaScript target support enables browser/Node.js usage for dense/sparse/random
+- **Cost:** 4-6 weeks development + ongoing maintenance + 3-20x performance loss on JavaScript + `opt` module unavailable on JS
 
 **Recommendation:**
-- **Phase 1:** Complete Erlang/NIF implementation (current roadmap)
-- **Phase 1.5:** Gather user feedback - is JavaScript support needed?
-- **Phase 2:** If yes, implement WASM support as described here
-- **Document:** Set clear performance expectations for each target
+- **Phase 1:** Complete Erlang/NIF implementation ✓ (done as of v0.2.3)
+- **Phase 2:** Gather user feedback — is JavaScript support needed?
+- **Phase 3:** If yes, implement WASM for dense + sparse + random; exclude `opt` with clear error
+- **Phase 4:** Revisit HiGHS WASM only if there is demonstrated demand
+- **Document:** Set clear performance expectations and module availability for each target
