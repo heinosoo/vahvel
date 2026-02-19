@@ -1,6 +1,7 @@
 import bench/harness.{type BenchRow}
 import bench/linalg as linalg_bench
 import bench/matrix as matrix_bench
+import bench/opt as opt_bench
 import gleam/int
 import gleam/io
 import gleam/list
@@ -21,21 +22,24 @@ pub fn main() {
     _ -> 20
   }
 
-  let sizes = [16, 64, 256, 1024]
+  let sizes = [16, 64, 128, 256]
 
   print_section("from_list scaling (Gleam marshalling cost)", fn() {
     matrix_bench.from_list_rows(sizes, iters)
   })
-
+  print_section("matrix.slice", fn() { matrix_bench.slice_rows(sizes, iters) })
+  print_section("matrix.vstack", fn() { matrix_bench.vstack_rows(sizes, iters) })
   print_section("matrix.multiply", fn() {
     matrix_bench.multiply_rows(sizes, iters)
   })
 
   print_section("linalg.solve", fn() { linalg_bench.solve_rows(sizes, iters) })
-
   print_section("linalg.lu", fn() { linalg_bench.lu_rows(sizes, iters) })
 
-  print_section("matrix.slice", fn() { matrix_bench.slice_rows(sizes, iters) })
-
-  print_section("matrix.vstack", fn() { matrix_bench.vstack_rows(sizes, iters) })
+  print_section("opt.solve (LP)", fn() {
+    opt_bench.solve_cont_rows(sizes, iters)
+  })
+  print_section("opt.solve (ILP)", fn() {
+    opt_bench.solve_ilp_rows(sizes, iters)
+  })
 }
