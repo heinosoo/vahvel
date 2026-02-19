@@ -1,0 +1,7 @@
+   Compiled in 0.09s
+    Running waffle_setup.main
+Compiling Rust NIF...
+   Compiling waffle v0.2.3 (/app/native/waffle)
+    Finished `release` profile [optimized] target(s) in 9.23s
+NIF compiled and copied to priv/waffle.so
+Setup complete.
