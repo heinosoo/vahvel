@@ -11,10 +11,10 @@ Status values:
 
 | # | Decision | Status |
 | --- | --- | --- |
-| [D1](#d1-describe-in-gleam-compute-in-rust) | Describe in Gleam, compute in Rust | Accepted |
+| [D1](#d1-describe-in-gleam-compute-in-rust) | Describe in Gleam, compute in Rust | Implemented |
 | [D2](#d2-representative-models-drive-the-api) | Representative models drive the API | Implemented |
 | [D3](#d3-affine-only-expressions) | Affine-only expressions | Implemented |
-| [D4](#d4-eager-canonical-expression-representation) | Eager canonical expression representation | Partly implemented |
+| [D4](#d4-eager-canonical-expression-representation) | Eager canonical expression representation | Implemented |
 | [D5](#d5-expressions-are-lists-of-terms) | Expressions are lists of terms | Implemented |
 | [D6](#d6-application-keys-as-references) | Application keys as references | Implemented |
 | [D7](#d7-variables-declared-by-use-with-a-domain-function) | Variables declared by use, with a domain function | Implemented |
@@ -544,14 +544,20 @@ list order. Dictionary iteration never decides order.
 
 ## D15. Canonical compilation rules
 
-**Decision.** Compilation combines repeated coefficients, drops exact zeros,
-sorts sparse indices, lowers `lhs relation rhs` as `lhs - rhs` with the constant
-moved to the right-hand side, and keeps the objective constant as a separate
-offset. Small nonzero coefficients are never dropped by an epsilon. References
-inside zero-scaled or cancelling expressions are still validated.
+**Decision.** Rust canonicalizes (D1): it combines repeated coefficients
+(summed in input order, so results are deterministic), drops exact zeros after
+checking finiteness, sorts sparse indices, lowers `lhs relation rhs` as
+`lhs - rhs` with the constant moved to the right-hand side, and keeps the
+objective constant as a separate offset. Small nonzero coefficients are never
+dropped by an epsilon. A term with coefficient zero still creates its variable
+(D7) and its index is still validated.
 
-**Why.** The driver requires canonical rows; an epsilon would silently change the
+**Why.** microlp needs canonical rows; an epsilon would silently change the
 model; validating cancelled references keeps typos from vanishing.
+
+**Cost.** Summing in input order can report an overflow even when a different
+order would stay finite (`max + max − max`). Reordering to avoid it would make
+results depend on more than the input, so it isn't attempted.
 
 **Alternatives.** Epsilon cleanup of near-zero coefficients. Rejected as silent
 model mutation.
@@ -688,6 +694,9 @@ gain over `list.map`.
 
 **Decision.** Users never import `waffle/internal/driver`. The modeling API
 defines its own domain, objective and error types and maps them to the driver.
+No public function takes or returns a driver type: compilation to the driver
+model is private, and model tests check behavior through `solve` rather than
+inspecting the lowered data.
 The domain is
 
 ```gleam

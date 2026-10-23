@@ -73,33 +73,83 @@ enum Relation {
     GreaterEqual,
 }
 
+/// An uncanonicalized linear expression: indices may repeat, appear in any
+/// order, and carry zero coefficients.
+#[derive(NifRecord)]
+#[tag = "expression"]
+struct Expression {
+    terms: Vec<(usize, f64)>,
+    constants: Vec<f64>,
+}
+
+impl Expression {
+    const EMPTY: Self = Self {
+        terms: Vec::new(),
+        constants: Vec::new(),
+    };
+}
+
 #[derive(NifRecord)]
 #[tag = "row"]
+struct RawRow {
+    lhs: Expression,
+    relation: Relation,
+    rhs: Expression,
+}
+
+/// A canonical row: strictly increasing indices, nonzero finite coefficients.
 struct Row {
     terms: Vec<(usize, f64)>,
     relation: Relation,
     rhs: f64,
 }
 
-impl Row {
-    fn is_valid(&self, variables: usize) -> bool {
-        self.rhs.is_finite()
-            && self
-                .terms
-                .iter()
-                .all(|&(i, c)| i < variables && c.is_finite() && c != 0.0)
-            && self.terms.windows(2).all(|pair| pair[0].0 < pair[1].0)
-    }
+enum Defect {
+    Index,
+    NonFinite,
 }
 
-/// Variables and rows stay undecoded so a failure can report its position.
+/// Canonicalize `lhs - rhs` into sorted, merged, nonzero terms and a constant.
+/// Duplicates are summed in input order (a stable sort keeps it deterministic);
+/// an overflowing sum becomes infinite and is reported as non-finite.
+fn canonical(
+    lhs: &Expression,
+    rhs: &Expression,
+    variables: usize,
+) -> Result<(Vec<(usize, f64)>, f64), Defect> {
+    let mut terms: Vec<(usize, f64)> = lhs
+        .terms
+        .iter()
+        .copied()
+        .chain(rhs.terms.iter().map(|&(i, c)| (i, -c)))
+        .collect();
+    if terms.iter().any(|&(i, _)| i >= variables) {
+        return Err(Defect::Index);
+    }
+    terms.sort_by_key(|&(i, _)| i);
+    let mut merged: Vec<(usize, f64)> = Vec::with_capacity(terms.len());
+    for (i, c) in terms {
+        match merged.last_mut() {
+            Some(last) if last.0 == i => last.1 += c,
+            _ => merged.push((i, c)),
+        }
+    }
+    let constant = lhs.constants.iter().sum::<f64>() - rhs.constants.iter().sum::<f64>();
+    if !constant.is_finite() || merged.iter().any(|&(_, c)| !c.is_finite()) {
+        return Err(Defect::NonFinite);
+    }
+    merged.retain(|&(_, c)| c != 0.0);
+    Ok((merged, constant))
+}
+
+/// Variables, objective and rows stay undecoded so a failure can report its
+/// position.
 #[derive(NifRecord)]
 #[tag = "model"]
 struct RawModel<'a> {
     direction: Direction,
     variables: Vec<Term<'a>>,
-    objective: Vec<f64>,
-    offset: f64,
+    objective: Term<'a>,
     rows: Vec<Term<'a>>,
 }
 
@@ -124,6 +174,8 @@ enum InvalidReason {
     InvalidObjective,
     InvalidDomain(usize),
     InvalidRow(usize),
+    NonFiniteObjective,
+    NonFiniteRow(usize),
 }
 
 #[derive(NifTaggedEnum)]
@@ -140,7 +192,8 @@ fn driver_solve(term: Term<'_>) -> Result<Outcome, DriverError> {
         .unwrap_or_else(|_| Err(DriverError::SolverFailure("Native solver panicked".into())))
 }
 
-/// Decode and validate the whole model before any infeasibility is reported.
+/// Decode, canonicalize and validate the whole model before any infeasibility
+/// is reported.
 fn decode(term: Term<'_>) -> Result<Model, InvalidReason> {
     let raw: RawModel = term.decode().map_err(|_| InvalidReason::MalformedModel)?;
     let variables = raw
@@ -154,28 +207,43 @@ fn decode(term: Term<'_>) -> Result<Model, InvalidReason> {
                 .ok_or(InvalidReason::InvalidDomain(i))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    if raw.objective.len() != variables.len()
-        || !raw.offset.is_finite()
-        || raw.objective.iter().any(|c| !c.is_finite())
-    {
-        return Err(InvalidReason::InvalidObjective);
+    let n = variables.len();
+    let objective: Expression = raw
+        .objective
+        .decode()
+        .map_err(|_| InvalidReason::InvalidObjective)?;
+    let (terms, offset) =
+        canonical(&objective, &Expression::EMPTY, n).map_err(|defect| match defect {
+            Defect::Index => InvalidReason::InvalidObjective,
+            Defect::NonFinite => InvalidReason::NonFiniteObjective,
+        })?;
+    let mut dense = vec![0.0; n];
+    for (i, c) in terms {
+        dense[i] = c;
     }
     let rows = raw
         .rows
         .iter()
         .enumerate()
         .map(|(i, term)| {
-            term.decode::<Row>()
-                .ok()
-                .filter(|row| row.is_valid(variables.len()))
-                .ok_or(InvalidReason::InvalidRow(i))
+            let raw: RawRow = term.decode().map_err(|_| InvalidReason::InvalidRow(i))?;
+            let (terms, constant) =
+                canonical(&raw.lhs, &raw.rhs, n).map_err(|defect| match defect {
+                    Defect::Index => InvalidReason::InvalidRow(i),
+                    Defect::NonFinite => InvalidReason::NonFiniteRow(i),
+                })?;
+            Ok(Row {
+                terms,
+                relation: raw.relation,
+                rhs: -constant,
+            })
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(Model {
         direction: raw.direction,
         variables,
-        objective: raw.objective,
-        offset: raw.offset,
+        objective: dense,
+        offset,
         rows,
     })
 }

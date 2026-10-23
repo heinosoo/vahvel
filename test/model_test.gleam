@@ -2,7 +2,6 @@ import gleam/float
 import gleam/list
 import gleam/option.{None, Some}
 import gleeunit/should
-import waffle/internal/driver as d
 import waffle/internal/model.{Constant, Linear} as m
 
 type Product {
@@ -121,40 +120,34 @@ fn base() -> m.Model(Product) {
   m.Model(nonnegative, m.Minimize([]), [])
 }
 
-pub fn canonical_objective_and_rows_test() {
+pub fn constants_and_terms_on_both_sides_solve_test() {
   let chair = Linear(1.0, Chair)
   let table = Linear(1.0, Table)
+  // min 2·chair + table + 4  s.t.  table + 3 ≥ chair + 5,  chair + 1 = 3
+  // (duplicates and cancelling terms in the objective are summed)
   let model =
     m.Model(
       ..base(),
       objective: m.Minimize([
         chair,
+        table,
         Linear(2.0, Table),
         chair,
         Linear(-2.0, Table),
         Constant(4.0),
       ]),
       constraints: [
-        // table + 3 ≥ chair + 5  ⇒  -chair + table ≥ 2
         m.GreaterEqual([table, Constant(3.0)], [chair, Constant(5.0)]),
         m.Equal([chair, Constant(1.0)], [Constant(3.0)]),
-        // Terms cancelling across sides leave a constant row.
-        m.LessEqual([chair, table], [table, chair]),
       ],
     )
-  let assert Ok(ir) = m.compile(model)
-  ir.direction |> should.equal(d.Minimize)
-  ir.objective |> should.equal([2.0, 0.0])
-  ir.offset |> should.equal(4.0)
-  ir.rows
-  |> should.equal([
-    d.Row([#(0, -1.0), #(1, 1.0)], d.GreaterEqual, 2.0),
-    d.Row([#(0, 1.0)], d.Equal, 2.0),
-    d.Row([], d.LessEqual, 0.0),
-  ])
+  let assert Ok(m.Optimal(solution)) = m.solve(model)
+  close_value(solution, Chair, 2.0)
+  close_value(solution, Table, 4.0)
+  close(m.objective(solution), 12.0)
 }
 
-pub fn columns_follow_first_reference_test() {
+pub fn domains_apply_to_their_keys_test() {
   let domain = fn(product) {
     case product {
       Chair -> m.Integer(Some(0), None)
@@ -162,37 +155,50 @@ pub fn columns_follow_first_reference_test() {
       Missing -> m.Integer(Some(0), Some(9))
     }
   }
+  // max 3·table + chair  s.t.  chair + table ≤ 7.5. With these domains the
+  // optimum is table = 5, chair = 2; swapping them would make it unbounded.
+  // Table is referenced first, so it is column 0 and Chair column 1.
   let model =
-    m.Model(domain, m.Maximize([Linear(1.0, Table)]), [
-      m.LessEqual([Linear(1.0, Chair), Linear(1.0, Table)], [Constant(3.0)]),
+    m.Model(domain, m.Maximize([Linear(3.0, Table), Linear(1.0, Chair)]), [
+      m.LessEqual([Linear(1.0, Chair), Linear(1.0, Table)], [Constant(7.5)]),
     ])
-  let assert Ok(ir) = m.compile(model)
-  ir.variables
-  |> should.equal([
-    d.Continuous(d.Unbounded, d.Finite(5.0)),
-    d.Integer(Some(0), None),
-  ])
-  ir.objective |> should.equal([1.0, 0.0])
-  ir.rows |> should.equal([d.Row([#(0, 1.0), #(1, 1.0)], d.LessEqual, 3.0)])
+  let assert Ok(m.Optimal(solution)) = m.solve(model)
+  close_value(solution, Table, 5.0)
+  close_value(solution, Chair, 2.0)
+  close(m.objective(solution), 17.0)
 }
 
 pub fn zero_coefficient_reference_creates_variable_test() {
   let model = m.Model(..base(), objective: m.Minimize([Linear(0.0, Chair)]))
-  let assert Ok(ir) = m.compile(model)
-  ir.variables |> should.equal([d.Continuous(d.Finite(0.0), d.Unbounded)])
-  ir.objective |> should.equal([0.0])
   let assert Ok(m.Optimal(solution)) = m.solve(model)
   m.value(solution, Chair) |> should.equal(Ok(0.0))
 }
 
-pub fn identical_constraints_are_separate_rows_test() {
+pub fn identical_constraints_are_allowed_test() {
   let row = m.LessEqual([Linear(1.0, Chair)], [Constant(1.0)])
-  let assert Ok(ir) = m.compile(m.Model(..base(), constraints: [row, row]))
-  ir.rows
-  |> should.equal([
-    d.Row([#(0, 1.0)], d.LessEqual, 1.0),
-    d.Row([#(0, 1.0)], d.LessEqual, 1.0),
-  ])
+  let model =
+    m.Model(..base(), objective: m.Maximize([Linear(1.0, Chair)]), constraints: [
+      row,
+      row,
+    ])
+  let assert Ok(m.Optimal(solution)) = m.solve(model)
+  close_value(solution, Chair, 1.0)
+}
+
+const max = 1.7976931348623157e308
+
+pub fn non_finite_sums_report_location_test() {
+  let model = base()
+  m.solve(
+    m.Model(..model, objective: m.Minimize([Constant(max), Constant(max)])),
+  )
+  |> should.equal(Error(m.NonFinite(m.InObjective)))
+  let fine = m.LessEqual([Linear(1.0, Chair)], [Constant(1.0)])
+  // Moving `-max·chair` across sides makes it `+max·chair`.
+  let overflowing =
+    m.LessEqual([Linear(max, Chair)], [Linear(0.0 -. max, Chair)])
+  m.solve(m.Model(..model, constraints: [fine, overflowing]))
+  |> should.equal(Error(m.NonFinite(m.InConstraint(1))))
 }
 
 pub fn explicit_outcomes_test() {

@@ -36,8 +36,8 @@ numbers from the outside, and the native layer never sees names or keys.
 handles keys, columns, domains and structure; Rust does every numeric
 operation: canonicalization, validation, solving, evaluation. This keeps the
 modeling layer identical across targets (BEAM floats can't overflow silently,
-JS floats can) and puts the expensive work where it is fast. Today the modeling
-layer still sums coefficients itself; ROADMAP step 4 moves that into Rust.
+JS floats can) and puts the expensive work where it is fast. The modeling layer
+contains no float arithmetic at all.
 
 Intended direction: when a JS target arrives via WASM, the Rust code splits into
 a target-independent engine (canonicalize, validate, solve) and thin adapters
@@ -47,7 +47,7 @@ never Gleam keys.
 ## Modeling layer
 
 `model.gleam` turns a symbolic model, written with application-owned keys, into
-the numeric IR, and maps the numeric result back to those keys. Expressions are
+the driver model, and maps the numeric result back to those keys. Expressions are
 plain lists of terms (`Linear(coefficient, key)` or `Constant(value)`), and
 constraints relate two expressions (`LessEqual`, `Equal`, `GreaterEqual`). A
 variable exists once an expression references it; the model's `domain`
@@ -56,7 +56,7 @@ function gives each variable's bounds and integrality.
 ```mermaid
 flowchart LR
   A[Symbolic model] --> B[Assign columns on first reference]
-  B --> C[Sum coefficients, move constants]
+  B --> C[Replace keys by columns, split constants]
   C --> D[driver.Model]
   B --> E[Column keys]
   D --> F[driver.solve]
@@ -66,11 +66,11 @@ flowchart LR
   F --> H
 ```
 
-Compilation is pure and deterministic: columns follow the order of first
-reference (objective, then constraints), rows follow constraint order, repeated
-coefficients are summed, exact zeros dropped, and sparse indices sorted. A
-constraint `lhs relation rhs` becomes the row `lhs - rhs relation -constant`,
-and the objective's constants become the offset. The column keys stay in Gleam
+Compilation is pure, deterministic and arithmetic-free: columns follow the order
+of first reference (objective, then constraints), rows follow constraint order,
+and each term list becomes an indexed `Expression(terms, constants)` with terms
+in their original order, duplicates and zeros included. Summing happens in Rust.
+The column keys stay in Gleam
 and are never passed to the NIF; they turn solver values into a keyed solution
 and driver error positions into keys. Solutions are immutable snapshots indexed
 by the same keys. The API shape is
@@ -80,26 +80,29 @@ under active design; see API-DESIGN.md.
 
 `driver.gleam` defines the IR that crosses the native boundary:
 
-- `Model(direction, variables, objective, offset, rows)`. Variable references
-  are zero-based positions in `variables`.
+- `Model(direction, variables, objective, rows)`. Variable references are
+  zero-based positions in `variables`.
+- `Expression(terms, constants)` is `Σ coefficient · x[index] + Σ constants`.
+  It is not canonical: indices may repeat, appear in any order and carry zero
+  coefficients. The objective's constants are its offset.
 - `Domain` is `Continuous(lower, upper)` with `Unbounded | Finite(Float)` bounds,
   or `Integer(lower, upper)` with inclusive `Option(Int)` bounds fitting signed
   32 bits; Rust turns `None` into `i32::MIN`/`i32::MAX`, microlp's integer
   range. Binary variables are `Integer(Some(0), Some(1))`. A domain with `lower > upper` is valid
   but empty and makes the model infeasible.
-- `Row(terms, relation, rhs)` with strictly increasing indices and nonzero
-  finite coefficients. An empty row has a left-hand side of zero.
-- The objective vector has exactly one finite coefficient per variable. The
-  offset is kept separately and added to the reported objective.
+- `Row(lhs, relation, rhs)` relates two expressions.
 - `solve` returns `Ok(Optimal(objective, values) | Infeasible | UnboundedProblem)`
   or `Error(InvalidModel(reason) | SolverFailure(_))`. Invalid input is distinct
-  from a numerical or internal failure. The reason says where the IR is invalid:
-  `MalformedModel`, `InvalidObjective`, `InvalidDomain(variable)` or
-  `InvalidRow(row)`, with zero-based positions that higher layers map back to
-  their own names.
+  from a numerical or internal failure. The reason says where:
+  `MalformedModel`, `InvalidObjective`, `InvalidDomain(variable)`,
+  `InvalidRow(row)`, `NonFiniteObjective` or `NonFiniteRow(row)`, with
+  zero-based positions that higher layers map back to their own names. The
+  non-finite reasons are user data (an overflowing sum, or non-finite input on a
+  target that allows it); the others, apart from domains, indicate a bug in the
+  producer.
 
 This contract is the single numeric interface. Higher layers produce it;
-the native layer enforces it.
+the native layer canonicalizes and enforces it.
 
 ## Native boundary
 
@@ -113,20 +116,25 @@ representation directly:
 | --- | --- | --- |
 | `Minimize`, `LessEqual` (no fields) | `minimize`, `less_equal` | `NifUnitEnum` |
 | `Finite(1.0)`, `Integer(0, 1)` | `{finite, 1.0}`, `{integer, 0, 1}` | `NifTaggedEnum` |
-| `Row(..)`, `Model(..)` | `{row, ..}`, `{model, ..}` | `NifRecord` with `#[tag]` |
+| `Row(..)`, `Expression(..)`, `Model(..)` | `{row, ..}`, `{expression, ..}`, `{model, ..}` | `NifRecord` with `#[tag]` |
+| `None`, `Some(1)` (`Option(Int)`) | `none`, `{some, 1}` | `NifTaggedEnum` (`IntegerBound`) |
 | `Result(a, e)` | `{ok, A}`, `{error, E}` | `Result<T, E>` |
 
 A Gleam type change must be matched in `driver.rs`, and vice versa.
 
 **Steps in `driver.rs`.**
 
-1. Decode the model shell, then each variable domain and row separately, so a
-   failure reports its position. A term that isn't a model is
-   `MalformedModel`; integer bounds outside `i32` are `InvalidDomain(i)`.
-2. Validate the whole model before solving: objective length and finiteness,
-   finite bounds, row indices in range and strictly increasing, nonzero finite
-   coefficients. Nothing is clamped, rounded or relaxed. BEAM floats are always
-   finite, so the finiteness checks are defensive.
+1. Decode the model shell, then each variable domain, the objective and each
+   row separately, so a failure reports its position. A term that isn't a model
+   is `MalformedModel`; integer bounds outside `i32` are `InvalidDomain(i)`.
+2. Canonicalize the objective and each row (`lhs − rhs`): collect terms, stable
+   sort by index, sum duplicates in input order, sum constants, check every sum
+   is finite, then drop zeros. Overflow becomes infinity in `f64` and is
+   reported as `NonFiniteObjective`/`NonFiniteRow(i)`; an index out of range is
+   `InvalidObjective`/`InvalidRow(i)`. The objective becomes a dense vector plus
+   offset; each row becomes sorted nonzero terms and a right-hand side.
+   Everything is validated before solving, and nothing is clamped, rounded or
+   relaxed.
 3. Answer trivial cases directly: an empty domain or an unsatisfiable constant
    row means `Infeasible`; a model with no variables returns its offset as the
    optimum.

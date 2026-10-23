@@ -17,7 +17,7 @@ each reviewed before the next and leaving `just` green.
    D9, D11, D12, D20.
 3. Done. **Variables by use:** `domain` function, modeling-layer domain types,
    and driver positions mapped back to variable keys. D7, D22.
-4. **Canonicalize in Rust.** The driver takes indexed, unsummed expressions
+4. Done. **Canonicalize in Rust.** The driver takes indexed, unsummed expressions
    (`Expression(terms, constants)`, rows as `lhs relation rhs`) and does all
    numeric work: `lhs − rhs`, sort, merge duplicates, drop zeros, sum constants,
    finiteness checks reported as `NonFiniteObjective`/`NonFiniteRow(row)`. The
@@ -35,9 +35,6 @@ Afterwards:
 - Truly unbounded integer variables: a `None` integer bound currently stops at
   the signed 32-bit range. Needs microlp to accept infinite integer bounds (it
   stores them as floats internally) or another backend. D22.
-- Re-evaluate module boundaries between `model` and `driver`. Canonicalization
-  moves to Rust in step 4 (D1); still open: whether `compile` should stay public
-  now that it returns uncanonicalized driver data. D1, D23.
 - JS target via Rust compiled to WASM: split the Rust code into a
   target-independent engine and thin adapters (Rustler, wasm-bindgen). D1.
 

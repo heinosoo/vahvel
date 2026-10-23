@@ -18,8 +18,27 @@ fn integer(lower: Int, upper: Int) -> d.Domain {
   d.Integer(Some(lower), Some(upper))
 }
 
+/// One objective coefficient per variable, plus an offset.
+fn numeric(
+  direction: d.Direction,
+  variables: List(d.Domain),
+  objective: List(Float),
+  offset: Float,
+  rows: List(d.Row),
+) -> d.Model {
+  let terms = list.index_map(objective, fn(c, i) { #(i, c) })
+  d.Model(direction, variables, d.Expression(terms, [offset]), rows)
+}
+
+/// `Σ terms relation rhs`.
+fn row(terms: List(#(Int, Float)), relation: d.Relation, rhs: Float) -> d.Row {
+  d.Row(d.Expression(terms, []), relation, d.Expression([], [rhs]))
+}
+
+const max = 1.7976931348623157e308
+
 fn bounded_model() -> d.Model {
-  d.Model(
+  numeric(
     d.Minimize,
     [d.Continuous(d.Finite(0.0), d.Finite(10.0))],
     [1.0],
@@ -34,7 +53,7 @@ fn assert_invalid(model: d.Model, reason: d.InvalidReason) {
 
 pub fn continuous_maximize_with_offset_test() {
   assert_assignment(
-    d.Model(
+    numeric(
       d.Maximize,
       [
         d.Continuous(d.Finite(0.0), d.Finite(2.0)),
@@ -42,7 +61,7 @@ pub fn continuous_maximize_with_offset_test() {
       ],
       [3.0, 2.0],
       7.0,
-      [d.Row([#(0, 1.0), #(1, 1.0)], d.LessEqual, 4.0)],
+      [row([#(0, 1.0), #(1, 1.0)], d.LessEqual, 4.0)],
     ),
     [2.0, 2.0],
     17.0,
@@ -51,7 +70,7 @@ pub fn continuous_maximize_with_offset_test() {
 
 pub fn minimize_equal_and_greater_equal_with_offset_test() {
   assert_assignment(
-    d.Model(
+    numeric(
       d.Minimize,
       [
         d.Continuous(d.Unbounded, d.Unbounded),
@@ -60,8 +79,8 @@ pub fn minimize_equal_and_greater_equal_with_offset_test() {
       [1.0, 2.0],
       -5.0,
       [
-        d.Row([#(0, 1.0)], d.GreaterEqual, 2.0),
-        d.Row([#(1, 1.0)], d.Equal, 1.0),
+        row([#(0, 1.0)], d.GreaterEqual, 2.0),
+        row([#(1, 1.0)], d.Equal, 1.0),
       ],
     ),
     [2.0, 1.0],
@@ -71,8 +90,8 @@ pub fn minimize_equal_and_greater_equal_with_offset_test() {
 
 pub fn integer_is_not_relaxed_test() {
   assert_assignment(
-    d.Model(d.Maximize, [integer(0, 10)], [1.0], -2.0, [
-      d.Row([#(0, 2.0)], d.LessEqual, 9.0),
+    numeric(d.Maximize, [integer(0, 10)], [1.0], -2.0, [
+      row([#(0, 2.0)], d.LessEqual, 9.0),
     ]),
     [4.0],
     2.0,
@@ -81,8 +100,8 @@ pub fn integer_is_not_relaxed_test() {
 
 pub fn binary_bounds_test() {
   assert_assignment(
-    d.Model(d.Maximize, [integer(0, 1), integer(0, 1)], [1.0, 2.0], 0.0, [
-      d.Row([#(0, 1.0), #(1, 1.0)], d.LessEqual, 1.0),
+    numeric(d.Maximize, [integer(0, 1), integer(0, 1)], [1.0, 2.0], 0.0, [
+      row([#(0, 1.0), #(1, 1.0)], d.LessEqual, 1.0),
     ]),
     [0.0, 1.0],
     2.0,
@@ -91,14 +110,14 @@ pub fn binary_bounds_test() {
 
 pub fn mixed_integer_model_test() {
   assert_assignment(
-    d.Model(
+    numeric(
       d.Maximize,
       [d.Continuous(d.Finite(0.0), d.Unbounded), integer(0, 3)],
       [1.0, 2.0],
       0.0,
       [
-        d.Row([#(0, 1.0), #(1, 1.0)], d.LessEqual, 4.0),
-        d.Row([#(0, 2.0), #(1, 1.0)], d.GreaterEqual, 2.0),
+        row([#(0, 1.0), #(1, 1.0)], d.LessEqual, 4.0),
+        row([#(0, 2.0), #(1, 1.0)], d.GreaterEqual, 2.0),
       ],
     ),
     [1.0, 3.0],
@@ -108,14 +127,14 @@ pub fn mixed_integer_model_test() {
 
 pub fn infeasible_model_test() {
   let model = bounded_model()
-  d.solve(d.Model(..model, rows: [d.Row([#(0, 1.0)], d.GreaterEqual, 20.0)]))
+  d.solve(d.Model(..model, rows: [row([#(0, 1.0)], d.GreaterEqual, 20.0)]))
   |> should.equal(Ok(d.Infeasible))
 }
 
 pub fn integer_infeasible_test() {
   d.solve(
-    d.Model(d.Minimize, [integer(0, 2)], [1.0], 0.0, [
-      d.Row([#(0, 1.0)], d.Equal, 0.5),
+    numeric(d.Minimize, [integer(0, 2)], [1.0], 0.0, [
+      row([#(0, 1.0)], d.Equal, 0.5),
     ]),
   )
   |> should.equal(Ok(d.Infeasible))
@@ -123,7 +142,7 @@ pub fn integer_infeasible_test() {
 
 pub fn unbounded_model_test() {
   d.solve(
-    d.Model(
+    numeric(
       d.Maximize,
       [d.Continuous(d.Finite(0.0), d.Unbounded)],
       [1.0],
@@ -140,7 +159,7 @@ pub fn unconstrained_bounded_model_test() {
 
 pub fn negative_continuous_domain_test() {
   assert_assignment(
-    d.Model(
+    numeric(
       d.Maximize,
       [d.Continuous(d.Unbounded, d.Finite(-2.0))],
       [1.0],
@@ -154,7 +173,7 @@ pub fn negative_continuous_domain_test() {
 
 pub fn negative_integer_domain_test() {
   assert_assignment(
-    d.Model(d.Minimize, [integer(-3, -1)], [1.0], 0.0, []),
+    numeric(d.Minimize, [integer(-3, -1)], [1.0], 0.0, []),
     [-3.0],
     -3.0,
   )
@@ -162,7 +181,7 @@ pub fn negative_integer_domain_test() {
 
 pub fn integer_bound_endpoints_test() {
   assert_assignment(
-    d.Model(
+    numeric(
       d.Minimize,
       [
         integer(-2_147_483_648, -2_147_483_648),
@@ -179,27 +198,27 @@ pub fn integer_bound_endpoints_test() {
 
 pub fn constant_model_test() {
   list.each([d.Minimize, d.Maximize], fn(direction) {
-    assert_assignment(d.Model(direction, [], [], 7.0, []), [], 7.0)
+    assert_assignment(numeric(direction, [], [], 7.0, []), [], 7.0)
   })
 }
 
 pub fn constant_rows_test() {
   let valid = [
-    d.Row([], d.Equal, 0.0),
-    d.Row([], d.LessEqual, 1.0),
-    d.Row([], d.GreaterEqual, -1.0),
+    row([], d.Equal, 0.0),
+    row([], d.LessEqual, 1.0),
+    row([], d.GreaterEqual, -1.0),
   ]
-  assert_assignment(d.Model(d.Minimize, [], [], 3.0, valid), [], 3.0)
+  assert_assignment(numeric(d.Minimize, [], [], 3.0, valid), [], 3.0)
   let model = bounded_model()
   assert_assignment(d.Model(..model, rows: valid), [0.0], 0.0)
   list.each(
     [
-      d.Row([], d.Equal, 1.0),
-      d.Row([], d.LessEqual, -1.0),
-      d.Row([], d.GreaterEqual, 1.0),
+      row([], d.Equal, 1.0),
+      row([], d.LessEqual, -1.0),
+      row([], d.GreaterEqual, 1.0),
     ],
     fn(row) {
-      d.solve(d.Model(d.Minimize, [], [], 0.0, [row]))
+      d.solve(numeric(d.Minimize, [], [], 0.0, [row]))
       |> should.equal(Ok(d.Infeasible))
       d.solve(d.Model(..model, rows: [row]))
       |> should.equal(Ok(d.Infeasible))
@@ -207,38 +226,133 @@ pub fn constant_rows_test() {
   )
 }
 
-pub fn objective_dimension_validation_test() {
+pub fn objective_index_validation_test() {
   let model = bounded_model()
-  list.each([[], [1.0, 2.0]], fn(objective) {
-    assert_invalid(d.Model(..model, objective: objective), d.InvalidObjective)
+  list.each([1, -1], fn(index) {
+    assert_invalid(
+      d.Model(..model, objective: d.Expression([#(index, 1.0)], [])),
+      d.InvalidObjective,
+    )
   })
-  assert_invalid(d.Model(d.Minimize, [], [1.0], 0.0, []), d.InvalidObjective)
+  assert_invalid(numeric(d.Minimize, [], [1.0], 0.0, []), d.InvalidObjective)
 }
 
 pub fn invalid_indices_test() {
   let model = bounded_model()
   list.each([-1, 1, 9_223_372_036_854_775_808], fn(index) {
     assert_invalid(
-      d.Model(..model, rows: [d.Row([#(index, 1.0)], d.Equal, 0.0)]),
+      d.Model(..model, rows: [row([#(index, 1.0)], d.Equal, 0.0)]),
       d.InvalidRow(0),
     )
   })
 }
 
-pub fn noncanonical_rows_test() {
+fn continuous(lower: Float, upper: Float) -> d.Domain {
+  d.Continuous(d.Finite(lower), d.Finite(upper))
+}
+
+pub fn rows_are_canonicalized_test() {
+  let x = fn(c) { #(0, c) }
+  let y = fn(c) { #(1, c) }
+  let maximize_x = fn(rows) {
+    numeric(
+      d.Maximize,
+      [continuous(0.0, 10.0), continuous(0.0, 10.0)],
+      [1.0, 0.0],
+      0.0,
+      rows,
+    )
+  }
+  // Duplicates are summed: x + 2x ≤ 3.
+  assert_assignment(
+    maximize_x([row([x(1.0), x(2.0)], d.LessEqual, 3.0)]),
+    [1.0, 0.0],
+    1.0,
+  )
+  // Unordered indices: y + x ≤ 4 with y fixed at 1 by y ≥ 1, y ≤ 1.
+  assert_assignment(
+    maximize_x([
+      row([y(1.0), x(1.0)], d.LessEqual, 4.0),
+      row([y(1.0)], d.Equal, 1.0),
+    ]),
+    [3.0, 1.0],
+    3.0,
+  )
+  // Both sides with constants: x + 3 ≤ y + 5, y = 1  ⇒  x ≤ 3.
+  assert_assignment(
+    maximize_x([
+      d.Row(
+        d.Expression([x(1.0)], [3.0]),
+        d.LessEqual,
+        d.Expression([y(1.0)], [5.0]),
+      ),
+      row([y(1.0)], d.Equal, 1.0),
+    ]),
+    [3.0, 1.0],
+    3.0,
+  )
+  // Zero and cancelling coefficients leave a constant row: 0 ≤ -1.
+  list.each([[x(0.0)], [x(-0.0)], [x(2.0), x(-2.0)]], fn(terms) {
+    d.solve(maximize_x([row(terms, d.LessEqual, -1.0)]))
+    |> should.equal(Ok(d.Infeasible))
+  })
+  // Terms cancelling across sides: x ≤ x.
+  assert_assignment(
+    maximize_x([
+      d.Row(d.Expression([x(1.0)], []), d.LessEqual, d.Expression([x(1.0)], [])),
+    ]),
+    [10.0, 0.0],
+    10.0,
+  )
+}
+
+pub fn objective_is_canonicalized_test() {
   let model =
-    d.Model(d.Minimize, [integer(0, 1), integer(0, 1)], [1.0, 1.0], 0.0, [])
+    d.Model(
+      d.Maximize,
+      [continuous(0.0, 2.0), continuous(0.0, 2.0)],
+      d.Expression([#(1, 1.0), #(0, 2.0), #(1, -1.0), #(0, 1.0)], [3.0, 4.0]),
+      [],
+    )
+  // 3x + 0y + 7
+  assert_assignment(model, [2.0, 0.0], 13.0)
+}
+
+pub fn non_finite_sums_are_reported_test() {
+  let model = bounded_model()
   list.each(
     [
-      [#(0, 1.0), #(0, 2.0)],
-      [#(1, 1.0), #(0, 1.0)],
-      [#(0, 0.0)],
-      [#(0, -0.0)],
+      d.Expression([#(0, max), #(0, max)], []),
+      d.Expression([], [max, max]),
+      d.Expression([], [0.0 -. max, 0.0 -. max]),
     ],
-    fn(terms) {
+    fn(objective) {
       assert_invalid(
-        d.Model(..model, rows: [d.Row(terms, d.LessEqual, 1.0)]),
-        d.InvalidRow(0),
+        d.Model(..model, objective: objective),
+        d.NonFiniteObjective,
+      )
+    },
+  )
+  let fine = row([#(0, 1.0)], d.LessEqual, 1.0)
+  list.each(
+    [
+      row([#(0, max), #(0, max)], d.LessEqual, 0.0),
+      // Moving `-max·x` across sides makes it `+max·x`.
+      d.Row(
+        d.Expression([#(0, max)], []),
+        d.LessEqual,
+        d.Expression([#(0, 0.0 -. max)], []),
+      ),
+      d.Row(
+        d.Expression([], [max]),
+        d.LessEqual,
+        d.Expression([], [0.0 -. max]),
+      ),
+    ],
+    fn(overflowing) {
+      assert_invalid(
+        d.Model(..model, rows: [fine, overflowing]),
+        d.NonFiniteRow(1),
       )
     },
   )
@@ -285,14 +399,14 @@ pub fn invalid_positions_are_reported_test() {
     integer(0, 2_147_483_648),
   ]
   assert_invalid(
-    d.Model(d.Minimize, domains, [1.0, 1.0, 1.0], 0.0, []),
+    numeric(d.Minimize, domains, [1.0, 1.0, 1.0], 0.0, []),
     d.InvalidDomain(2),
   )
   let model =
-    d.Model(d.Minimize, [integer(0, 1)], [1.0], 0.0, [
-      d.Row([#(0, 1.0)], d.LessEqual, 1.0),
-      d.Row([#(0, 1.0)], d.GreaterEqual, 0.0),
-      d.Row([#(5, 1.0)], d.Equal, 0.0),
+    numeric(d.Minimize, [integer(0, 1)], [1.0], 0.0, [
+      row([#(0, 1.0)], d.LessEqual, 1.0),
+      row([#(0, 1.0)], d.GreaterEqual, 0.0),
+      row([#(5, 1.0)], d.Equal, 0.0),
     ])
   assert_invalid(model, d.InvalidRow(2))
 }
@@ -301,14 +415,14 @@ pub fn validates_whole_model_before_infeasibility_test() {
   let model = bounded_model()
   assert_invalid(
     d.Model(..model, rows: [
-      d.Row([], d.Equal, 1.0),
-      d.Row([#(1, 1.0)], d.Equal, 0.0),
+      row([], d.Equal, 1.0),
+      row([#(1, 1.0)], d.Equal, 0.0),
     ]),
     d.InvalidRow(1),
   )
   assert_invalid(
     d.Model(..model, variables: [integer(2, 1)], rows: [
-      d.Row([#(1, 1.0)], d.Equal, 0.0),
+      row([#(1, 1.0)], d.Equal, 0.0),
     ]),
     d.InvalidRow(0),
   )
@@ -316,7 +430,7 @@ pub fn validates_whole_model_before_infeasibility_test() {
 
 pub fn objective_overflow_is_a_solver_error_test() {
   let model =
-    d.Model(
+    numeric(
       d.Minimize,
       [d.Continuous(d.Finite(1.0), d.Finite(1.0))],
       [1.0e308],
@@ -338,26 +452,26 @@ pub fn malformed_term_is_a_model_error_test() {
 
 pub fn integer_without_bounds_test() {
   assert_assignment(
-    d.Model(d.Minimize, [d.Integer(None, Some(5))], [1.0], 0.0, [
-      d.Row([#(0, 1.0)], d.GreaterEqual, -3.5),
+    numeric(d.Minimize, [d.Integer(None, Some(5))], [1.0], 0.0, [
+      row([#(0, 1.0)], d.GreaterEqual, -3.5),
     ]),
     [-3.0],
     -3.0,
   )
   assert_assignment(
-    d.Model(d.Maximize, [d.Integer(None, None)], [1.0], 0.0, [
-      d.Row([#(0, 1.0)], d.LessEqual, 7.5),
+    numeric(d.Maximize, [d.Integer(None, None)], [1.0], 0.0, [
+      row([#(0, 1.0)], d.LessEqual, 7.5),
     ]),
     [7.0],
     7.0,
   )
-  d.solve(d.Model(d.Minimize, [d.Integer(Some(3), None)], [1.0], 0.0, []))
+  d.solve(numeric(d.Minimize, [d.Integer(Some(3), None)], [1.0], 0.0, []))
   |> should.equal(Ok(d.Optimal(3.0, [3.0])))
 }
 
 // Documents the backend limit: a missing integer bound is the edge of the
 // signed 32-bit range, so an unbounded direction reports that edge as optimal.
 pub fn missing_integer_bound_is_the_32_bit_range_test() {
-  d.solve(d.Model(d.Maximize, [d.Integer(Some(0), None)], [1.0], 0.0, []))
+  d.solve(numeric(d.Maximize, [d.Integer(Some(0), None)], [1.0], 0.0, []))
   |> should.equal(Ok(d.Optimal(2_147_483_647.0, [2_147_483_647.0])))
 }

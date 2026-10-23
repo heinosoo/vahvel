@@ -1,8 +1,9 @@
 //// Internal numeric LP/MILP contract. This is not a public modeling API.
 ////
 //// Variable references are zero-based positions in `Model.variables`.
-//// Rows must have strictly increasing indices and nonzero finite coefficients.
-//// Validation and solving happen in Rust through a single dirty CPU NIF.
+//// Expressions are not canonical: Rust sums duplicates, sorts, drops zeros and
+//// moves constants, so callers do no float arithmetic. Validation, solving and
+//// all numeric work happen in Rust through a single dirty CPU NIF.
 
 import gleam/option.{type Option}
 
@@ -27,27 +28,30 @@ pub type Domain {
   Integer(lower: Option(Int), upper: Option(Int))
 }
 
-/// Relation between a sparse row and its right-hand side.
+/// The value `Σ coefficient · variable[index] + Σ constants`. Indices may
+/// repeat and appear in any order, and coefficients may be zero.
+pub type Expression {
+  Expression(terms: List(#(Int, Float)), constants: List(Float))
+}
+
+/// Relation between the two sides of a row.
 pub type Relation {
   LessEqual
   Equal
   GreaterEqual
 }
 
-/// A canonical sparse linear row. An empty row has a left-hand side of zero.
+/// A linear row `lhs relation rhs`.
 pub type Row {
-  Row(terms: List(#(Int, Float)), relation: Relation, rhs: Float)
+  Row(lhs: Expression, relation: Relation, rhs: Expression)
 }
 
-/// Numeric model with a separate objective vector and constant offset.
-/// The objective vector has exactly one finite coefficient per variable.
-/// All explicit bounds, row coefficients, right-hand sides and offsets are finite.
+/// Numeric model. The objective's constants are its offset.
 pub type Model {
   Model(
     direction: Direction,
     variables: List(Domain),
-    objective: List(Float),
-    offset: Float,
+    objective: Expression,
     rows: List(Row),
   )
 }
@@ -69,21 +73,23 @@ pub type DriverError {
 pub type InvalidReason {
   /// The term does not have the shape of a `Model`.
   MalformedModel
-  /// The objective length differs from the variable count, or a coefficient
-  /// or the offset is not finite.
+  /// The objective is malformed or references a missing variable.
   InvalidObjective
   /// The domain at this variable position has a non-finite bound or integer
   /// bounds outside signed 32 bits.
   InvalidDomain(variable: Int)
-  /// The row at this position is not finite, references a missing variable,
-  /// or is not canonical.
+  /// The row at this position is malformed or references a missing variable.
   InvalidRow(row: Int)
+  /// A summed objective coefficient or the offset is not finite, from overflow
+  /// or non-finite input.
+  NonFiniteObjective
+  /// A summed coefficient or constant of the row at this position is not finite.
+  NonFiniteRow(row: Int)
 }
 
-/// Validate and solve a canonical model with microlp's default settings.
+/// Canonicalize, validate and solve a model with microlp's default settings.
 /// The whole model is validated before any outcome is reported. Constant models
 /// are valid; infeasibility (including empty domains) and unboundedness are
-/// outcomes.
-/// Binary variables are represented as `Integer(Some(0), Some(1))`.
+/// outcomes. Binary variables are represented as `Integer(Some(0), Some(1))`.
 @external(erlang, "nif", "driver_solve")
 pub fn solve(model: Model) -> Result(Outcome, DriverError)
