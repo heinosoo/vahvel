@@ -115,8 +115,9 @@ distinction a use.
 
 **Decision.** API and design changes are judged by how the representative
 models in `test/examples/` read: the README's waffle stand, a multi-period
-production network, and N-queens. The set grows with the end-to-end examples on the
-roadmap. JuMP, Pyomo and MathOpt are influences, not syntax to copy.
+production network, and N-queens. The set grows when a model with new structure
+(time-indexed scheduling, say) tests the API differently. JuMP, Pyomo and
+MathOpt are influences, not syntax to copy.
 
 **Why.** Concrete models expose ergonomic costs that abstract design hides, and
 they double as regression tests. They only reveal what they exercise: a set
@@ -281,9 +282,12 @@ an exhaustive `case` over the key type.
 **Why.** No declaration list to keep in sync with the expressions, no
 unknown/duplicate variable errors, and type inference fills in the key type.
 
-**Costs.** A variable never referenced doesn't exist; querying it is an error. A
-model holding a closure can't be compared or printed. Key discovery stays in
-Gleam because a NIF can't call the closure.
+**Costs.** A variable never referenced doesn't exist; querying it is
+`NotInSolution(key)`. Reports that iterate the data rather than the model meet
+such keys, like the production network's unavailable lanes, and handle them
+through `value`'s `Result`; the examples have not needed a way to retain
+unreferenced variables. A model holding a closure can't be compared or
+printed. Key discovery stays in Gleam because a NIF can't call the closure.
 
 **Rejected.**
 - *An explicit declaration list.* Inspectable, but duplicates the index set and
@@ -315,8 +319,8 @@ backend limit belongs in one place, in Rust.
 
 **Convenience forms.** `Binary` states modeling intent and shares the integer
 implementation. Further shorthands, such as `NonNegative`, are judged by caller
-readability, not rejected for being a second spelling (see ROADMAP.md open
-questions).
+readability, not rejected for being a second spelling (see ROADMAP.md:
+"Modeling conveniences").
 
 **Rejected.**
 - *Required integer bounds.* Honest about the backend, but asymmetric with
@@ -370,14 +374,19 @@ all values keyed by variable. `evaluate(solution, expression)` computes costs,
 breakdowns and slacks: Gleam lowers the expression and looks up its keys with
 `value`. Rust receives the indexed expression and values, canonicalizes with
 the same rules as solving, and evaluates it, reporting `NonFiniteValue`.
-`value` and `evaluate` share `QueryError(v)`. Solutions are immutable
-snapshots.
+`value` and `evaluate` share `QueryError(v)`. Integer and binary values are
+exact whole numbers, rounded by microlp's `var_value`, which rejects values
+outside its integrality tolerance. The objective is microlp's own value, not
+recomputed from the rounded values. Solutions are immutable snapshots.
 
 **Why.** Silent zeros hide typos. Evaluating expressions is more useful for
 reporting than single lookups. A shared error type lets a report chain both
-with `use … <- result.try`, and the error names the missing key. Sharing canonicalization ensures duplicates are
-combined before multiplication in both paths, avoiding spurious product overflow
-for cancelling terms. The cost is column discovery and sorting on every
+with `use … <- result.try`, and the error names the missing key. Exact integer
+values make `float.round` a lossless conversion rather than a tolerance guess;
+whether results should carry an integer type is open (ROADMAP.md: "Integer
+results"). Sharing canonicalization ensures duplicates are combined before
+multiplication in both paths, avoiding spurious product overflow for
+cancelling terms. The cost is column discovery and sorting on every
 evaluation; see ROADMAP.md ("Performance").
 
 **Rejected.**

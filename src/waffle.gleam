@@ -282,7 +282,9 @@ fn native_error(
   }
 }
 
-/// Objective value including its constant terms.
+/// Objective value including its constant terms, as reported by the solver. It
+/// is not recomputed from the rounded integer values, so it can differ from
+/// `evaluate` of the objective expression in the last digits.
 pub fn objective(solution: Solution(v)) -> Float {
   solution.objective
 }
@@ -293,12 +295,14 @@ pub fn stats(solution: Solution(v)) -> Stats {
 }
 
 /// Look up a primal value by variable key. A key that no expression references
-/// is `NotInSolution(key)`, never zero.
+/// is `NotInSolution(key)`, never zero. Integer and binary variables have exact
+/// whole values, so `float.round` converts them without loss.
 pub fn value(solution: Solution(v), key: v) -> Result(Float, QueryError(v)) {
   dict.get(solution.values, key) |> result.replace_error(NotInSolution(key))
 }
 
-/// All primal values, keyed by every variable the model referenced.
+/// All primal values, keyed by every variable the model referenced. Integer and
+/// binary variables have exact whole values.
 pub fn values(solution: Solution(v)) -> Dict(v, Float) {
   solution.values
 }

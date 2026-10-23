@@ -7,13 +7,32 @@ work is removed from this file; git log keeps it. Design decisions are in
 
 ## Next
 
-- **End-to-end modeling examples.** `test/examples/` covers sparse adjacency,
-  mixed variable families, cost breakdowns, a scenario, an isolated node and
-  lanes left out of the model. Still open: complete solution reporting (a
-  per-period plan, not just costs), and whether discovery by reference stays
-  sufficient; so far reporting over data handles unreferenced keys through
-  `value`'s `Result`. Add examples with other structure, such as
-  time-indexed scheduling.
+- **Integer results (needs a design session).** Integer and binary values are
+  already exact whole numbers (microlp rounds them), but they come back as
+  `Float`, so callers convert with `float.round`. Find out whether the Gleam
+  API can return an integer type for integer variables, given that keys of
+  one type can name both continuous and integer variables, and what that
+  means for `values`, `evaluate`, `objective` and the driver contract. The
+  objective is microlp's own value, not recomputed from the rounded values,
+  so it is not guaranteed whole or equal to `evaluate`.
+- **Modeling conveniences.** Plain variables are written `Linear(1.0, key)`
+  throughout linking, flow and balance constraints, and subtraction is
+  `Scaled(-1.0, e)`. Candidates are a `Variable(key)` leaf or helper, a
+  `negate`/`Difference` form, and domain shorthands such as `NonNegative`.
+  Weigh each against second spellings, constructor count and driver changes,
+  judged on the examples (DESIGN.md: "Convenience forms").
+- **Reporting and evaluation.** One design for reading a model back: a
+  constraint's slack or residual at a solution, and expressions and
+  constraints evaluated against caller-supplied values (`Dict(v, Float)`), to
+  check a hand-made plan or a heuristic's result and report what-if costs.
+  Decide how missing variables and violations are reported, and use the
+  examples to define reporting conventions, including a complete plan (the
+  production network per period, not just its costs). Reuses the driver's
+  evaluation path.
+- **Solve limits.** Time and iteration limits with an outcome that separates
+  optimal, feasible-but-unproven and stopped results (DESIGN.md: "Solve
+  limits"). microlp already supports this; the driver contract changes with it.
+  The gap of a feasible result goes into `Stats`.
 - **Performance.** Benchmark construction on larger sparse models, starting
   with the production network's `instance(size)`;
   `stats(solution).solve_time` separates solving from construction and NIF
@@ -22,45 +41,25 @@ work is removed from this file; git log keeps it. Design decisions are in
   nested expression construction and evaluation, including column discovery,
   canonicalization, NIF decoding and dirty-scheduler overhead. Use results to
   decide whether a bounded fast path for small evaluations is worthwhile.
-- **Constraint reporting.** Consider direct constraint slack/residual queries;
-  expression reuse and subtraction are available through `Sum` and `Scaled`.
-  Use the end-to-end examples to define reporting conventions and choose small
-  helpers.
-- **Evaluating candidate assignments.** Evaluate expressions and constraints
-  against caller-supplied values (`Dict(v, Float)`), not only a `Solution`:
-  check a hand-made plan or a heuristic's result against the model, and report
-  what-if costs. Reuses the driver's evaluation path; decide how missing
-  variables and constraint violations are reported.
-- **Integer results (needs a design session).** Integer and binary variables
-  come back as `Float`, so callers compare against `3.0`, match exactly `1.0`
-  or round, guessing at solver tolerance. Decide how integrality is
-  represented in results, e.g. an integer accessor with Rust returning exact
-  integers for integer columns, and what that means for `values`, `evaluate`
-  and the driver contract.
-- **Solve limits.** Time and iteration limits with an outcome that separates
-  optimal, feasible-but-unproven and stopped results (DESIGN.md: "Solve
-  limits"). microlp already supports this; the driver contract changes with it.
-  The gap of a feasible result goes into `Stats`.
+
+## Later
+
+### Backends
+
 - **Dual values.** Needs a dual-capable backend and the requirements in
   DESIGN.md ("Dual values").
 - **Truly unbounded integer variables.** A `None` integer bound currently stops
   at the signed 32-bit range. Needs microlp to accept infinite integer bounds (it
   stores them as floats internally) or another backend.
-
-## Later
-
 - **Convex quadratic objectives.** A separate quadratic type accepted only where
   a backend supports it, and validation of supported models.
 - **Clarabel.** Evaluate Clarabel with its optional faer backend alongside
   microlp; its adapter builds CSC inside Rust.
 - **Solver selection.** Automatic selection based on model capabilities, with an
   explicit override and clear errors for unsupported models.
-- **JS target via WASM.** Split the Rust code into a target-independent engine
-  and thin adapters (Rustler, wasm-bindgen).
-- **Expression printing (tentative).** Render expressions and constraints
-  readably for debugging and error messages, e.g. `3·Chair + 2·Table + 7 ≤ 4`.
-  Keys are arbitrary values, so callers would pass a `fn(v) -> String` or
-  accept `string.inspect`. Only if debugging or diagnostics need it.
+
+### Distribution
+
 - **Precompiled NIFs.** Download prebuilt libraries so users need no Rust
   toolchain, like Elixir's `rustler_precompiled`. Today the release binary
   isn't portable and everyone builds from source. Users then run machine code
@@ -81,6 +80,15 @@ work is removed from this file; git log keeps it. Design decisions are in
   source of the contract), and Rustler's
   [#777](https://github.com/rusterlium/rustler/pull/777), which embeds NIF
   signatures so wrapper stubs can be generated (draft, Elixir-only).
+- **JS target via WASM.** Split the Rust code into a target-independent engine
+  and thin adapters (Rustler, wasm-bindgen).
+
+### Diagnostics
+
+- **Expression printing (tentative).** Render expressions and constraints
+  readably for debugging and error messages, e.g. `3·Chair + 2·Table + 7 ≤ 4`.
+  Keys are arbitrary values, so callers would pass a `fn(v) -> String` or
+  accept `string.inspect`. Only if debugging or diagnostics need it.
 - **Optional solver trace.** Only if debugging needs it: forward microlp's `log`
   output to Erlang's `logger`, off by default and never including model data.
   Statistics returned as data come first.
@@ -91,12 +99,5 @@ work is removed from this file; git log keeps it. Design decisions are in
   independent components, so cross-model mix-ups are detected?
 - Would key-driven rows and bounds (`bound: fn(row) -> Interval`) serve large
   indexed constraint families better than per-row constraints?
-- Would a `NonNegative` domain shorthand improve readability enough to justify
-  a second spelling?
-- Where should expressions get conveniences? Plain variables are written
-  `Linear(1.0, key)` throughout linking, flow and balance constraints, and
-  subtraction is `Scaled(-1.0, e)`. Candidates are a `Variable(key)` leaf or
-  helper and a `negate`/`Difference` form; weigh them against second
-  spellings, constructor count and driver changes, judged on the examples.
 - Should errors be collected rather than reporting the first, once diagnostics
   need it?
