@@ -7,233 +7,162 @@ import gleam/list
 import gleam/result
 import waffle/internal/driver
 
-/// Symbolic expression. Products are allowed here but rejected at compilation
-/// unless one side is constant.
-pub opaque type Expression(key) {
-  Constant(Float)
-  Variable(key)
-  Sum(List(Expression(key)))
-  Scale(Expression(key), Float)
-  Product(Expression(key), Expression(key))
+/// One term of a linear expression. An expression is a `List(Term(v))` whose
+/// value is the sum of its terms; the empty list is zero. Duplicate variables
+/// and zero coefficients are allowed and combined at compilation.
+///
+/// ```gleam
+/// [Linear(3.0, X), Linear(2.0, Y), Constant(7.0)]  // 3x + 2y + 7
+/// list.append(e1, e2)                               // e1 + e2
+/// ```
+///
+/// For shorter literals, rename the constructors at the import:
+/// `import waffle/internal/model.{Linear as L, Constant as C}`.
+pub type Term(v) {
+  Linear(coefficient: Float, variable: v)
+  Constant(value: Float)
 }
 
-/// A named equation or inequality between expressions.
-pub type Constraint(variable, constraint) {
-  Constraint(
-    constraint,
-    Expression(variable),
-    driver.Relation,
-    Expression(variable),
-  )
+/// A linear relation between two expressions. Constraints have no names; a
+/// constraint value is its own identity.
+pub type Constraint(v) {
+  LessEqual(lhs: List(Term(v)), rhs: List(Term(v)))
+  Equal(lhs: List(Term(v)), rhs: List(Term(v)))
+  GreaterEqual(lhs: List(Term(v)), rhs: List(Term(v)))
+}
+
+/// The expression to optimize, with its direction.
+pub type Objective(v) {
+  Minimize(List(Term(v)))
+  Maximize(List(Term(v)))
 }
 
 /// Immutable symbolic input; keys have model-local name semantics.
-pub type Model(variable, constraint) {
+pub type Model(v) {
   Model(
-    variables: List(#(variable, driver.Domain)),
-    direction: driver.Direction,
-    objective: Expression(variable),
-    constraints: List(Constraint(variable, constraint)),
+    variables: List(#(v, driver.Domain)),
+    objective: Objective(v),
+    constraints: List(Constraint(v)),
   )
 }
 
 /// Compilation and native failures are distinct from mathematical outcomes.
-pub type Error(variable, constraint) {
-  DuplicateVariable(variable)
-  DuplicateConstraint(constraint)
-  UnknownVariable(variable)
-  NonlinearExpression
+pub type Error(v) {
+  DuplicateVariable(v)
+  UnknownVariable(v)
   NativeError(driver.DriverError)
 }
 
 /// A solution carries only values belonging to this solved snapshot.
-pub opaque type Solution(variable, constraint) {
-  Solution(Float, Dict(variable, Float), Dict(constraint, Int))
+pub opaque type Solution(v) {
+  Solution(objective: Float, values: Dict(v, Float))
 }
 
 /// Only an optimum carries a queryable solution.
-pub type Outcome(variable, constraint) {
-  Optimal(Solution(variable, constraint))
+pub type Outcome(v) {
+  Optimal(Solution(v))
   Infeasible
   Unbounded
 }
 
-/// A failed lookup never substitutes a numeric zero.
-pub type QueryError {
-  UnknownKey
-  DualsUnsupported
+/// Summed coefficients by column, plus a constant.
+type Canonical {
+  Canonical(terms: Dict(Int, Float), offset: Float)
 }
 
-/// A literal expression.
-pub fn constant(value: Float) -> Expression(key) {
-  Constant(value)
-}
-
-/// A symbolic reference resolved at compilation.
-pub fn variable(key: key) -> Expression(key) {
-  Variable(key)
-}
-
-/// Add expressions; an empty sum is zero.
-pub fn sum(expressions: List(Expression(key))) -> Expression(key) {
-  Sum(expressions)
-}
-
-/// Add two expressions, with the first argument suitable for pipelines.
-pub fn add(left: Expression(key), right: Expression(key)) -> Expression(key) {
-  Sum([left, right])
-}
-
-/// Scale an expression by a numeric coefficient.
-pub fn scale(
-  expression: Expression(key),
-  coefficient: Float,
-) -> Expression(key) {
-  Scale(expression, coefficient)
-}
-
-/// Multiply expressions; nonlinear products are rejected during compilation.
-pub fn multiply(
-  left: Expression(key),
-  right: Expression(key),
-) -> Expression(key) {
-  Product(left, right)
-}
-
-type Linear {
-  Linear(terms: Dict(Int, Float), offset: Float)
-}
-
-// Fold the smaller map into the larger so left-deep `add` chains stay near-linear.
-fn merge(left: Linear, right: Linear) -> Linear {
-  let #(large, small) = case dict.size(left.terms) >= dict.size(right.terms) {
-    True -> #(left.terms, right.terms)
-    False -> #(right.terms, left.terms)
+/// Add `sign` times each term, resolving every variable reference, including
+/// zero-coefficient ones, so invalid keys never disappear.
+fn accumulate(
+  canonical: Canonical,
+  terms: List(Term(v)),
+  sign: Float,
+  columns: Dict(v, Int),
+) -> Result(Canonical, Error(v)) {
+  use canonical, term <- list.try_fold(terms, canonical)
+  case term {
+    Constant(value) ->
+      Ok(Canonical(..canonical, offset: canonical.offset +. sign *. value))
+    Linear(coefficient, key) -> {
+      use index <- result.try(
+        dict.get(columns, key) |> result.replace_error(UnknownVariable(key)),
+      )
+      let previous = dict.get(canonical.terms, index) |> result.unwrap(0.0)
+      let terms =
+        dict.insert(canonical.terms, index, previous +. sign *. coefficient)
+      Ok(Canonical(..canonical, terms: terms))
+    }
   }
-  let terms =
-    dict.fold(small, large, fn(terms, index, value) {
-      let previous = dict.get(terms, index) |> result.unwrap(0.0)
-      dict.insert(terms, index, previous +. value)
-    })
-  Linear(terms, left.offset +. right.offset)
 }
 
-fn scaled(linear: Linear, coefficient: Float) -> Linear {
-  Linear(
-    dict.map_values(linear.terms, fn(_, value) { value *. coefficient }),
-    linear.offset *. coefficient,
-  )
+fn lower(
+  terms: List(Term(v)),
+  columns: Dict(v, Int),
+) -> Result(Canonical, Error(v)) {
+  accumulate(Canonical(dict.new(), 0.0), terms, 1.0, columns)
 }
 
-fn sparse(linear: Linear) -> List(#(Int, Float)) {
-  linear.terms
+fn sparse(canonical: Canonical) -> List(#(Int, Float)) {
+  canonical.terms
   |> dict.to_list
   |> list.filter(fn(term) { term.1 != 0.0 })
   |> list.sort(fn(a, b) { int.compare(a.0, b.0) })
 }
 
-fn lower(
-  expression: Expression(v),
-  columns: Dict(v, Int),
-) -> Result(Linear, Error(v, c)) {
-  case expression {
-    Constant(value) -> Ok(Linear(dict.new(), value))
-    Variable(key) -> {
-      use index <- result.try(
-        dict.get(columns, key)
-        |> result.map_error(fn(_) { UnknownVariable(key) }),
-      )
-      Ok(Linear(dict.from_list([#(index, 1.0)]), 0.0))
-    }
-    Sum(expressions) -> {
-      use total, expression <- list.try_fold(
-        expressions,
-        Linear(dict.new(), 0.0),
-      )
-      use linear <- result.try(lower(expression, columns))
-      Ok(merge(total, linear))
-    }
-    Scale(expression, coefficient) -> {
-      use linear <- result.try(lower(expression, columns))
-      Ok(scaled(linear, coefficient))
-    }
-    Product(left, right) -> {
-      use left <- result.try(lower(left, columns))
-      use right <- result.try(lower(right, columns))
-      case sparse(left), sparse(right) {
-        [], _ -> Ok(scaled(right, left.offset))
-        _, [] -> Ok(scaled(left, right.offset))
-        _, _ -> Error(NonlinearExpression)
-      }
-    }
-  }
-}
-
 fn columns(
   variables: List(#(v, driver.Domain)),
-) -> Result(Dict(v, Int), Error(v, c)) {
-  use columns, item <- list.try_fold(
-    list.index_map(variables, fn(v, i) { #(v.0, i) }),
+) -> Result(Dict(v, Int), Error(v)) {
+  use columns, #(key, index) <- list.try_fold(
+    list.index_map(variables, fn(variable, index) { #(variable.0, index) }),
     dict.new(),
   )
-  case dict.has_key(columns, item.0) {
-    True -> Error(DuplicateVariable(item.0))
-    False -> Ok(dict.insert(columns, item.0, item.1))
+  case dict.has_key(columns, key) {
+    True -> Error(DuplicateVariable(key))
+    False -> Ok(dict.insert(columns, key, index))
   }
 }
 
-fn row_keys(
-  constraints: List(Constraint(v, c)),
-) -> Result(Dict(c, Int), Error(v, c)) {
-  use rows, item <- list.try_fold(
-    list.index_map(constraints, fn(c, i) { #(c, i) }),
-    dict.new(),
-  )
-  let Constraint(key, _, _, _) = item.0
-  case dict.has_key(rows, key) {
-    True -> Error(DuplicateConstraint(key))
-    False -> Ok(dict.insert(rows, key, item.1))
+/// Lower `lhs relation rhs` as `lhs - rhs relation -constant`.
+fn row(
+  constraint: Constraint(v),
+  columns: Dict(v, Int),
+) -> Result(driver.Row, Error(v)) {
+  let #(lhs, relation, rhs) = case constraint {
+    LessEqual(lhs, rhs) -> #(lhs, driver.LessEqual, rhs)
+    Equal(lhs, rhs) -> #(lhs, driver.Equal, rhs)
+    GreaterEqual(lhs, rhs) -> #(lhs, driver.GreaterEqual, rhs)
   }
+  use difference <- result.try(lower(lhs, columns))
+  use difference <- result.try(accumulate(difference, rhs, -1.0, columns))
+  Ok(driver.Row(sparse(difference), relation, 0.0 -. difference.offset))
 }
 
-/// Lower to the existing IR. Numeric validation remains at the native boundary.
+/// Lower to the numeric IR. Columns follow `variables` order and rows follow
+/// `constraints` order. Numeric validation remains at the native boundary.
 /// Known limitation: overflowing Gleam arithmetic is not caught here.
-pub fn compile(model: Model(v, c)) -> Result(driver.Model, Error(v, c)) {
-  use #(numeric, _) <- result.try(compile_keyed(model))
-  Ok(numeric)
-}
-
-fn compile_keyed(
-  model: Model(v, c),
-) -> Result(#(driver.Model, Dict(c, Int)), Error(v, c)) {
+pub fn compile(model: Model(v)) -> Result(driver.Model, Error(v)) {
   use columns <- result.try(columns(model.variables))
-  use rows_by_key <- result.try(row_keys(model.constraints))
-  use objective <- result.try(lower(model.objective, columns))
+  let #(direction, objective) = case model.objective {
+    Minimize(terms) -> #(driver.Minimize, terms)
+    Maximize(terms) -> #(driver.Maximize, terms)
+  }
+  use objective <- result.try(lower(objective, columns))
   use rows <- result.try(
-    list.try_map(model.constraints, fn(constraint) {
-      let Constraint(_, lhs, relation, rhs) = constraint
-      use left <- result.try(lower(lhs, columns))
-      use right <- result.try(lower(rhs, columns))
-      let linear = merge(left, scaled(right, -1.0))
-      Ok(driver.Row(sparse(linear), relation, 0.0 -. linear.offset))
-    }),
+    list.try_map(model.constraints, fn(constraint) { row(constraint, columns) }),
   )
-  let numeric =
-    driver.Model(
-      model.direction,
-      list.map(model.variables, fn(item) { item.1 }),
-      list.index_map(model.variables, fn(_, i) {
-        dict.get(objective.terms, i) |> result.unwrap(0.0)
-      }),
-      objective.offset,
-      rows,
-    )
-  Ok(#(numeric, rows_by_key))
+  Ok(driver.Model(
+    direction,
+    list.map(model.variables, fn(variable) { variable.1 }),
+    list.index_map(model.variables, fn(_, index) {
+      dict.get(objective.terms, index) |> result.unwrap(0.0)
+    }),
+    objective.offset,
+    rows,
+  ))
 }
 
 /// Compile and solve using the real microlp NIF.
-pub fn solve(model: Model(v, c)) -> Result(Outcome(v, c), Error(v, c)) {
-  use #(numeric, rows) <- result.try(compile_keyed(model))
+pub fn solve(model: Model(v)) -> Result(Outcome(v), Error(v)) {
+  use numeric <- result.try(compile(model))
   use outcome <- result.try(
     driver.solve(numeric) |> result.map_error(NativeError),
   )
@@ -241,35 +170,18 @@ pub fn solve(model: Model(v, c)) -> Result(Outcome(v, c), Error(v, c)) {
     driver.Infeasible -> Ok(Infeasible)
     driver.UnboundedProblem -> Ok(Unbounded)
     driver.Optimal(objective, values) -> {
-      let keys = list.map(model.variables, fn(item) { item.0 })
-      Ok(
-        Optimal(Solution(
-          objective,
-          dict.from_list(list.zip(keys, values)),
-          rows,
-        )),
-      )
+      let keys = list.map(model.variables, fn(variable) { variable.0 })
+      Ok(Optimal(Solution(objective, dict.from_list(list.zip(keys, values)))))
     }
   }
 }
 
-/// Objective value including its constant offset.
-pub fn objective(solution: Solution(v, c)) -> Float {
-  let Solution(objective, _, _) = solution
-  objective
+/// Objective value including its constant terms.
+pub fn objective(solution: Solution(v)) -> Float {
+  solution.objective
 }
 
-/// Look up a primal value by domain key.
-pub fn value(solution: Solution(v, c), key: v) -> Result(Float, QueryError) {
-  let Solution(_, values, _) = solution
-  dict.get(values, key) |> result.map_error(fn(_) { UnknownKey })
-}
-
-/// microlp 0.6.0 has no public constraint-dual query.
-pub fn dual(solution: Solution(v, c), key: c) -> Result(Float, QueryError) {
-  let Solution(_, _, rows) = solution
-  use _ <- result.try(
-    dict.get(rows, key) |> result.map_error(fn(_) { UnknownKey }),
-  )
-  Error(DualsUnsupported)
+/// Look up a primal value by variable key. An unknown key is an error, never zero.
+pub fn value(solution: Solution(v), key: v) -> Result(Float, Nil) {
+  dict.get(solution.values, key)
 }

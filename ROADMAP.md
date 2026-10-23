@@ -9,8 +9,8 @@ Decisions are recorded in [API-DESIGN.md](API-DESIGN.md). One commit per step,
 each reviewed before the next and leaving `just` green.
 
 1. **Driver contract** (Rust and `driver.gleam`): `InvalidModel` carries the
-   position of the invalid variable or row; an empty continuous domain is
-   `Infeasible`. D17.
+   position of the invalid variable or row; an empty domain is `Infeasible`.
+   D17.
 2. **Expressions and constraints:** `Term` lists, keyless
    `LessEqual`/`Equal`/`GreaterEqual`, `Minimize`/`Maximize`; remove the
    expression algebra, `multiply`, the `dual` stub, and constraint keys. D3, D5,
@@ -25,6 +25,9 @@ Afterwards:
 - Benchmark model construction on larger sparse models. D4.
 - Revisit model-local keys versus runtime handles. D8.
 - Solve-limit and dual-capable backend contracts. D24, D20.
+- Re-evaluate module boundaries between `model` and `driver`, e.g. whether the
+  driver should own row canonicalization (sorting, merging duplicates, dropping
+  zeros) once a second IR producer appears. D1, D23.
 
 ## Representative models
 

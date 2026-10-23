@@ -35,14 +35,16 @@ numbers from the outside, and the native layer never sees names or keys.
 ## Modeling layer
 
 `model.gleam` turns a symbolic model, written with application-owned keys, into
-the numeric IR, and maps the numeric result back to those keys.
+the numeric IR, and maps the numeric result back to those keys. Expressions are
+plain lists of terms (`Linear(coefficient, key)` or `Constant(value)`), and
+constraints relate two expressions (`LessEqual`, `Equal`, `GreaterEqual`).
 
 ```mermaid
 flowchart LR
-  A[Symbolic model] --> B[Resolve keys, assign columns and rows]
-  B --> C[Combine coefficients, move constants]
+  A[Symbolic model] --> B[Resolve keys, assign columns]
+  B --> C[Sum coefficients, move constants]
   C --> D[driver.Model]
-  B --> E[Key-to-column and key-to-row maps]
+  B --> E[Key-to-column map]
   D --> F[driver.solve]
   F --> G[Outcome with keyed solution]
   E --> G
@@ -50,9 +52,11 @@ flowchart LR
 
 Compilation is pure and deterministic: columns follow declaration order, rows
 follow constraint order, repeated coefficients are summed, exact zeros dropped,
-and sparse indices sorted. The key maps stay in Gleam and are never passed to
-the NIF. Solutions are immutable snapshots indexed by the same keys. The API
-shape is under active design; see API-DESIGN.md.
+and sparse indices sorted. A constraint `lhs relation rhs` becomes the row
+`lhs - rhs relation -constant`, and the objective's constants become the
+offset. The key-to-column map stays in Gleam and is never passed to the NIF.
+Solutions are immutable snapshots indexed by the same keys. The API shape is
+under active design; see API-DESIGN.md.
 
 ## Numeric driver contract
 

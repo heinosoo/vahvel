@@ -13,16 +13,16 @@ Status values:
 | --- | --- | --- |
 | [D1](#d1-symbolic-layer-over-the-numeric-driver) | Symbolic layer over the numeric driver | Implemented |
 | [D2](#d2-representative-models-drive-the-api) | Representative models drive the API | Implemented |
-| [D3](#d3-affine-only-expressions) | Affine-only expressions | Accepted |
-| [D4](#d4-eager-canonical-expression-representation) | Eager canonical expression representation | Accepted |
-| [D5](#d5-expressions-are-lists-of-terms) | Expressions are lists of terms | Accepted |
+| [D3](#d3-affine-only-expressions) | Affine-only expressions | Implemented |
+| [D4](#d4-eager-canonical-expression-representation) | Eager canonical expression representation | Implemented |
+| [D5](#d5-expressions-are-lists-of-terms) | Expressions are lists of terms | Implemented |
 | [D6](#d6-application-keys-as-references) | Application keys as references | Implemented |
 | [D7](#d7-variables-declared-by-use-with-a-domain-function) | Variables declared by use, with a domain function | Accepted |
 | [D8](#d8-keys-are-model-local-names) | Keys are model-local names | Implemented |
-| [D9](#d9-constraints-have-no-keys-a-constraint-is-its-own-identity) | Constraints have no keys; a constraint is its own identity | Accepted |
+| [D9](#d9-constraints-have-no-keys-a-constraint-is-its-own-identity) | Constraints have no keys; a constraint is its own identity | Implemented |
 | [D10](#d10-model-is-an-immutable-record) | Model is an immutable record | Implemented |
-| [D11](#d11-objective-carries-its-direction) | Objective carries its direction | Accepted |
-| [D12](#d12-constraint-construction) | Constraint construction | Accepted |
+| [D11](#d11-objective-carries-its-direction) | Objective carries its direction | Implemented |
+| [D12](#d12-constraint-construction) | Constraint construction | Implemented |
 | [D13](#d13-errors-are-reported-at-compilation) | Errors are reported at compilation | Implemented |
 | [D14](#d14-deterministic-column-and-row-order) | Deterministic column and row order | Implemented |
 | [D15](#d15-canonical-compilation-rules) | Canonical compilation rules | Implemented |
@@ -30,7 +30,7 @@ Status values:
 | [D17](#d17-numeric-validation-boundary) | Numeric validation boundary | Partly implemented |
 | [D18](#d18-outcomes-are-separate-from-errors) | Outcomes are separate from errors | Implemented |
 | [D19](#d19-solution-queries) | Solution queries | Partly implemented |
-| [D20](#d20-no-dual-values-until-a-backend-provides-them) | No dual values until a backend provides them | Accepted |
+| [D20](#d20-no-dual-values-until-a-backend-provides-them) | No dual values until a backend provides them | Implemented |
 | [D21](#d21-plain-gleam-collections-for-index-sets) | Plain Gleam collections for index sets | Implemented |
 | [D22](#d22-the-api-owns-its-domain-types) | The API owns its domain types | Accepted |
 | [D23](#d23-one-module-until-real-boundaries-appear) | One module until real boundaries appear | Implemented |
@@ -86,8 +86,8 @@ mutation that Gleam lacks.
 future quadratic capability gets its own type, e.g. `multiply: Affine, Affine ->
 Quadratic`, accepted only where a backend supports it (the objective).
 
-**Why.** The current code exposes both forms, and the same production objective
-compiles to identical IR either way:
+**Why.** The earlier code exposed both forms, and the same production objective
+compiled to identical IR either way:
 
 ```gleam
 // affine operations
@@ -110,7 +110,7 @@ compile-time guarantee. Quadratic or conic IR is likewise an explicit future
 capability, not squeezed into the linear row format.
 
 **Alternatives.**
-- *General symbolic AST with compile-time rejection* (current code). Flexible
+- *General symbolic AST with compile-time rejection* (earlier code). Flexible
   syntax, weak guarantees, contextless `NonlinearExpression` errors.
 - *JuMP-style promotion* to a richer expression type at runtime. Natural with
   multiple dispatch; in Gleam the equivalent is distinct types, which is this
@@ -127,7 +127,7 @@ nested structure for each use. The tree's only benefit, structure for diagnostic
 or printing, is unused.
 
 **Alternatives.**
-- *Affine AST lowered at compilation* (current code). Preserves structure, but
+- *Affine AST lowered at compilation* (earlier code). Preserves structure, but
   shared subexpressions are re-lowered per use, and `add` chains need care to
   avoid quadratic merging. Deep or shared trees were never benchmarked.
 
@@ -287,8 +287,8 @@ let capacity = fn(m: Machine) { LessEqual(hours_used(m), [Constant(m.hours)]) }
 m.dual(solution, capacity(m2))  // future: the builder function is the lookup
 ```
 
-**Why.** In the current code keys only feed the duplicate check and the `dual`
-stub (removed by D20); compilation and solving never use them. Slack needs no
+**Why.** In the earlier code keys only fed the duplicate check and the `dual`
+stub (removed by D20); compilation and solving never used them. Slack needs no
 key either: `evaluate(solution, lhs)` (D19). Identity by value removes the second
 type parameter, a field on every constraint, and the parallel-list zipping that
 positional results would need.
@@ -307,7 +307,7 @@ positional results would need.
   constraint, so an old value does not find a row in a new solution.
 
 **Alternatives.**
-- *Separate constraint key type* (`Model(v, c)`, current code). Readable names,
+- *Separate constraint key type* (`Model(v, c)`, earlier code). Readable names,
   stable across scenarios, but ceremony on every row for a feature that does
   not exist yet.
 - *Optional `Named(key, constraint)` wrapper.* Mixed named/unnamed lists and the
@@ -335,7 +335,7 @@ replacing separate `direction` and `objective` fields.
 
 **Why.** One concept in one value; changing one without the other is impossible.
 
-**Alternatives.** Separate fields (current code).
+**Alternatives.** Separate fields (earlier code).
 
 ## D12. Constraint construction
 
@@ -619,7 +619,7 @@ explicit unavailable result is always preferable to zero, NaN, or invented
 prices. Building an explicit dual model and solving it with microlp is possible
 but needs its own transformation and validation tests.
 
-**Alternatives.** Keep the stub returning `DualsUnsupported` (current code).
+**Alternatives.** Keep the stub returning `DualsUnsupported` (earlier code).
 
 ## D21. Plain Gleam collections for index sets
 

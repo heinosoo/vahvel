@@ -1,9 +1,8 @@
 import gleam/float
-import gleam/int
 import gleam/list
 import gleeunit/should
 import waffle/internal/driver as d
-import waffle/internal/model as m
+import waffle/internal/model.{Constant, Linear} as m
 
 type Product {
   Chair
@@ -19,47 +18,28 @@ fn close(actual: Float, expected: Float) {
   float.loosely_equals(actual, expected, 0.000001) |> should.be_true
 }
 
-fn close_value(solution: m.Solution(v, c), key: v, expected: Float) {
+fn close_value(solution: m.Solution(v), key: v, expected: Float) {
   let assert Ok(actual) = m.value(solution, key)
   close(actual, expected)
 }
 
-pub fn production_affine_and_general_ast_test() {
-  let chair = m.variable(Chair)
-  let table = m.variable(Table)
-  let affine =
-    chair
-    |> m.scale(3.0)
-    |> m.add(m.scale(table, 2.0))
-    |> m.add(m.constant(7.0))
-  let general =
-    m.sum([
-      m.multiply(m.constant(3.0), chair),
-      m.multiply(table, m.add(m.constant(1.0), m.constant(1.0))),
-      m.constant(7.0),
-    ])
+pub fn production_test() {
+  let chair = Linear(1.0, Chair)
+  let table = Linear(1.0, Table)
   let model =
     m.Model(
       [
         #(Chair, d.Continuous(d.Finite(0.0), d.Finite(2.0))),
         #(Table, nonnegative()),
       ],
-      d.Maximize,
-      affine,
-      [m.Constraint("hours", m.add(chair, table), d.LessEqual, m.constant(4.0))],
+      m.Maximize([Linear(3.0, Chair), Linear(2.0, Table), Constant(7.0)]),
+      [m.LessEqual([chair, table], [Constant(4.0)])],
     )
-  m.compile(m.Model(..model, objective: general))
-  |> should.equal(m.compile(model))
-  list.each([affine, general], fn(objective) {
-    let assert Ok(m.Optimal(solution)) =
-      m.solve(m.Model(..model, objective: objective))
-    close(m.objective(solution), 17.0)
-    close_value(solution, Chair, 2.0)
-    close_value(solution, Table, 2.0)
-    m.value(solution, Missing) |> should.equal(Error(m.UnknownKey))
-    m.dual(solution, "hours") |> should.equal(Error(m.DualsUnsupported))
-    m.dual(solution, "missing") |> should.equal(Error(m.UnknownKey))
-  })
+  let assert Ok(m.Optimal(solution)) = m.solve(model)
+  close(m.objective(solution), 17.0)
+  close_value(solution, Chair, 2.0)
+  close_value(solution, Table, 2.0)
+  m.value(solution, Missing) |> should.equal(Error(Nil))
 }
 
 type Factory {
@@ -72,11 +52,6 @@ type Customer {
   West
 }
 
-type Row {
-  Supply(Factory)
-  Demand(Customer)
-}
-
 pub fn transportation_with_tuple_keys_and_functional_sets_test() {
   let routes = [
     #(North, East, 1.0),
@@ -84,39 +59,31 @@ pub fn transportation_with_tuple_keys_and_functional_sets_test() {
     #(South, East, 4.0),
     #(South, West, 1.0),
   ]
-  let variables =
-    list.map(routes, fn(route) { #(#(route.0, route.1), nonnegative()) })
-  let objective =
-    routes
-    |> list.map(fn(route) {
-      m.variable(#(route.0, route.1)) |> m.scale(route.2)
-    })
-    |> m.sum
+  let ship = fn(route: #(Factory, Customer, Float)) {
+    Linear(1.0, #(route.0, route.1))
+  }
   let supply =
-    [#(North, 3.0), #(South, 2.0)]
-    |> list.map(fn(factory) {
-      let lhs =
+    list.map([#(North, 3.0), #(South, 2.0)], fn(factory) {
+      let outgoing =
         routes
         |> list.filter(fn(route) { route.0 == factory.0 })
-        |> list.map(fn(route) { m.variable(#(route.0, route.1)) })
-        |> m.sum
-      m.Constraint(Supply(factory.0), lhs, d.LessEqual, m.constant(factory.1))
+        |> list.map(ship)
+      m.LessEqual(outgoing, [Constant(factory.1)])
     })
   let demand =
-    [#(East, 2.0), #(West, 3.0)]
-    |> list.map(fn(customer) {
-      let lhs =
+    list.map([#(East, 2.0), #(West, 3.0)], fn(customer) {
+      let incoming =
         routes
         |> list.filter(fn(route) { route.1 == customer.0 })
-        |> list.map(fn(route) { m.variable(#(route.0, route.1)) })
-        |> m.sum
-      m.Constraint(Demand(customer.0), lhs, d.Equal, m.constant(customer.1))
+        |> list.map(ship)
+      m.Equal(incoming, [Constant(customer.1)])
     })
   let assert Ok(m.Optimal(solution)) =
     m.solve(m.Model(
-      variables,
-      d.Minimize,
-      objective,
+      list.map(routes, fn(route) { #(#(route.0, route.1), nonnegative()) }),
+      m.Minimize(
+        list.map(routes, fn(route) { Linear(route.2, #(route.0, route.1)) }),
+      ),
       list.append(supply, demand),
     ))
   close(m.objective(solution), 7.0)
@@ -131,19 +98,11 @@ pub fn binary_selection_is_not_relaxed_test() {
   let model =
     m.Model(
       list.map(items, fn(item) { #(item.0, d.Integer(0, 1)) }),
-      d.Maximize,
-      items
-        |> list.map(fn(item) { m.variable(item.0) |> m.scale(item.2) })
-        |> m.sum,
+      m.Maximize(list.map(items, fn(item) { Linear(item.2, item.0) })),
       [
-        m.Constraint(
-          "weight",
-          items
-            |> list.map(fn(item) { m.variable(item.0) |> m.scale(item.1) })
-            |> m.sum,
-          d.LessEqual,
-          m.constant(4.0),
-        ),
+        m.LessEqual(list.map(items, fn(item) { Linear(item.1, item.0) }), [
+          Constant(4.0),
+        ]),
       ],
     )
   let assert Ok(m.Optimal(solution)) = m.solve(model)
@@ -153,70 +112,69 @@ pub fn binary_selection_is_not_relaxed_test() {
   m.value(solution, "c") |> should.equal(Ok(1.0))
 }
 
-fn base() -> m.Model(Product, String) {
+fn base() -> m.Model(Product) {
   m.Model(
     [#(Chair, nonnegative()), #(Table, nonnegative())],
-    d.Minimize,
-    m.constant(0.0),
+    m.Minimize([]),
     [],
   )
 }
 
-pub fn canonical_rows_offsets_and_both_sides_test() {
-  let model = base()
-  let chair = m.variable(Chair)
-  let table = m.variable(Table)
+pub fn canonical_objective_and_rows_test() {
+  let chair = Linear(1.0, Chair)
+  let table = Linear(1.0, Table)
   let model =
     m.Model(
-      ..model,
-      objective: m.sum([
-        m.scale(table, 2.0),
+      ..base(),
+      objective: m.Minimize([
+        Linear(2.0, Table),
         chair,
         chair,
-        m.scale(table, -2.0),
-        m.constant(4.0),
+        Linear(-2.0, Table),
+        Constant(4.0),
       ]),
       constraints: [
-        m.Constraint(
-          "row",
-          m.add(table, m.constant(3.0)),
-          d.GreaterEqual,
-          m.add(chair, m.constant(5.0)),
-        ),
+        // table + 3 ≥ chair + 5  ⇒  -chair + table ≥ 2
+        m.GreaterEqual([table, Constant(3.0)], [chair, Constant(5.0)]),
+        m.Equal([chair, Constant(1.0)], [Constant(3.0)]),
+        // Terms cancelling across sides leave a constant row.
+        m.LessEqual([chair, table], [table, chair]),
       ],
     )
   let assert Ok(ir) = m.compile(model)
+  ir.direction |> should.equal(d.Minimize)
   ir.objective |> should.equal([2.0, 0.0])
   ir.offset |> should.equal(4.0)
-  ir.rows |> should.equal([d.Row([#(0, -1.0), #(1, 1.0)], d.GreaterEqual, 2.0)])
+  ir.rows
+  |> should.equal([
+    d.Row([#(0, -1.0), #(1, 1.0)], d.GreaterEqual, 2.0),
+    d.Row([#(0, 1.0)], d.Equal, 2.0),
+    d.Row([], d.LessEqual, 0.0),
+  ])
 }
 
-pub fn add_chain_matches_flat_sum_test() {
-  let keys = int.range(0, 100, [], fn(keys, key) { [key, ..keys] })
-  let variables = list.map(keys, fn(key) { #(key, nonnegative()) })
-  let chained =
-    list.fold(keys, m.constant(0.0), fn(total, key) {
-      m.add(total, m.variable(key))
-    })
-  let flat = m.sum(list.map(keys, m.variable))
-  let model: m.Model(Int, String) = m.Model(variables, d.Minimize, flat, [])
-  m.compile(m.Model(..model, objective: chained))
-  |> should.equal(m.compile(model))
+pub fn identical_constraints_are_separate_rows_test() {
+  let row = m.LessEqual([Linear(1.0, Chair)], [Constant(1.0)])
+  let assert Ok(ir) = m.compile(m.Model(..base(), constraints: [row, row]))
+  ir.rows
+  |> should.equal([
+    d.Row([#(0, 1.0)], d.LessEqual, 1.0),
+    d.Row([#(0, 1.0)], d.LessEqual, 1.0),
+  ])
 }
 
 pub fn reference_validation_and_duplicates_test() {
   let model = base()
-  list.each(
-    [
-      m.variable(Missing),
-      m.scale(m.variable(Missing), 0.0),
-      m.multiply(m.constant(0.0), m.variable(Missing)),
-    ],
-    fn(expression) {
-      m.compile(m.Model(..model, objective: expression))
-      |> should.equal(Error(m.UnknownVariable(Missing)))
-    },
+  list.each([[Linear(1.0, Missing)], [Linear(0.0, Missing)]], fn(terms) {
+    m.compile(m.Model(..model, objective: m.Minimize(terms)))
+    |> should.equal(Error(m.UnknownVariable(Missing)))
+  })
+  m.compile(
+    m.Model(..model, constraints: [
+      m.Equal([Constant(0.0)], [Linear(1.0, Missing)]),
+    ]),
   )
+  |> should.equal(Error(m.UnknownVariable(Missing)))
   m.compile(
     m.Model(..model, variables: [
       #(Chair, nonnegative()),
@@ -224,50 +182,16 @@ pub fn reference_validation_and_duplicates_test() {
     ]),
   )
   |> should.equal(Error(m.DuplicateVariable(Chair)))
-  let row = m.Constraint("same", m.constant(0.0), d.Equal, m.constant(0.0))
-  m.compile(m.Model(..model, constraints: [row, row]))
-  |> should.equal(Error(m.DuplicateConstraint("same")))
-  m.compile(
-    m.Model(..model, constraints: [
-      m.Constraint("bad", m.constant(0.0), d.Equal, m.variable(Missing)),
-    ]),
-  )
-  |> should.equal(Error(m.UnknownVariable(Missing)))
-}
-
-pub fn nonlinear_ast_is_rejected_but_constant_products_lower_test() {
-  let model = base()
-  let chair = m.variable(Chair)
-  let quadratic = m.multiply(chair, chair)
-  m.solve(m.Model(..model, objective: quadratic))
-  |> should.equal(Error(m.NonlinearExpression))
-  m.compile(
-    m.Model(..model, constraints: [
-      m.Constraint("quadratic", quadratic, d.LessEqual, m.constant(1.0)),
-    ]),
-  )
-  |> should.equal(Error(m.NonlinearExpression))
-  let cancelled = m.add(chair, m.scale(chair, -1.0))
-  let assert Ok(ir) =
-    m.compile(m.Model(..model, objective: m.multiply(cancelled, chair)))
-  ir.objective |> should.equal([0.0, 0.0])
-  // Deliberately no polynomial simplifier: nonlinear children remain unsupported.
-  m.compile(m.Model(..model, objective: m.multiply(m.constant(0.0), quadratic)))
-  |> should.equal(Error(m.NonlinearExpression))
 }
 
 pub fn explicit_outcomes_and_native_validation_test() {
-  let empty: m.Model(Product, String) = m.Model([], d.Minimize, m.sum([]), [])
+  let empty: m.Model(Product) = m.Model([], m.Minimize([]), [])
   let assert Ok(m.Optimal(solution)) = m.solve(empty)
   m.objective(solution) |> should.equal(0.0)
-  m.solve(
-    m.Model(..empty, constraints: [
-      m.Constraint("impossible", m.sum([]), d.Equal, m.constant(1.0)),
-    ]),
-  )
+  m.solve(m.Model(..empty, constraints: [m.Equal([], [Constant(1.0)])]))
   |> should.equal(Ok(m.Infeasible))
   let model = base()
-  m.solve(m.Model(..model, direction: d.Maximize, objective: m.variable(Chair)))
+  m.solve(m.Model(..model, objective: m.Maximize([Linear(1.0, Chair)])))
   |> should.equal(Ok(m.Unbounded))
   m.solve(m.Model(..model, variables: [#(Chair, d.Integer(0, 2_147_483_648))]))
   |> should.equal(Error(m.NativeError(d.InvalidModel(d.InvalidDomain(0)))))
