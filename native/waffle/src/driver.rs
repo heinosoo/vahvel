@@ -28,6 +28,26 @@ enum Domain {
     Integer(i32, i32),
 }
 
+impl Domain {
+    fn is_valid(&self) -> bool {
+        match self {
+            Self::Continuous(lower, upper) => {
+                lower.value(0.0).is_finite() && upper.value(0.0).is_finite()
+            }
+            Self::Integer(_, _) => true,
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        match self {
+            Self::Continuous(lower, upper) => {
+                lower.value(f64::NEG_INFINITY) > upper.value(f64::INFINITY)
+            }
+            Self::Integer(lower, upper) => lower > upper,
+        }
+    }
+}
+
 #[derive(NifUnitEnum)]
 enum Relation {
     LessEqual,
@@ -43,8 +63,28 @@ struct Row {
     rhs: f64,
 }
 
+impl Row {
+    fn is_valid(&self, variables: usize) -> bool {
+        self.rhs.is_finite()
+            && self
+                .terms
+                .iter()
+                .all(|&(i, c)| i < variables && c.is_finite() && c != 0.0)
+            && self.terms.windows(2).all(|pair| pair[0].0 < pair[1].0)
+    }
+}
+
+/// Variables and rows stay undecoded so a failure can report its position.
 #[derive(NifRecord)]
 #[tag = "model"]
+struct RawModel<'a> {
+    direction: Direction,
+    variables: Vec<Term<'a>>,
+    objective: Vec<f64>,
+    offset: f64,
+    rows: Vec<Term<'a>>,
+}
+
 struct Model {
     direction: Direction,
     variables: Vec<Domain>,
@@ -61,59 +101,71 @@ enum Outcome {
 }
 
 #[derive(NifTaggedEnum)]
+enum InvalidReason {
+    MalformedModel,
+    InvalidObjective,
+    InvalidDomain(usize),
+    InvalidRow(usize),
+}
+
+#[derive(NifTaggedEnum)]
 enum DriverError {
-    InvalidModel(String),
+    InvalidModel(InvalidReason),
     SolverFailure(String),
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
 fn driver_solve(term: Term<'_>) -> Result<Outcome, DriverError> {
-    let model: Model = term.decode().map_err(|_| {
-        DriverError::InvalidModel("Malformed model or integer outside the supported range".into())
-    })?;
-    validate(&model).map_err(|message| DriverError::InvalidModel(message.into()))?;
+    let model = decode(term).map_err(DriverError::InvalidModel)?;
     // Keep solver panics inside the tagged error contract.
     std::panic::catch_unwind(|| solve(model))
         .unwrap_or_else(|_| Err(DriverError::SolverFailure("Native solver panicked".into())))
 }
 
-fn validate(model: &Model) -> Result<(), &'static str> {
-    if model.objective.len() != model.variables.len()
-        || !model.offset.is_finite()
-        || model.objective.iter().any(|c| !c.is_finite())
+/// Decode and validate the whole model before any infeasibility is reported.
+fn decode(term: Term<'_>) -> Result<Model, InvalidReason> {
+    let raw: RawModel = term.decode().map_err(|_| InvalidReason::MalformedModel)?;
+    let variables = raw
+        .variables
+        .iter()
+        .enumerate()
+        .map(|(i, term)| {
+            term.decode::<Domain>()
+                .ok()
+                .filter(Domain::is_valid)
+                .ok_or(InvalidReason::InvalidDomain(i))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if raw.objective.len() != variables.len()
+        || !raw.offset.is_finite()
+        || raw.objective.iter().any(|c| !c.is_finite())
     {
-        return Err("Expected one finite objective coefficient per variable and a finite offset");
+        return Err(InvalidReason::InvalidObjective);
     }
-    for domain in &model.variables {
-        let valid = match domain {
-            Domain::Continuous(lower, upper) => {
-                lower.value(0.0).is_finite()
-                    && upper.value(0.0).is_finite()
-                    && lower.value(f64::NEG_INFINITY) <= upper.value(f64::INFINITY)
-            }
-            Domain::Integer(lower, upper) => lower <= upper,
-        };
-        if !valid {
-            return Err("Invalid variable bounds");
-        }
-    }
-    for row in &model.rows {
-        if !row.rhs.is_finite()
-            || row
-                .terms
-                .iter()
-                .any(|&(i, c)| i >= model.variables.len() || !c.is_finite() || c == 0.0)
-            || row.terms.windows(2).any(|pair| pair[0].0 >= pair[1].0)
-        {
-            return Err(
-                "Expected a finite row with ordered, unique indices and nonzero coefficients",
-            );
-        }
-    }
-    Ok(())
+    let rows = raw
+        .rows
+        .iter()
+        .enumerate()
+        .map(|(i, term)| {
+            term.decode::<Row>()
+                .ok()
+                .filter(|row| row.is_valid(variables.len()))
+                .ok_or(InvalidReason::InvalidRow(i))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Model {
+        direction: raw.direction,
+        variables,
+        objective: raw.objective,
+        offset: raw.offset,
+        rows,
+    })
 }
 
 fn solve(model: Model) -> Result<Outcome, DriverError> {
+    if model.variables.iter().any(Domain::is_empty) {
+        return Ok(Outcome::Infeasible);
+    }
     for row in model.rows.iter().filter(|row| row.terms.is_empty()) {
         let feasible = match row.relation {
             Relation::LessEqual => 0.0 <= row.rhs,

@@ -269,15 +269,13 @@ pub fn explicit_outcomes_and_native_validation_test() {
   let model = base()
   m.solve(m.Model(..model, direction: d.Maximize, objective: m.variable(Chair)))
   |> should.equal(Ok(m.Unbounded))
+  m.solve(m.Model(..model, variables: [#(Chair, d.Integer(0, 2_147_483_648))]))
+  |> should.equal(Error(m.NativeError(d.InvalidModel(d.InvalidDomain(0)))))
   list.each(
-    [
-      d.Integer(2, 1),
-      d.Integer(0, 2_147_483_648),
-      d.Continuous(d.Finite(2.0), d.Finite(1.0)),
-    ],
+    [d.Integer(2, 1), d.Continuous(d.Finite(2.0), d.Finite(1.0))],
     fn(domain) {
-      let assert Error(m.NativeError(d.InvalidModel(_))) =
-        m.solve(m.Model(..model, variables: [#(Chair, domain)]))
+      m.solve(m.Model(..model, variables: [#(Chair, domain)]))
+      |> should.equal(Ok(m.Infeasible))
     },
   )
 }

@@ -23,9 +23,8 @@ fn bounded_model() -> d.Model {
   )
 }
 
-fn assert_invalid(model: d.Model) {
-  let assert Error(d.InvalidModel(message)) = d.solve(model)
-  should.not_equal(message, "")
+fn assert_invalid(model: d.Model, reason: d.InvalidReason) {
+  d.solve(model) |> should.equal(Error(d.InvalidModel(reason)))
 }
 
 pub fn continuous_maximize_with_offset_test() {
@@ -206,9 +205,9 @@ pub fn constant_rows_test() {
 pub fn objective_dimension_validation_test() {
   let model = bounded_model()
   list.each([[], [1.0, 2.0]], fn(objective) {
-    assert_invalid(d.Model(..model, objective: objective))
+    assert_invalid(d.Model(..model, objective: objective), d.InvalidObjective)
   })
-  assert_invalid(d.Model(d.Minimize, [], [1.0], 0.0, []))
+  assert_invalid(d.Model(d.Minimize, [], [1.0], 0.0, []), d.InvalidObjective)
 }
 
 pub fn invalid_indices_test() {
@@ -216,6 +215,7 @@ pub fn invalid_indices_test() {
   list.each([-1, 1, 9_223_372_036_854_775_808], fn(index) {
     assert_invalid(
       d.Model(..model, rows: [d.Row([#(index, 1.0)], d.Equal, 0.0)]),
+      d.InvalidRow(0),
     )
   })
 }
@@ -231,32 +231,81 @@ pub fn noncanonical_rows_test() {
       [#(0, -0.0)],
     ],
     fn(terms) {
-      assert_invalid(d.Model(..model, rows: [d.Row(terms, d.LessEqual, 1.0)]))
+      assert_invalid(
+        d.Model(..model, rows: [d.Row(terms, d.LessEqual, 1.0)]),
+        d.InvalidRow(0),
+      )
     },
   )
 }
 
-pub fn invalid_bounds_test() {
+pub fn integer_bounds_outside_32_bits_test() {
+  let model = bounded_model()
+  list.each(
+    [
+      d.Integer(-2_147_483_649, 0),
+      d.Integer(0, 2_147_483_648),
+      d.Integer(0, 9_223_372_036_854_775_808),
+    ],
+    fn(domain) {
+      assert_invalid(d.Model(..model, variables: [domain]), d.InvalidDomain(0))
+    },
+  )
+}
+
+pub fn empty_domains_are_infeasible_test() {
   let model = bounded_model()
   list.each(
     [
       d.Continuous(d.Finite(2.0), d.Finite(1.0)),
       d.Integer(2, 1),
-      d.Integer(-2_147_483_649, 0),
-      d.Integer(0, 2_147_483_648),
-      d.Integer(0, 9_223_372_036_854_775_808),
     ],
-    fn(domain) { assert_invalid(d.Model(..model, variables: [domain])) },
+    fn(domain) {
+      d.solve(d.Model(..model, variables: [domain]))
+      |> should.equal(Ok(d.Infeasible))
+    },
+  )
+  // Equal bounds are a single point, not empty.
+  assert_assignment(
+    d.Model(..model, variables: [d.Continuous(d.Finite(3.0), d.Finite(3.0))]),
+    [3.0],
+    3.0,
   )
 }
 
-pub fn validates_all_rows_before_infeasibility_test() {
+pub fn invalid_positions_are_reported_test() {
+  let domains = [
+    d.Integer(0, 1),
+    d.Integer(0, 1),
+    d.Integer(0, 2_147_483_648),
+  ]
+  assert_invalid(
+    d.Model(d.Minimize, domains, [1.0, 1.0, 1.0], 0.0, []),
+    d.InvalidDomain(2),
+  )
+  let model =
+    d.Model(d.Minimize, [d.Integer(0, 1)], [1.0], 0.0, [
+      d.Row([#(0, 1.0)], d.LessEqual, 1.0),
+      d.Row([#(0, 1.0)], d.GreaterEqual, 0.0),
+      d.Row([#(5, 1.0)], d.Equal, 0.0),
+    ])
+  assert_invalid(model, d.InvalidRow(2))
+}
+
+pub fn validates_whole_model_before_infeasibility_test() {
   let model = bounded_model()
   assert_invalid(
     d.Model(..model, rows: [
       d.Row([], d.Equal, 1.0),
       d.Row([#(1, 1.0)], d.Equal, 0.0),
     ]),
+    d.InvalidRow(1),
+  )
+  assert_invalid(
+    d.Model(..model, variables: [d.Integer(2, 1)], rows: [
+      d.Row([#(1, 1.0)], d.Equal, 0.0),
+    ]),
+    d.InvalidRow(0),
   )
 }
 
@@ -276,6 +325,8 @@ pub fn objective_overflow_is_a_solver_error_test() {
 fn solve_raw(model: a) -> Result(d.Outcome, d.DriverError)
 
 pub fn malformed_term_is_a_model_error_test() {
-  let assert Error(d.InvalidModel(_)) = solve_raw("not a model")
-  let assert Error(d.InvalidModel(_)) = solve_raw(#(1, 2, 3))
+  solve_raw("not a model")
+  |> should.equal(Error(d.InvalidModel(d.MalformedModel)))
+  solve_raw(#(1, 2, 3))
+  |> should.equal(Error(d.InvalidModel(d.MalformedModel)))
 }

@@ -17,6 +17,8 @@ pub type Bound {
 }
 
 /// Variable domain. Integer bounds are inclusive and must fit signed 32 bits.
+/// A domain whose lower bound exceeds its upper bound is valid but empty, which
+/// makes the model infeasible.
 pub type Domain {
   Continuous(lower: Bound, upper: Bound)
   Integer(lower: Int, upper: Int)
@@ -56,12 +58,29 @@ pub type Outcome {
 
 /// Invalid IR is distinct from a numerical or internal solver failure.
 pub type DriverError {
-  InvalidModel(String)
+  InvalidModel(reason: InvalidReason)
   SolverFailure(String)
 }
 
+/// Where the IR violates this contract. Positions are zero-based.
+pub type InvalidReason {
+  /// The term does not have the shape of a `Model`.
+  MalformedModel
+  /// The objective length differs from the variable count, or a coefficient
+  /// or the offset is not finite.
+  InvalidObjective
+  /// The domain at this variable position has a non-finite bound or integer
+  /// bounds outside signed 32 bits.
+  InvalidDomain(variable: Int)
+  /// The row at this position is not finite, references a missing variable,
+  /// or is not canonical.
+  InvalidRow(row: Int)
+}
+
 /// Validate and solve a canonical model with microlp's default settings.
-/// Constant models are valid; infeasibility and unboundedness are outcomes.
+/// The whole model is validated before any outcome is reported. Constant models
+/// are valid; infeasibility (including empty domains) and unboundedness are
+/// outcomes.
 /// Binary variables are represented as `Integer(0, 1)`.
 @external(erlang, "nif", "driver_solve")
 pub fn solve(model: Model) -> Result(Outcome, DriverError)

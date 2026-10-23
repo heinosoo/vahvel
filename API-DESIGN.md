@@ -539,17 +539,19 @@ need no native support.
 - The NIF stays the single, authoritative check of the IR: bounds, integer
   range, row shape, dimensions, and finite results. No clamping or integrality
   relaxation.
-- The NIF reports *where* a model is invalid: `InvalidModel` carries a structured
-  reason with a position, e.g. `InvalidDomain(variable_index)`. The modeling layer
-  maps positions back to variable keys or constraint positions. This changes the
-  driver contract in Rust and Gleam together.
+- The NIF reports *where* a model is invalid: `InvalidModel` carries
+  `MalformedModel`, `InvalidObjective`, `InvalidDomain(variable)` or
+  `InvalidRow(row)`. Rust decodes each domain and row separately so even decode
+  failures (integer bounds outside 32 bits) have a position. The modeling layer
+  maps positions back to variable keys or constraint positions.
 - Compilation checks float overflow in Gleam before each addition or scaling and
   returns `Error(Overflow(location))`, where the location is the objective or a
   constraint's list position. For finite `a, b > 0`, `a +. b` overflows exactly
   when `a > max_float -. b`; other signs follow symmetrically.
-- An empty continuous domain (`lower > upper`) is an `Infeasible` outcome, not
-  an invalid model, consistent with unsatisfiable constant rows (D18). Integer
-  bounds outside 32 bits remain invalid: that is a backend limit, not math.
+- An empty domain (`lower > upper`, continuous or integer) is an `Infeasible`
+  outcome, not an invalid model, consistent with unsatisfiable constant rows
+  (D18). Integer bounds outside 32 bits remain invalid: that is a backend
+  limit, not math.
 
 **Why.** BEAM floats are always finite: infinity and NaN can't be parsed,
 decoded, or produced by arithmetic, and overflow raises `badarith` instead of

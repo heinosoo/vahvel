@@ -62,14 +62,18 @@ shape is under active design; see API-DESIGN.md.
   are zero-based positions in `variables`.
 - `Domain` is `Continuous(lower, upper)` with `Unbounded | Finite(Float)` bounds,
   or `Integer(lower, upper)` with inclusive bounds fitting signed 32 bits.
-  Binary variables are `Integer(0, 1)`.
+  Binary variables are `Integer(0, 1)`. A domain with `lower > upper` is valid
+  but empty and makes the model infeasible.
 - `Row(terms, relation, rhs)` with strictly increasing indices and nonzero
   finite coefficients. An empty row has a left-hand side of zero.
 - The objective vector has exactly one finite coefficient per variable. The
   offset is kept separately and added to the reported objective.
 - `solve` returns `Ok(Optimal(objective, values) | Infeasible | UnboundedProblem)`
-  or `Error(InvalidModel(_) | SolverFailure(_))`. Invalid input is distinct from
-  a numerical or internal failure.
+  or `Error(InvalidModel(reason) | SolverFailure(_))`. Invalid input is distinct
+  from a numerical or internal failure. The reason says where the IR is invalid:
+  `MalformedModel`, `InvalidObjective`, `InvalidDomain(variable)` or
+  `InvalidRow(row)`, with zero-based positions that higher layers map back to
+  their own names.
 
 This contract is the single numeric interface. Higher layers produce it;
 the native layer enforces it.
@@ -93,14 +97,16 @@ A Gleam type change must be matched in `driver.rs`, and vice versa.
 
 **Steps in `driver.rs`.**
 
-1. Decode the term. Malformed terms and integers outside `i32` become
-   `InvalidModel`.
-2. Validate the whole model before solving: objective length, finite
-   coefficients, offsets and bounds, `lower <= upper`, row indices in range and
-   strictly increasing, nonzero coefficients. Nothing is clamped, rounded or
-   relaxed.
-3. Handle empty rows directly: an unsatisfiable constant row means `Infeasible`.
-   A model with no variables returns its offset as the optimum.
+1. Decode the model shell, then each variable domain and row separately, so a
+   failure reports its position. A term that isn't a model is
+   `MalformedModel`; integer bounds outside `i32` are `InvalidDomain(i)`.
+2. Validate the whole model before solving: objective length and finiteness,
+   finite bounds, row indices in range and strictly increasing, nonzero finite
+   coefficients. Nothing is clamped, rounded or relaxed. BEAM floats are always
+   finite, so the finiteness checks are defensive.
+3. Answer trivial cases directly: an empty domain or an unsatisfiable constant
+   row means `Infeasible`; a model with no variables returns its offset as the
+   optimum.
 4. Build a microlp `Problem` and solve. microlp's infeasible and unbounded errors
    become outcomes; any other non-optimal return is a `SolverFailure`.
 5. Reject non-finite objective or values instead of returning them to the BEAM.
