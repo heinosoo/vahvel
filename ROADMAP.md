@@ -30,7 +30,15 @@ work is removed from this file; git log keeps it. Design decisions are in
   against caller-supplied values (`Dict(v, Float)`), not only a `Solution`:
   check a hand-made plan or a heuristic's result against the model, and report
   what-if costs. Reuses the driver's evaluation path; decide how missing
-  variables and constraint violations are reported.
+  variables and constraint violations are reported. Also consider reporting
+  many named expressions in one call with one `Result`, instead of one
+  `Result` per expression.
+- **Integer results (needs a design session).** Integer and binary variables
+  come back as `Float`, so callers compare against `3.0`, match exactly `1.0`
+  or round, guessing at solver tolerance. Decide how integrality is
+  represented in results, e.g. an integer accessor with Rust returning exact
+  integers for integer columns, and what that means for `values`, `evaluate`
+  and the driver contract.
 - **Solve limits.** Time and iteration limits with an outcome that separates
   optimal, feasible-but-unproven and stopped results (DESIGN.md: "Solve
   limits"). microlp already supports this; the driver contract changes with it.
@@ -87,5 +95,10 @@ work is removed from this file; git log keeps it. Design decisions are in
   indexed constraint families better than per-row constraints?
 - Would a `NonNegative` domain shorthand improve readability enough to justify
   a second spelling?
+- Where should expressions get conveniences? Plain variables are written
+  `Linear(1.0, key)` throughout linking, flow and balance constraints, and
+  subtraction is `Scaled(-1.0, e)`. Candidates are a `Variable(key)` leaf or
+  helper and a `negate`/`Difference` form; weigh them against second
+  spellings, constructor count and driver changes, judged on the examples.
 - Should errors be collected rather than reporting the first, once diagnostics
   need it?
