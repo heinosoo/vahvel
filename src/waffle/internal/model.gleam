@@ -4,6 +4,7 @@
 import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import waffle/internal/driver
 
@@ -37,20 +38,35 @@ pub type Objective(v) {
   Maximize(List(Term(v)))
 }
 
-/// Immutable symbolic input; keys have model-local name semantics.
+/// The values a variable may take. `None` means no bound on that side. Bounds
+/// are inclusive; binary is `Integer(Some(0), Some(1))`. A lower bound above the
+/// upper bound is an empty domain, so the model is infeasible.
+///
+/// The current backend limits integer variables to the signed 32-bit range:
+/// explicit integer bounds must fit it, and a `None` integer bound stops at its
+/// edge. An integer value at ±2³¹ therefore means that limit was reached.
+pub type Domain {
+  Continuous(lower: Option(Float), upper: Option(Float))
+  Integer(lower: Option(Int), upper: Option(Int))
+}
+
+/// Immutable symbolic input. A variable exists once an expression references
+/// it, and `domain` gives the values each variable may take. Keys have
+/// model-local name semantics.
 pub type Model(v) {
   Model(
-    variables: List(#(v, driver.Domain)),
+    domain: fn(v) -> Domain,
     objective: Objective(v),
     constraints: List(Constraint(v)),
   )
 }
 
-/// Compilation and native failures are distinct from mathematical outcomes.
+/// Compilation and solver failures are distinct from mathematical outcomes.
 pub type Error(v) {
-  DuplicateVariable(v)
-  UnknownVariable(v)
-  NativeError(driver.DriverError)
+  /// The integer bounds of this variable's domain do not fit signed 32 bits.
+  InvalidDomain(v)
+  /// The solver failed numerically or internally.
+  SolverFailure(String)
 }
 
 /// A solution carries only values belonging to this solved snapshot.
@@ -65,40 +81,54 @@ pub type Outcome(v) {
   Unbounded
 }
 
+/// Columns in order of first reference.
+type Columns(v) {
+  Columns(index: Dict(v, Int), keys: List(v))
+}
+
 /// Summed coefficients by column, plus a constant.
 type Canonical {
   Canonical(terms: Dict(Int, Float), offset: Float)
 }
 
-/// Add `sign` times each term, resolving every variable reference, including
-/// zero-coefficient ones, so invalid keys never disappear.
-fn accumulate(
-  canonical: Canonical,
-  terms: List(Term(v)),
-  sign: Float,
-  columns: Dict(v, Int),
-) -> Result(Canonical, Error(v)) {
-  use canonical, term <- list.try_fold(terms, canonical)
-  case term {
-    Constant(value) ->
-      Ok(Canonical(..canonical, offset: canonical.offset +. sign *. value))
-    Linear(coefficient, key) -> {
-      use index <- result.try(
-        dict.get(columns, key) |> result.replace_error(UnknownVariable(key)),
+fn column(columns: Columns(v), key: v) -> #(Columns(v), Int) {
+  case dict.get(columns.index, key) {
+    Ok(index) -> #(columns, index)
+    Error(Nil) -> {
+      let index = dict.size(columns.index)
+      #(
+        Columns(dict.insert(columns.index, key, index), [key, ..columns.keys]),
+        index,
       )
-      let previous = dict.get(canonical.terms, index) |> result.unwrap(0.0)
-      let terms =
-        dict.insert(canonical.terms, index, previous +. sign *. coefficient)
-      Ok(Canonical(..canonical, terms: terms))
     }
   }
 }
 
-fn lower(
+/// Add `sign` times each term, assigning columns to new variables. Variables
+/// with zero coefficients still get a column: they are referenced.
+fn accumulate(
+  state: #(Columns(v), Canonical),
   terms: List(Term(v)),
-  columns: Dict(v, Int),
-) -> Result(Canonical, Error(v)) {
-  accumulate(Canonical(dict.new(), 0.0), terms, 1.0, columns)
+  sign: Float,
+) -> #(Columns(v), Canonical) {
+  use #(columns, canonical), term <- list.fold(terms, state)
+  case term {
+    Constant(value) -> #(
+      columns,
+      Canonical(..canonical, offset: canonical.offset +. sign *. value),
+    )
+    Linear(coefficient, key) -> {
+      let #(columns, index) = column(columns, key)
+      let previous = dict.get(canonical.terms, index) |> result.unwrap(0.0)
+      let terms =
+        dict.insert(canonical.terms, index, previous +. sign *. coefficient)
+      #(columns, Canonical(..canonical, terms: terms))
+    }
+  }
+}
+
+fn empty() -> Canonical {
+  Canonical(dict.new(), 0.0)
 }
 
 fn sparse(canonical: Canonical) -> List(#(Int, Float)) {
@@ -108,71 +138,91 @@ fn sparse(canonical: Canonical) -> List(#(Int, Float)) {
   |> list.sort(fn(a, b) { int.compare(a.0, b.0) })
 }
 
-fn columns(
-  variables: List(#(v, driver.Domain)),
-) -> Result(Dict(v, Int), Error(v)) {
-  use columns, #(key, index) <- list.try_fold(
-    list.index_map(variables, fn(variable, index) { #(variable.0, index) }),
-    dict.new(),
-  )
-  case dict.has_key(columns, key) {
-    True -> Error(DuplicateVariable(key))
-    False -> Ok(dict.insert(columns, key, index))
-  }
-}
-
 /// Lower `lhs relation rhs` as `lhs - rhs relation -constant`.
 fn row(
+  columns: Columns(v),
   constraint: Constraint(v),
-  columns: Dict(v, Int),
-) -> Result(driver.Row, Error(v)) {
+) -> #(Columns(v), driver.Row) {
   let #(lhs, relation, rhs) = case constraint {
     LessEqual(lhs, rhs) -> #(lhs, driver.LessEqual, rhs)
     Equal(lhs, rhs) -> #(lhs, driver.Equal, rhs)
     GreaterEqual(lhs, rhs) -> #(lhs, driver.GreaterEqual, rhs)
   }
-  use difference <- result.try(lower(lhs, columns))
-  use difference <- result.try(accumulate(difference, rhs, -1.0, columns))
-  Ok(driver.Row(sparse(difference), relation, 0.0 -. difference.offset))
+  let state = accumulate(#(columns, empty()), lhs, 1.0)
+  let #(columns, difference) = accumulate(state, rhs, -1.0)
+  #(columns, driver.Row(sparse(difference), relation, 0.0 -. difference.offset))
 }
 
-/// Lower to the numeric IR. Columns follow `variables` order and rows follow
-/// `constraints` order. Numeric validation remains at the native boundary.
-/// Known limitation: overflowing Gleam arithmetic is not caught here.
-pub fn compile(model: Model(v)) -> Result(driver.Model, Error(v)) {
-  use columns <- result.try(columns(model.variables))
+fn bound(bound: Option(Float)) -> driver.Bound {
+  case bound {
+    Some(value) -> driver.Finite(value)
+    None -> driver.Unbounded
+  }
+}
+
+fn driver_domain(domain: Domain) -> driver.Domain {
+  case domain {
+    Continuous(lower, upper) -> driver.Continuous(bound(lower), bound(upper))
+    Integer(lower, upper) -> driver.Integer(lower, upper)
+  }
+}
+
+/// Lower to the numeric IR and return the variable key of each column.
+fn compile_keyed(model: Model(v)) -> #(driver.Model, List(v)) {
   let #(direction, objective) = case model.objective {
     Minimize(terms) -> #(driver.Minimize, terms)
     Maximize(terms) -> #(driver.Maximize, terms)
   }
-  use objective <- result.try(lower(objective, columns))
-  use rows <- result.try(
-    list.try_map(model.constraints, fn(constraint) { row(constraint, columns) }),
-  )
-  Ok(driver.Model(
-    direction,
-    list.map(model.variables, fn(variable) { variable.1 }),
-    list.index_map(model.variables, fn(_, index) {
-      dict.get(objective.terms, index) |> result.unwrap(0.0)
-    }),
-    objective.offset,
-    rows,
-  ))
+  let #(columns, objective) =
+    accumulate(#(Columns(dict.new(), []), empty()), objective, 1.0)
+  let #(columns, rows) = list.map_fold(model.constraints, columns, row)
+  let keys = list.reverse(columns.keys)
+  let numeric =
+    driver.Model(
+      direction,
+      list.map(keys, fn(key) { driver_domain(model.domain(key)) }),
+      list.index_map(keys, fn(_, index) {
+        dict.get(objective.terms, index) |> result.unwrap(0.0)
+      }),
+      objective.offset,
+      rows,
+    )
+  #(numeric, keys)
+}
+
+/// Lower to the numeric IR. Columns follow the order in which variables are
+/// first referenced (objective, then constraints in order) and rows follow
+/// `constraints` order. Numeric validation remains at the native boundary.
+/// Known limitation: overflowing Gleam arithmetic is not caught here.
+pub fn compile(model: Model(v)) -> Result(driver.Model, Error(v)) {
+  Ok(compile_keyed(model).0)
 }
 
 /// Compile and solve using the real microlp NIF.
 pub fn solve(model: Model(v)) -> Result(Outcome(v), Error(v)) {
-  use numeric <- result.try(compile(model))
+  let #(numeric, keys) = compile_keyed(model)
   use outcome <- result.try(
-    driver.solve(numeric) |> result.map_error(NativeError),
+    driver.solve(numeric) |> result.map_error(native_error(_, keys)),
   )
   case outcome {
     driver.Infeasible -> Ok(Infeasible)
     driver.UnboundedProblem -> Ok(Unbounded)
-    driver.Optimal(objective, values) -> {
-      let keys = list.map(model.variables, fn(variable) { variable.0 })
+    driver.Optimal(objective, values) ->
       Ok(Optimal(Solution(objective, dict.from_list(list.zip(keys, values)))))
-    }
+  }
+}
+
+/// Only domains come from user data; any other rejection means compilation
+/// produced invalid IR, which is an internal failure.
+fn native_error(error: driver.DriverError, keys: List(v)) -> Error(v) {
+  case error {
+    driver.InvalidModel(driver.InvalidDomain(index)) ->
+      case list.drop(keys, index) {
+        [key, ..] -> InvalidDomain(key)
+        [] -> SolverFailure("Driver reported an unknown variable position")
+      }
+    driver.InvalidModel(_) -> SolverFailure("Compiled model was rejected")
+    driver.SolverFailure(message) -> SolverFailure(message)
   }
 }
 
@@ -181,7 +231,8 @@ pub fn objective(solution: Solution(v)) -> Float {
   solution.objective
 }
 
-/// Look up a primal value by variable key. An unknown key is an error, never zero.
+/// Look up a primal value by variable key. A key that no expression references
+/// is an error, never zero.
 pub fn value(solution: Solution(v), key: v) -> Result(Float, Nil) {
   dict.get(solution.values, key)
 }

@@ -22,10 +22,28 @@ impl Bound {
     }
 }
 
+/// Gleam's `Option(Int)`: `none` or `{some, I}`.
+#[derive(NifTaggedEnum)]
+enum IntegerBound {
+    None,
+    Some(i32),
+}
+
+impl IntegerBound {
+    /// microlp integer variables are limited to `i32`; its documented way to
+    /// leave a side unbounded is `i32::MIN` or `i32::MAX`.
+    fn value(&self, unbounded: i32) -> i32 {
+        match self {
+            Self::None => unbounded,
+            Self::Some(value) => *value,
+        }
+    }
+}
+
 #[derive(NifTaggedEnum)]
 enum Domain {
     Continuous(Bound, Bound),
-    Integer(i32, i32),
+    Integer(IntegerBound, IntegerBound),
 }
 
 impl Domain {
@@ -43,7 +61,7 @@ impl Domain {
             Self::Continuous(lower, upper) => {
                 lower.value(f64::NEG_INFINITY) > upper.value(f64::INFINITY)
             }
-            Self::Integer(lower, upper) => lower > upper,
+            Self::Integer(lower, upper) => lower.value(i32::MIN) > upper.value(i32::MAX),
         }
     }
 }
@@ -193,7 +211,9 @@ fn solve(model: Model) -> Result<Outcome, DriverError> {
                 c,
                 (lower.value(f64::NEG_INFINITY), upper.value(f64::INFINITY)),
             ),
-            Domain::Integer(lower, upper) => problem.add_integer_var(c, (*lower, *upper)),
+            Domain::Integer(lower, upper) => {
+                problem.add_integer_var(c, (lower.value(i32::MIN), upper.value(i32::MAX)))
+            }
         })
         .collect();
     for row in model.rows.iter().filter(|row| !row.terms.is_empty()) {

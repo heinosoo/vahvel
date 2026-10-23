@@ -4,6 +4,8 @@
 //// Rows must have strictly increasing indices and nonzero finite coefficients.
 //// Validation and solving happen in Rust through a single dirty CPU NIF.
 
+import gleam/option.{type Option}
+
 /// Optimization direction.
 pub type Direction {
   Minimize
@@ -16,12 +18,13 @@ pub type Bound {
   Finite(Float)
 }
 
-/// Variable domain. Integer bounds are inclusive and must fit signed 32 bits.
-/// A domain whose lower bound exceeds its upper bound is valid but empty, which
-/// makes the model infeasible.
+/// Variable domain. Integer bounds are inclusive and must fit signed 32 bits;
+/// `None` leaves that side bounded only by the signed 32-bit range, the
+/// backend's integer limit. A domain whose lower bound exceeds its upper bound
+/// is valid but empty, which makes the model infeasible.
 pub type Domain {
   Continuous(lower: Bound, upper: Bound)
-  Integer(lower: Int, upper: Int)
+  Integer(lower: Option(Int), upper: Option(Int))
 }
 
 /// Relation between a sparse row and its right-hand side.
@@ -81,6 +84,6 @@ pub type InvalidReason {
 /// The whole model is validated before any outcome is reported. Constant models
 /// are valid; infeasibility (including empty domains) and unboundedness are
 /// outcomes.
-/// Binary variables are represented as `Integer(0, 1)`.
+/// Binary variables are represented as `Integer(Some(0), Some(1))`.
 @external(erlang, "nif", "driver_solve")
 pub fn solve(model: Model) -> Result(Outcome, DriverError)

@@ -25,6 +25,9 @@ Afterwards:
 - Benchmark model construction on larger sparse models. D4.
 - Revisit model-local keys versus runtime handles. D8.
 - Solve-limit and dual-capable backend contracts. D24, D20.
+- Truly unbounded integer variables: a `None` integer bound currently stops at
+  the signed 32-bit range. Needs microlp to accept infinite integer bounds (it
+  stores them as floats internally) or another backend. D22.
 - Re-evaluate module boundaries between `model` and `driver`, e.g. whether the
   driver should own row canonicalization (sorting, merging duplicates, dropping
   zeros) once a second IR producer appears. D1, D23.

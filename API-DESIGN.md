@@ -17,7 +17,7 @@ Status values:
 | [D4](#d4-eager-canonical-expression-representation) | Eager canonical expression representation | Implemented |
 | [D5](#d5-expressions-are-lists-of-terms) | Expressions are lists of terms | Implemented |
 | [D6](#d6-application-keys-as-references) | Application keys as references | Implemented |
-| [D7](#d7-variables-declared-by-use-with-a-domain-function) | Variables declared by use, with a domain function | Accepted |
+| [D7](#d7-variables-declared-by-use-with-a-domain-function) | Variables declared by use, with a domain function | Implemented |
 | [D8](#d8-keys-are-model-local-names) | Keys are model-local names | Implemented |
 | [D9](#d9-constraints-have-no-keys-a-constraint-is-its-own-identity) | Constraints have no keys; a constraint is its own identity | Implemented |
 | [D10](#d10-model-is-an-immutable-record) | Model is an immutable record | Implemented |
@@ -32,7 +32,7 @@ Status values:
 | [D19](#d19-solution-queries) | Solution queries | Partly implemented |
 | [D20](#d20-no-dual-values-until-a-backend-provides-them) | No dual values until a backend provides them | Implemented |
 | [D21](#d21-plain-gleam-collections-for-index-sets) | Plain Gleam collections for index sets | Implemented |
-| [D22](#d22-the-api-owns-its-domain-types) | The API owns its domain types | Accepted |
+| [D22](#d22-the-api-owns-its-domain-types) | The API owns its domain types | Implemented |
 | [D23](#d23-one-module-until-real-boundaries-appear) | One module until real boundaries appear | Implemented |
 | [D24](#d24-solve-limits-are-deferred) | Solve limits are deferred | Accepted |
 | [D25](#d25-out-of-scope) | Out of scope | Accepted |
@@ -65,7 +65,7 @@ or native code.
 | Production LP | Product quantities, resource capacity, profit | Scalar composition, bounds, objective offset, named results |
 | Transportation LP | Shipments on allowed routes, supply and demand | Tuple/custom-type keys, sparse index sets, grouped sums, equality rows |
 | Binary selection MILP | Choose items within a weight budget | Functional construction, binary domains, integrality |
-| Degenerate/invalid models | Empty sums, cancelling terms, unknown keys, duplicate declarations | Validation and explicit outcomes |
+| Degenerate/invalid models | Empty sums, cancelling terms, empty and invalid domains | Validation and explicit outcomes |
 
 Tests also cover objective offsets, expressions on both sides of a constraint,
 repeated and cancelling terms, empty models, infeasible and unbounded models, and
@@ -258,7 +258,7 @@ unknown key. A model holding a closure cannot be compared with `should.equal` or
 printed.
 
 **Alternatives.**
-- *Explicit declaration list* (current code). Inspectable and comparable, but
+- *Explicit declaration list* (earlier code). Inspectable and comparable, but
   duplicates the index set and needs unknown/duplicate checks.
 - *Allocated handles* (see D6).
 
@@ -498,8 +498,9 @@ revisit with D17's contextual errors.
 
 ## D14. Deterministic column and row order
 
-**Decision.** Columns follow declaration order (first appearance under D7);
-rows follow constraint list order. Dictionary iteration never decides order.
+**Decision.** Columns follow the order in which variables are first referenced,
+objective first, then constraints in list order (D7); rows follow constraint
+list order. Dictionary iteration never decides order.
 
 **Why.** Reproducible IR, solver behavior, and test expectations.
 
@@ -639,11 +640,46 @@ gain over `list.map`.
 ## D22. The API owns its domain types
 
 **Decision.** Users never import `waffle/internal/driver`. The modeling API
-defines its own domain, interval and objective types and maps them to the driver.
+defines its own domain, objective and error types and maps them to the driver.
+The domain is
+
+```gleam
+pub type Domain {
+  Continuous(lower: Option(Float), upper: Option(Float))
+  Integer(lower: Option(Int), upper: Option(Int))
+}
+```
+
+with `None` meaning no bound and binary written as `Integer(Some(0), Some(1))`.
+Continuous and integer bounds work the same way for the user. microlp limits
+integer variables to the signed 32-bit range, so a `None` integer bound means
+"no bound beyond that range": Rust fills in `i32::MIN`/`i32::MAX`, microlp's
+documented convention, keeping the backend limit in one place. A truly
+unbounded integer direction therefore reports `Optimal` at ±2³¹ instead of
+`Unbounded`; the `Domain` docs say so, and a driver test pins the behavior until
+a backend supports unbounded integers. Driver
+errors are mapped too: an invalid domain position becomes `InvalidDomain(key)`,
+and any other `InvalidModel` reason means compilation produced invalid IR, so it
+surfaces as `SolverFailure`.
 
 **Why.** Internal modules must stay free to change.
 
-**Alternatives.** Re-export driver types (current code uses them directly).
+**Alternatives.**
+- *Re-export driver types* (earlier code used them directly).
+- *Mirror the driver's `Bound` type* (`Unbounded | Finite(Float)`). Its
+  `Unbounded` constructor clashes with `Outcome`'s `Unbounded`; `Option` is the
+  standard library's way to say "maybe absent".
+- *Required integer bounds* (`Integer(lower: Int, upper: Int)`). Honest about
+  the backend, but continuous and integer bounds would behave differently, and
+  users would have to guess a "large enough" bound and notice when it is hit.
+- *Fill in `None` integer bounds in Gleam.* Puts a backend limit in the
+  modeling layer.
+- *Treat an integer value at the range edge as `Unbounded`.* Wrong when a
+  variable with zero cost is merely parked at its bound among several optima.
+- *A `Binary` variant.* Readable, but a second spelling of
+  `Integer(Some(0), Some(1))`.
+- *Typed shorthands* (`NonNegative`, `Free`). Same redundancy; add only if
+  representative models show the general form is too noisy.
 
 ## D23. One module until real boundaries appear
 

@@ -9,8 +9,8 @@ model contract.
 - Annotate and document public types/functions. Keep comments minimal.
 - Use stable Rust and avoid unsafe code. Compute NIFs use `DirtyCpu` scheduling
   and return tagged results matching the Gleam types.
-- Validate input at the NIF boundary. Never silently clamp bounds, relax integer
-  variables, or return nonfinite floats to the BEAM.
+- Validate input at the NIF boundary. Never change an explicit bound, relax
+  integer variables, or return nonfinite floats to the BEAM.
 - Test through Gleam and the real NIF with gleeunit. Cover solver results and
   invalid input; avoid assertions on exact error wording.
 - Use conventional commit messages.

@@ -37,25 +37,31 @@ numbers from the outside, and the native layer never sees names or keys.
 `model.gleam` turns a symbolic model, written with application-owned keys, into
 the numeric IR, and maps the numeric result back to those keys. Expressions are
 plain lists of terms (`Linear(coefficient, key)` or `Constant(value)`), and
-constraints relate two expressions (`LessEqual`, `Equal`, `GreaterEqual`).
+constraints relate two expressions (`LessEqual`, `Equal`, `GreaterEqual`). A
+variable exists once an expression references it; the model's `domain`
+function gives each variable's bounds and integrality.
 
 ```mermaid
 flowchart LR
-  A[Symbolic model] --> B[Resolve keys, assign columns]
+  A[Symbolic model] --> B[Assign columns on first reference]
   B --> C[Sum coefficients, move constants]
   C --> D[driver.Model]
-  B --> E[Key-to-column map]
+  B --> E[Column keys]
   D --> F[driver.solve]
   F --> G[Outcome with keyed solution]
   E --> G
+  E --> H[Driver positions mapped to keys]
+  F --> H
 ```
 
-Compilation is pure and deterministic: columns follow declaration order, rows
-follow constraint order, repeated coefficients are summed, exact zeros dropped,
-and sparse indices sorted. A constraint `lhs relation rhs` becomes the row
-`lhs - rhs relation -constant`, and the objective's constants become the
-offset. The key-to-column map stays in Gleam and is never passed to the NIF.
-Solutions are immutable snapshots indexed by the same keys. The API shape is
+Compilation is pure and deterministic: columns follow the order of first
+reference (objective, then constraints), rows follow constraint order, repeated
+coefficients are summed, exact zeros dropped, and sparse indices sorted. A
+constraint `lhs relation rhs` becomes the row `lhs - rhs relation -constant`,
+and the objective's constants become the offset. The column keys stay in Gleam
+and are never passed to the NIF; they turn solver values into a keyed solution
+and driver error positions into keys. Solutions are immutable snapshots indexed
+by the same keys. The API shape is
 under active design; see API-DESIGN.md.
 
 ## Numeric driver contract
@@ -65,8 +71,9 @@ under active design; see API-DESIGN.md.
 - `Model(direction, variables, objective, offset, rows)`. Variable references
   are zero-based positions in `variables`.
 - `Domain` is `Continuous(lower, upper)` with `Unbounded | Finite(Float)` bounds,
-  or `Integer(lower, upper)` with inclusive bounds fitting signed 32 bits.
-  Binary variables are `Integer(0, 1)`. A domain with `lower > upper` is valid
+  or `Integer(lower, upper)` with inclusive `Option(Int)` bounds fitting signed
+  32 bits; Rust turns `None` into `i32::MIN`/`i32::MAX`, microlp's integer
+  range. Binary variables are `Integer(Some(0), Some(1))`. A domain with `lower > upper` is valid
   but empty and makes the model infeasible.
 - `Row(terms, relation, rhs)` with strictly increasing indices and nonzero
   finite coefficients. An empty row has a left-hand side of zero.

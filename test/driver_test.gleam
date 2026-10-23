@@ -1,5 +1,6 @@
 import gleam/float
 import gleam/list
+import gleam/option.{None, Some}
 import gleeunit/should
 import waffle/internal/driver as d
 
@@ -11,6 +12,10 @@ fn assert_assignment(model: d.Model, values: List(Float), objective: Float) {
     should.be_true(float.loosely_equals(pair.0, pair.1, 0.000001))
   })
   should.be_true(float.loosely_equals(actual_objective, objective, 0.000001))
+}
+
+fn integer(lower: Int, upper: Int) -> d.Domain {
+  d.Integer(Some(lower), Some(upper))
 }
 
 fn bounded_model() -> d.Model {
@@ -66,7 +71,7 @@ pub fn minimize_equal_and_greater_equal_with_offset_test() {
 
 pub fn integer_is_not_relaxed_test() {
   assert_assignment(
-    d.Model(d.Maximize, [d.Integer(0, 10)], [1.0], -2.0, [
+    d.Model(d.Maximize, [integer(0, 10)], [1.0], -2.0, [
       d.Row([#(0, 2.0)], d.LessEqual, 9.0),
     ]),
     [4.0],
@@ -76,7 +81,7 @@ pub fn integer_is_not_relaxed_test() {
 
 pub fn binary_bounds_test() {
   assert_assignment(
-    d.Model(d.Maximize, [d.Integer(0, 1), d.Integer(0, 1)], [1.0, 2.0], 0.0, [
+    d.Model(d.Maximize, [integer(0, 1), integer(0, 1)], [1.0, 2.0], 0.0, [
       d.Row([#(0, 1.0), #(1, 1.0)], d.LessEqual, 1.0),
     ]),
     [0.0, 1.0],
@@ -88,7 +93,7 @@ pub fn mixed_integer_model_test() {
   assert_assignment(
     d.Model(
       d.Maximize,
-      [d.Continuous(d.Finite(0.0), d.Unbounded), d.Integer(0, 3)],
+      [d.Continuous(d.Finite(0.0), d.Unbounded), integer(0, 3)],
       [1.0, 2.0],
       0.0,
       [
@@ -109,7 +114,7 @@ pub fn infeasible_model_test() {
 
 pub fn integer_infeasible_test() {
   d.solve(
-    d.Model(d.Minimize, [d.Integer(0, 2)], [1.0], 0.0, [
+    d.Model(d.Minimize, [integer(0, 2)], [1.0], 0.0, [
       d.Row([#(0, 1.0)], d.Equal, 0.5),
     ]),
   )
@@ -149,7 +154,7 @@ pub fn negative_continuous_domain_test() {
 
 pub fn negative_integer_domain_test() {
   assert_assignment(
-    d.Model(d.Minimize, [d.Integer(-3, -1)], [1.0], 0.0, []),
+    d.Model(d.Minimize, [integer(-3, -1)], [1.0], 0.0, []),
     [-3.0],
     -3.0,
   )
@@ -160,8 +165,8 @@ pub fn integer_bound_endpoints_test() {
     d.Model(
       d.Minimize,
       [
-        d.Integer(-2_147_483_648, -2_147_483_648),
-        d.Integer(2_147_483_647, 2_147_483_647),
+        integer(-2_147_483_648, -2_147_483_648),
+        integer(2_147_483_647, 2_147_483_647),
       ],
       [1.0, 1.0],
       0.0,
@@ -222,7 +227,7 @@ pub fn invalid_indices_test() {
 
 pub fn noncanonical_rows_test() {
   let model =
-    d.Model(d.Minimize, [d.Integer(0, 1), d.Integer(0, 1)], [1.0, 1.0], 0.0, [])
+    d.Model(d.Minimize, [integer(0, 1), integer(0, 1)], [1.0, 1.0], 0.0, [])
   list.each(
     [
       [#(0, 1.0), #(0, 2.0)],
@@ -243,9 +248,9 @@ pub fn integer_bounds_outside_32_bits_test() {
   let model = bounded_model()
   list.each(
     [
-      d.Integer(-2_147_483_649, 0),
-      d.Integer(0, 2_147_483_648),
-      d.Integer(0, 9_223_372_036_854_775_808),
+      integer(-2_147_483_649, 0),
+      integer(0, 2_147_483_648),
+      integer(0, 9_223_372_036_854_775_808),
     ],
     fn(domain) {
       assert_invalid(d.Model(..model, variables: [domain]), d.InvalidDomain(0))
@@ -258,7 +263,7 @@ pub fn empty_domains_are_infeasible_test() {
   list.each(
     [
       d.Continuous(d.Finite(2.0), d.Finite(1.0)),
-      d.Integer(2, 1),
+      integer(2, 1),
     ],
     fn(domain) {
       d.solve(d.Model(..model, variables: [domain]))
@@ -275,16 +280,16 @@ pub fn empty_domains_are_infeasible_test() {
 
 pub fn invalid_positions_are_reported_test() {
   let domains = [
-    d.Integer(0, 1),
-    d.Integer(0, 1),
-    d.Integer(0, 2_147_483_648),
+    integer(0, 1),
+    integer(0, 1),
+    integer(0, 2_147_483_648),
   ]
   assert_invalid(
     d.Model(d.Minimize, domains, [1.0, 1.0, 1.0], 0.0, []),
     d.InvalidDomain(2),
   )
   let model =
-    d.Model(d.Minimize, [d.Integer(0, 1)], [1.0], 0.0, [
+    d.Model(d.Minimize, [integer(0, 1)], [1.0], 0.0, [
       d.Row([#(0, 1.0)], d.LessEqual, 1.0),
       d.Row([#(0, 1.0)], d.GreaterEqual, 0.0),
       d.Row([#(5, 1.0)], d.Equal, 0.0),
@@ -302,7 +307,7 @@ pub fn validates_whole_model_before_infeasibility_test() {
     d.InvalidRow(1),
   )
   assert_invalid(
-    d.Model(..model, variables: [d.Integer(2, 1)], rows: [
+    d.Model(..model, variables: [integer(2, 1)], rows: [
       d.Row([#(1, 1.0)], d.Equal, 0.0),
     ]),
     d.InvalidRow(0),
@@ -329,4 +334,30 @@ pub fn malformed_term_is_a_model_error_test() {
   |> should.equal(Error(d.InvalidModel(d.MalformedModel)))
   solve_raw(#(1, 2, 3))
   |> should.equal(Error(d.InvalidModel(d.MalformedModel)))
+}
+
+pub fn integer_without_bounds_test() {
+  assert_assignment(
+    d.Model(d.Minimize, [d.Integer(None, Some(5))], [1.0], 0.0, [
+      d.Row([#(0, 1.0)], d.GreaterEqual, -3.5),
+    ]),
+    [-3.0],
+    -3.0,
+  )
+  assert_assignment(
+    d.Model(d.Maximize, [d.Integer(None, None)], [1.0], 0.0, [
+      d.Row([#(0, 1.0)], d.LessEqual, 7.5),
+    ]),
+    [7.0],
+    7.0,
+  )
+  d.solve(d.Model(d.Minimize, [d.Integer(Some(3), None)], [1.0], 0.0, []))
+  |> should.equal(Ok(d.Optimal(3.0, [3.0])))
+}
+
+// Documents the backend limit: a missing integer bound is the edge of the
+// signed 32-bit range, so an unbounded direction reports that edge as optimal.
+pub fn missing_integer_bound_is_the_32_bit_range_test() {
+  d.solve(d.Model(d.Maximize, [d.Integer(Some(0), None)], [1.0], 0.0, []))
+  |> should.equal(Ok(d.Optimal(2_147_483_647.0, [2_147_483_647.0])))
 }
