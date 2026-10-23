@@ -97,10 +97,9 @@ impossible.
 ### Representative models drive the API
 
 **Decision.** API and design changes are judged by how the representative
-models in the tests read: today production, transportation and binary selection
-in `test/waffle_test.gleam`. The set grows with the end-to-end examples on the
-roadmap and can move into separate test files when it gets long. JuMP, Pyomo
-and MathOpt are influences, not syntax to copy.
+models in `test/examples/` read: the README's waffle stand, a multi-period
+production network, and N-queens. The set grows with the end-to-end examples on the
+roadmap. JuMP, Pyomo and MathOpt are influences, not syntax to copy.
 
 **Why.** Concrete models expose ergonomic costs that abstract design hides, and
 they double as regression tests. They only reveal what they exercise: a set

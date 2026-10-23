@@ -31,6 +31,8 @@ Start here. General working rules are below; everything else lives in one place:
 - Test through Gleam and the real NIF with gleeunit. Cover solver results and
   invalid input; avoid assertions on exact error wording.
 - Test files mirror the source tree; test the public API through `solve`.
+  The exception is `test/examples/`: representative models, one per file,
+  including the README examples. Judge API changes by how they read.
 
 ## Software Design
 

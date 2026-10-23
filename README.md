@@ -1,96 +1,115 @@
 # Waffle
 
-A Gleam optimization library backed by [microlp](https://docs.rs/microlp/0.6.0/microlp/)
-through Rustler NIFs.
+Linear and mixed-integer programming for Gleam. Describe a model with plain
+Gleam data, keyed by your own types, and solve it with
+[microlp](https://docs.rs/microlp/0.6.0/microlp/) through a Rust NIF. The API
+is unstable while the package is 0.x.
 
-Models are plain Gleam data keyed by your own types; the API is unstable while
-the package is 0.x.
+## Example
+
+A waffle stand has 13 minutes of iron time. Classic waffles earn 3.00 and take
+2 minutes; chocolate waffles earn 5.00 and take 3. How many of each?
 
 ```gleam
 import gleam/option.{None, Some}
 import waffle.{Constant, Linear, Sum}
 
-type Product {
-  Chair
-  Table
+type Waffle {
+  Classic
+  Chocolate
 }
 
-pub fn main() {
-  let domain = fn(product) {
-    case product {
-      Chair -> waffle.Continuous(Some(0.0), Some(2.0))
-      Table -> waffle.Continuous(Some(0.0), None)
-    }
-  }
-  let model =
-    waffle.Model(
-      domain:,
-      objective: waffle.Maximize(
-        Sum([Linear(3.0, Chair), Linear(2.0, Table), Constant(7.0)]),
+let model =
+  waffle.Model(
+    domain: fn(_) { waffle.Integer(Some(0), None) },
+    objective: waffle.Maximize(
+      Sum([Linear(3.0, Classic), Linear(5.0, Chocolate)]),
+    ),
+    constraints: [
+      waffle.LessEqual(
+        Sum([Linear(2.0, Classic), Linear(3.0, Chocolate)]),
+        Constant(13.0),
       ),
-      constraints: [
-        waffle.LessEqual(
-          Sum([Linear(1.0, Chair), Linear(1.0, Table)]),
-          Constant(4.0),
-        ),
-      ],
-    )
-  let assert Ok(waffle.Optimal(solution)) = waffle.solve(model)
-  waffle.objective(solution)  // 17.0
-  waffle.value(solution, Chair)  // Ok(2.0)
+    ],
+  )
+let assert Ok(waffle.Optimal(solution)) = waffle.solve(model)
+waffle.objective(solution)  // 21.0: 3 chocolate and 2 classic
+```
+
+[test/examples/readme_test.gleam](test/examples/readme_test.gleam) grows this
+into a full story, step by step with explanations: a menu from data, topping
+stations as yes-or-no decisions, and a report. The snippets below come from it.
+
+## Features
+
+**Your own keys.** Variables are named by any Gleam value, usually a custom
+type naming the decision. A variable exists once an expression references it,
+and `domain` gives its values, typically with an exhaustive `case`:
+
+```gleam
+type Decision {
+  Bake(Waffle)
+  Station(Waffle)
+}
+
+fn domain(decision: Decision) -> waffle.Domain {
+  case decision {
+    Bake(_) -> waffle.Integer(Some(0), None)
+    Station(_) -> waffle.Binary
+  }
 }
 ```
 
-Keys can be any Gleam value, including plain `Int`s. Here each item's list
-position names its 0/1 decision:
+Domains are `Continuous` or `Integer` with optional bounds, or `Binary`.
+
+**Expressions are data.** An expression is a small affine tree: `Linear`,
+`Constant`, `Sum` and `Scaled`. Build it with the standard library, name it,
+and reuse it anywhere:
 
 ```gleam
-import gleam/list
-import gleam/option.{Some}
-import waffle.{Constant, Linear, Sum}
-
-pub fn main() {
-  // #(weight, value)
-  let items = list.index_map([#(3.0, 5.0), #(2.0, 3.0), #(2.0, 3.0)], fn(item, i) {
-    #(i, item.0, item.1)
-  })
-  let value = list.map(items, fn(item) { Linear(item.2, item.0) }) |> Sum
-  let weight = list.map(items, fn(item) { Linear(item.1, item.0) }) |> Sum
-  let model =
-    waffle.Model(
-      domain: fn(_) { waffle.Binary },
-      objective: waffle.Maximize(value),
-      constraints: [waffle.LessEqual(weight, Constant(4.0))],
-    )
-  let assert Ok(waffle.Optimal(solution)) = waffle.solve(model)
-  waffle.objective(solution)  // 6.0: items 1 and 2
-  waffle.value(solution, 0)  // Ok(0.0)
-  waffle.stats(solution).nodes  // branch-and-bound nodes the solver needed
-}
+let sales =
+  list.map(menu, fn(recipe) { Linear(recipe.price, Bake(recipe.waffle)) })
+  |> Sum
+let profit = Sum([sales, Scaled(-1.0, station_costs)])
 ```
 
-An `Int` key is a name, not a column number: columns follow the order in which
-variables are first referenced.
-
-Expressions nest, so a named expression can be reused anywhere. `Scaled` also
-scales constants, and all arithmetic happens in Rust:
+**Constraints relate two expressions** with `LessEqual`, `Equal` or
+`GreaterEqual`, so they read like the math. Families of constraints are mapped
+over data:
 
 ```gleam
-import waffle.{Constant, Linear, Scaled, Sum}
-
-let revenue = Sum([Linear(5.0, Chair), Linear(4.0, Table)])
-let cost = Sum([Linear(1.0, Chair), Linear(2.0, Table), Constant(3.0)])
-let profit = Sum([revenue, Scaled(-1.0, cost)])
-let objective = waffle.Maximize(profit)
-// After solving, evaluate either the whole expression or a breakdown:
-waffle.evaluate(solution, profit)
-waffle.evaluate(solution, cost)
+list.map(toppings, fn(topping) {
+  waffle.LessEqual(
+    Linear(1.0, Bake(topping.waffle)),
+    Linear(topping.serves, Station(topping.waffle)),
+  )
+})
 ```
 
-Zero-scaled expressions still reference their variables. Scaling and summation
-report overflow when solving or evaluating, rather than during construction.
+**Answers are values.** `solve` returns `Ok(Optimal(solution))`,
+`Ok(Infeasible)` or `Ok(Unbounded)`; `Error(_)` is reserved for invalid input
+or solver failures. Only an optimum carries a solution.
 
-More examples are in [test/waffle_test.gleam](test/waffle_test.gleam).
+**Reporting reuses the model.** Look up values by key and evaluate the
+expressions that built the model. A key no expression referenced is an error,
+never a silent zero:
+
+```gleam
+waffle.evaluate(solution, sales)  // Ok(22.5)
+waffle.value(solution, Bake(Berry))  // Ok(3.0)
+waffle.value(solution, Station(Classic))  // Error(Nil)
+waffle.stats(solution).nodes  // branch-and-bound nodes
+```
+
+**Numerics in Rust.** Gleam only describes the model; Rust sums, scales,
+validates and solves it in one native call. Overflow and non-finite numbers are
+reported with their location when solving or evaluating, never during
+construction.
+
+## Learn more
+
+More examples, including a multi-period production network and N-queens, are
+in [test/examples](test/examples).
 [ARCHITECTURE.md](ARCHITECTURE.md) describes how the library fits together,
 [DESIGN.md](DESIGN.md) explains the design decisions, and
 [ROADMAP.md](ROADMAP.md) lists planned work.

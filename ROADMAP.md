@@ -7,12 +7,15 @@ work is removed from this file; git log keeps it. Design decisions are in
 
 ## Next
 
-- **End-to-end modeling examples.** Exercise sparse inputs with precomputed
-  adjacency, mixed variable families, reused expressions, scenario changes and
-  complete solution reporting. Include empty index sets, isolated network nodes
-  and variables needed only for reporting: check whether discovery by reference
-  is sufficient or callers need a way to retain otherwise unreferenced variables.
-- **Performance.** Benchmark construction on larger sparse models;
+- **End-to-end modeling examples.** `test/examples/` covers sparse adjacency,
+  mixed variable families, cost breakdowns, a scenario, an isolated node and
+  lanes left out of the model. Still open: complete solution reporting (a
+  per-period plan, not just costs), and whether discovery by reference stays
+  sufficient; so far reporting over data handles unreferenced keys through
+  `value`'s `Result`. Add examples with other structure, such as
+  time-indexed scheduling.
+- **Performance.** Benchmark construction on larger sparse models, starting
+  with the production network's `instance(size)`;
   `stats(solution).solve_time` separates solving from construction and NIF
   overhead. Measure the per-term key lookup that stays in Gleam against the work
   done in Rust (DESIGN.md: "Describe in Gleam, compute in Rust"). Benchmark
