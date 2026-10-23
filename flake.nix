@@ -27,10 +27,6 @@
             rustc
             clippy
             rustfmt
-
-            # highs-sys compiles HiGHS (C++) with cmake and generates bindings with bindgen.
-            cmake
-            rustPlatform.bindgenHook
           ];
         };
       });

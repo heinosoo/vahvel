@@ -20,10 +20,6 @@ lint:
 build:
     gleam run -m waffle_build
 
-# Run benchmarks (builds NIF first). Optional fixed iteration count: just bench 200
-bench iters="20": build
-    gleam run -m waffle_bench -- {{iters}}
-
 # Clean all build artifacts
 clean:
     gleam clean
@@ -38,5 +34,6 @@ update:
 upgrade:
     gleam add gleam_stdlib shellout simplifile
     gleam add --dev gleeunit tom
-    cargo add faer rustler highs bytemuck rand rand_distr --manifest-path native/waffle/Cargo.toml
+    cargo add rustler --manifest-path native/waffle/Cargo.toml
+    cargo add microlp --no-default-features --manifest-path native/waffle/Cargo.toml
     nix flake update

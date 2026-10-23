@@ -8,9 +8,5 @@ name = "waffle"
 crate-type = ["cdylib"]
 
 [dependencies]
-highs = "2.0"
 rustler = "0.37"
-faer = "0.24"
-bytemuck = "1.25"
-rand = "0.10"
-rand_distr = "0.6"
+microlp = { version = "0.6", default-features = false }

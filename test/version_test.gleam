@@ -11,7 +11,7 @@ pub fn nif_version_matches_package_test() {
       io.println(
         "NIF version mismatch - expected "
         <> version.package_version
-        <> ", rebuild with: gleam run -m waffle_setup --force",
+        <> ", rebuild with: just build",
       )
       should.be_true(False)
     }

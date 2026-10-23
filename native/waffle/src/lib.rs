@@ -1,9 +1,4 @@
-mod bench;
-mod dense;
-mod opt;
-mod random;
-mod sparse;
-mod utils;
+mod driver;
 
 #[rustler::nif]
 fn nif_version() -> String {
