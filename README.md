@@ -10,6 +10,11 @@ There is no public modeling API yet.
 
 See [ROADMAP.md](ROADMAP.md) for the planned redesign.
 
+The [architecture proposal](ARCHITECTURE.md) and
+[executable modeling experiments](test/model_poc_test.gleam) explore an idiomatic
+Gleam API, including affine expressions and an experimental general expression
+tree. This internal PoC is not a supported public API. Run it with `just test`.
+
 ## Development
 
 `nix develop` provides Gleam, Erlang/OTP, Rust, and just. Alternatively, use
