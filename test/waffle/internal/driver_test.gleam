@@ -440,7 +440,7 @@ pub fn objective_overflow_is_a_solver_error_test() {
   let assert Error(d.SolverFailure(_)) = d.solve(model)
 }
 
-@external(erlang, "nif", "driver_solve")
+@external(erlang, "waffle_nif", "driver_solve")
 fn solve_raw(model: a) -> Result(d.Outcome, d.DriverError)
 
 pub fn malformed_term_is_a_model_error_test() {

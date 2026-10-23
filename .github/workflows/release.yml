@@ -99,7 +99,7 @@ jobs:
       - name: Update version in version.gleam
         run: |
           TARGET="${{ steps.version.outputs.target }}"
-          sed -i "s/^pub const package_version = \".*\"/pub const package_version = \"${TARGET}\"/" src/waffle/version.gleam
+          sed -i "s/^pub const package_version = \".*\"/pub const package_version = \"${TARGET}\"/" src/waffle/internal/version.gleam
 
       - uses: cachix/install-nix-action@v31
       # Exports the flake's dev shell into later steps' environment.
@@ -120,7 +120,7 @@ jobs:
           TARGET="${{ steps.version.outputs.target }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add gleam.toml native/waffle/Cargo.toml native/waffle/Cargo.lock src/waffle/version.gleam
+          git add gleam.toml native/waffle/Cargo.toml native/waffle/Cargo.lock src/waffle/internal/version.gleam
           git commit -m "release: v${TARGET}"
 
       - name: Generate changelog

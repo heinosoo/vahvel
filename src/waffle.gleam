@@ -1,6 +1,9 @@
-//// Symbolic LP/MILP modeling over the numeric driver. Not a supported public API.
-//// This layer describes models; all numeric work happens in Rust. Design
-//// decisions are recorded in `API-DESIGN.md`.
+//// Linear and mixed-integer programming. Describe a model with plain Gleam
+//// data, keyed by your own types, and solve it with a native solver.
+////
+//// The API is unstable while the package is 0.x. This module describes
+//// models; all numeric work happens in Rust. Design decisions are recorded in
+//// `API-DESIGN.md`.
 
 import gleam/dict.{type Dict}
 import gleam/list
@@ -18,7 +21,7 @@ import waffle/internal/driver
 /// ```
 ///
 /// For shorter literals, rename the constructors at the import:
-/// `import waffle/internal/model.{Linear as L, Constant as C}`.
+/// `import waffle.{Linear as L, Constant as C}`.
 pub type Term(v) {
   Linear(coefficient: Float, variable: v)
   Constant(value: Float)

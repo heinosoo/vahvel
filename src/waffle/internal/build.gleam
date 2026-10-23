@@ -4,7 +4,7 @@ import gleam/string
 import shellout
 import simplifile
 
-@external(erlang, "platform", "os_family")
+@external(erlang, "waffle_build_ffi", "os_family")
 fn os_family() -> String
 
 fn detect_os() -> String {

@@ -5,4 +5,4 @@ fn nif_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
-rustler::init!("nif");
+rustler::init!("waffle_nif");

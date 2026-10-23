@@ -5,7 +5,8 @@ picture; this file is the record of what was decided, why, and what was rejected
 
 Status values:
 
-- **Implemented**: decided and reflected in `src/waffle/internal/model.gleam`.
+- **Implemented**: decided and reflected in the code (`src/waffle.gleam` and the
+  driver).
 - **Accepted**: decided, not yet implemented.
 - **Open**: under discussion; the leading candidate is listed first.
 
@@ -91,7 +92,7 @@ target-independent engine plus thin adapters (Rustler, wasm-bindgen).
 ## D2. Representative models drive the API
 
 **Decision.** API shape is judged against executable models in
-`test/model_test.gleam`:
+`test/waffle_test.gleam`:
 
 | Model | Decisions and constraints | What it tests |
 | --- | --- | --- |

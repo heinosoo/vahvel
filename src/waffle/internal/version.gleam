@@ -16,5 +16,5 @@ pub fn check_nif_version() -> Result(Bool, Nil) {
   }
 }
 
-@external(erlang, "nif", "nif_version_result")
+@external(erlang, "waffle_nif", "nif_version_result")
 fn nif_version() -> Result(String, Nil)

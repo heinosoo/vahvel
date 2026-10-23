@@ -18,7 +18,7 @@ lint:
 
 # Compile NIF from source
 build:
-    gleam run -m waffle_build
+    gleam run -m waffle/internal/build
 
 # Clean all build artifacts
 clean:

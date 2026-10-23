@@ -6,28 +6,32 @@ code describes models; a Rust NIF validates and solves them with
 pieces fit together. API design decisions and their reasoning are in
 [API-DESIGN.md](API-DESIGN.md); planned work is in [ROADMAP.md](ROADMAP.md).
 
-Status: everything below `waffle/internal` is internal. There is no supported
-public modeling API yet.
+Status: `waffle` is the public modeling module and is unstable while the
+package is 0.x. `waffle/setup` is the public build entry point. Everything below
+`waffle/internal` is internal.
 
 ## Layers
 
 ```mermaid
 flowchart TD
   A["Application model<br/>(custom-type keys, lists)"] --> B
-  B["waffle/internal/model<br/>symbolic model, compilation, keyed solutions"] --> C
-  C["waffle/internal/driver<br/>canonical numeric IR (Gleam types)"] --> D
-  D["ffi/nif.erl<br/>NIF stubs, loads priv/waffle.*"] --> E
-  E["native/waffle (Rust cdylib)<br/>decode, validate, solve"] --> F
+  B["waffle<br/>model types, lowering, keyed solutions"] --> C
+  C["waffle/internal/driver<br/>numeric contract (Gleam types)"] --> D
+  D["waffle/internal/waffle_nif.erl<br/>NIF stubs, loads priv/waffle.*"] --> E
+  E["native/waffle (Rust cdylib)<br/>decode, canonicalize, validate, solve"] --> F
   F["microlp<br/>simplex + branch and bound"]
 ```
 
 | Layer | Files | Owns |
 | --- | --- | --- |
-| Modeling | `src/waffle/internal/model.gleam` | Symbolic expressions and constraints, key validation, compilation to IR, keyed solution queries |
-| Numeric driver | `src/waffle/internal/driver.gleam` | The IR contract: domains, objective vector and offset, sparse rows, outcomes, errors |
-| Erlang FFI | `src/waffle/internal/ffi/nif.erl`, `platform.erl` | Loading the shared library and the `nif_not_loaded` fallbacks |
-| Native | `native/waffle/src/lib.rs`, `driver.rs` | Term decoding, IR validation, solver calls, result encoding |
-| Build and setup | `src/waffle_build.gleam`, `src/waffle_setup.gleam`, `src/waffle/version.gleam` | Compiling the NIF, copying it to `priv/`, version checks |
+| Modeling | `src/waffle.gleam` | Terms, constraints, objectives and domains; lowering keys to columns; keyed solution queries |
+| Numeric driver | `src/waffle/internal/driver.gleam` | The contract with Rust: domains, unsummed expressions, rows, outcomes, errors |
+| Erlang FFI | `src/waffle/internal/waffle_nif.erl`, `waffle_build_ffi.erl` | Loading the shared library and the `nif_not_loaded` fallbacks; OS detection for the build |
+| Native | `native/waffle/src/lib.rs`, `driver.rs` | Term decoding, canonicalization, validation, solver calls, evaluation |
+| Build and setup | `src/waffle/setup.gleam`, `src/waffle/internal/build.gleam`, `src/waffle/internal/version.gleam` | Compiling the NIF, copying it to `priv/`, version checks |
+
+Erlang modules share one global namespace and take their name from `-module`,
+not their path, so every `.erl` file is prefixed with `waffle_`.
 
 Each layer only talks to the one below it. The modeling layer never sees column
 numbers from the outside, and the native layer never sees names or keys.
@@ -46,7 +50,7 @@ never Gleam keys.
 
 ## Modeling layer
 
-`model.gleam` turns a symbolic model, written with application-owned keys, into
+`waffle.gleam` turns a symbolic model, written with application-owned keys, into
 the driver model, and maps the numeric result back to those keys. Expressions are
 plain lists of terms (`Linear(coefficient, key)` or `Constant(value)`), and
 constraints relate two expressions (`LessEqual`, `Equal`, `GreaterEqual`). A
@@ -156,17 +160,18 @@ starts from `-0.0`, which would make empty sums `-0.0`.
 
 ## Build, loading and versions
 
-- `just build` runs `gleam run -m waffle_build`, which runs
+- `just build` runs `gleam run -m waffle/internal/build`, which runs
   `cargo build --release` in `native/waffle` and copies the platform library to
   `priv/waffle.{so,dylib,dll}`.
-- `gleam run -m waffle_setup` rebuilds only if the library is missing or its
-  `nif_version` differs from `waffle/version.package_version`; `--force`
-  rebuilds anyway.
-- `nif.erl` loads `priv/waffle` in its `on_load` hook. Until it is loaded, every
-  stub raises `nif_not_loaded`.
+- `gleam run -m waffle/setup` rebuilds only if the library is missing or its
+  `nif_version` differs from `waffle/internal/version.package_version`;
+  `--force` rebuilds anyway.
+- `waffle_nif.erl` loads `priv/waffle` in its `on_load` hook. Until it is
+  loaded, every stub raises `nif_not_loaded`. Its module name must match
+  `rustler::init!` in `lib.rs`.
 - The package version lives in `gleam.toml`, `native/waffle/Cargo.toml` and
-  `src/waffle/version.gleam`. The release workflow bumps all three together, and
-  `version_test` checks they agree.
+  `src/waffle/internal/version.gleam`. The release workflow bumps all three
+  together, and `version_test` checks they agree.
 - Linux targets link `libstdc++` statically (`native/waffle/.cargo/config.toml`).
 
 ## Testing
@@ -174,13 +179,17 @@ starts from `-0.0`, which would make empty sums `-0.0`.
 All tests are gleeunit tests that go through the real NIF; there are no Rust
 unit tests and no mocks.
 
-- `test/driver_test.gleam`: the numeric contract, covering continuous and
-  integer solves, offsets, infeasible and unbounded outcomes, constant models,
-  and rejection of invalid IR (dimensions, indices, ordering, bounds, overflow,
-  malformed terms).
-- `test/model_test.gleam`: representative models (production, transportation,
-  binary selection), canonical compilation, key validation, and outcomes.
-- `test/version_test.gleam`: NIF and package versions match.
+Test files mirror the source tree, so test modules are namespaced too.
+
+- `test/waffle_test.gleam`: gleeunit's entry point and the modeling API:
+  representative models (production, transportation, binary selection),
+  constants and terms on both sides, domains, outcomes, non-finite errors, and
+  solution queries.
+- `test/waffle/internal/driver_test.gleam`: the numeric contract, covering
+  continuous and integer solves, canonicalization, offsets, infeasible and
+  unbounded outcomes, constant models, positioned errors, non-finite sums,
+  malformed terms, and `evaluate`.
+- `test/waffle/internal/version_test.gleam`: NIF and package versions match.
 
 ## Tooling and CI
 

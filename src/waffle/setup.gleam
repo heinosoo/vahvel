@@ -1,12 +1,15 @@
+//// Build the native library: `gleam run -m waffle/setup`. Rebuilds only if it
+//// is missing or its version differs; pass `--force` to rebuild anyway.
+
 import gleam/io
 import gleam/list
 import shellout
 import simplifile
-import waffle/version
-import waffle_build
+import waffle/internal/build
+import waffle/internal/version
 
 fn should_rebuild_nif() -> Bool {
-  let nif = waffle_build.nif_path()
+  let nif = build.nif_path()
 
   case simplifile.is_file(nif) {
     Ok(True) -> check_nif_version(nif)
@@ -47,7 +50,7 @@ pub fn main() {
   case force || should_rebuild_nif() {
     False -> Nil
     True -> {
-      case waffle_build.do_compile() {
+      case build.do_compile() {
         Ok(_) -> io.println("Setup complete.")
         Error(msg) -> {
           io.println("Error: " <> msg)

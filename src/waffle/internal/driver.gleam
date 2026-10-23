@@ -91,12 +91,12 @@ pub type InvalidReason {
 /// The whole model is validated before any outcome is reported. Constant models
 /// are valid; infeasibility (including empty domains) and unboundedness are
 /// outcomes. Binary variables are represented as `Integer(Some(0), Some(1))`.
-@external(erlang, "nif", "driver_solve")
+@external(erlang, "waffle_nif", "driver_solve")
 pub fn solve(model: Model) -> Result(Outcome, DriverError)
 
 /// `Σ coefficient · value + Σ constants` for `#(coefficient, value)` pairs.
 /// Errors if the result is not finite, e.g. because a product or sum overflowed.
-@external(erlang, "nif", "driver_evaluate")
+@external(erlang, "waffle_nif", "driver_evaluate")
 pub fn evaluate(
   products: List(#(Float, Float)),
   constants: List(Float),

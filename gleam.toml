@@ -1,7 +1,6 @@
 name = "waffle"
 version = "0.2.3"
 internal_modules = [
-  "waffle/version",
   "waffle/internal",
   "waffle/internal/*",
 ]

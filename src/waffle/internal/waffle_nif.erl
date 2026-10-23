@@ -1,4 +1,4 @@
--module(nif).
+-module(waffle_nif).
 -on_load(init/0).
 -export([init/0, nif_version/0, nif_version_result/0, driver_solve/1, driver_evaluate/2]).
 
