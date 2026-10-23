@@ -30,9 +30,7 @@ work is removed from this file; git log keeps it. Design decisions are in
   against caller-supplied values (`Dict(v, Float)`), not only a `Solution`:
   check a hand-made plan or a heuristic's result against the model, and report
   what-if costs. Reuses the driver's evaluation path; decide how missing
-  variables and constraint violations are reported. Also consider reporting
-  many named expressions in one call with one `Result`, instead of one
-  `Result` per expression.
+  variables and constraint violations are reported.
 - **Integer results (needs a design session).** Integer and binary variables
   come back as `Float`, so callers compare against `3.0`, match exactly `1.0`
   or round, guessing at solver tolerance. Decide how integrality is

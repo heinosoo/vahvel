@@ -197,5 +197,6 @@ pub fn reporting_test() {
   // A variable exists only once an expression references it. Classic
   // waffles need no station, so `Station(Classic)` was never referenced and
   // asking for it is an error rather than a silent zero.
-  waffle.value(solution, Station(Classic)) |> should.equal(Error(Nil))
+  waffle.value(solution, Station(Classic))
+  |> should.equal(Error(waffle.NotInSolution(Station(Classic))))
 }

@@ -236,14 +236,12 @@ pub fn unavailable_lanes_have_no_variables_test() {
   let assert Ok(waffle.Optimal(solution)) = waffle.solve(model(data))
   // Reporting over every lane in the data must handle lanes the model never
   // referenced: their keys are not variables.
-  let report =
-    list.map(data.lanes, fn(lane) {
-      #(lane.available, waffle.value(solution, Ship(lane.route, 1)))
-    })
-  list.each(report, fn(row) {
-    case row {
-      #(True, shipped) -> shipped |> result.is_ok |> should.be_true
-      #(False, shipped) -> shipped |> should.equal(Error(Nil))
+  list.each(data.lanes, fn(lane) {
+    let key = Ship(lane.route, 1)
+    case lane.available, waffle.value(solution, key) {
+      True, shipped -> shipped |> result.is_ok |> should.be_true
+      False, shipped ->
+        shipped |> should.equal(Error(waffle.NotInSolution(key)))
     }
   })
 }

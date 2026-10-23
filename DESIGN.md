@@ -77,22 +77,39 @@ stays small, and what the types allow is what the solver accepts.
 
 ### Outcomes are values, errors are failures
 
-**Decision.** `solve` returns `Result(Outcome(v), Error(v))`. `Outcome` is
-`Optimal(solution) | Infeasible | Unbounded`, and only `Optimal` carries a
+**Decision.** `solve` returns `Result(Outcome(v), SolveError(v))`. `Outcome`
+is `Optimal(solution) | Infeasible | Unbounded`, and only `Optimal` carries a
 solution. Unsatisfiable constant rows and empty domains are infeasibility.
-`Error` separates user-data problems (`InvalidDomain(key)`,
-`NonFinite(location)`) from internal failures (`SolverFailure`). Lowering a
-model cannot fail; the first error found is reported.
+`SolveError` separates user-data problems (`InvalidDomain(key)`,
+`NonFinite(location)`) from failures the caller can't act on
+(`SolverFailure(message)`, including internal bugs and caught panics). A
+location is `InObjective` or `InConstraint(index, constraint)`. Querying a
+solution has its own error, `QueryError` (see "Solutions"). Lowering a model
+cannot fail; the first error found is reported.
 
 **Why.** Infeasibility is a mathematical answer, not a failure. Tying the
 solution to its variant makes reading values from a non-optimal result
-impossible.
+impossible. Errors name what the caller wrote: a key, or the constraint
+itself, following "A constraint is its own identity", with its position for
+locating it in the list. One error type per operation lists only failures that
+operation can produce. The names avoid shadowing `Result`'s `Error`.
+
+`InvalidDomain` covers both a backend limit (integer bounds outside 32 bits)
+and invalid input (a non-finite bound on a target that allows one): either way
+the domain can't be solved here. It splits when a second backend gives the
+distinction a use.
 
 **Rejected.**
 - *A status enum plus optional values* (MathOpt/JuMP style). Needs separate
   availability checks that Gleam variants encode directly.
 - *`Result` on every expression operation.* Would make model code unreadable.
 - *Collecting all errors.* More machinery; revisit when diagnostics need it.
+- *One error type for solving and querying.* Every caller would handle
+  failures its operation can't produce.
+- *Only the constraint's position.* Meaningless for constraints mapped from
+  data; the caller would index back into their list.
+- *A structured `SolverFailure` reason.* The caller can't act on any of them
+  differently; stopped solves become outcomes (see "Solve limits").
 
 ### Representative models drive the API
 
@@ -348,18 +365,27 @@ sets, the role Pyomo's `Set` plays.
 ### Solutions
 
 **Decision.** `value(solution, key)` returns a `Result`, never a substituted
-zero. `values(solution)` returns all values keyed by variable.
-`evaluate(solution, expression)` computes costs, breakdowns and slacks: Gleam
-lowers the expression and looks up its keys, reporting `NotInSolution(key)`.
-Rust receives the indexed expression and values, canonicalizes with the same
-rules as solving, and evaluates it, reporting `NonFiniteValue`. Solutions are
-immutable snapshots.
+zero: an unreferenced key is `NotInSolution(key)`. `values(solution)` returns
+all values keyed by variable. `evaluate(solution, expression)` computes costs,
+breakdowns and slacks: Gleam lowers the expression and looks up its keys with
+`value`. Rust receives the indexed expression and values, canonicalizes with
+the same rules as solving, and evaluates it, reporting `NonFiniteValue`.
+`value` and `evaluate` share `QueryError(v)`. Solutions are immutable
+snapshots.
 
 **Why.** Silent zeros hide typos. Evaluating expressions is more useful for
-reporting than single lookups. Sharing canonicalization ensures duplicates are
+reporting than single lookups. A shared error type lets a report chain both
+with `use … <- result.try`, and the error names the missing key. Sharing canonicalization ensures duplicates are
 combined before multiplication in both paths, avoiding spurious product overflow
 for cancelling terms. The cost is column discovery and sorting on every
 evaluation; see ROADMAP.md ("Performance").
+
+**Rejected.**
+- *`value_or` and `evaluate_or` with a default.* Forwarding wrappers around
+  `result.unwrap` that make substituted zeros look recommended; a default for a
+  whole expression also hides which key was missing.
+- *Evaluating many expressions in one call to get one `Result`.* `use` already
+  chains one `Result` per expression.
 
 ### Solve statistics
 
@@ -457,10 +483,11 @@ the input.
 **Decision.** Rust is the single place for numeric checks: bounds, integer
 range, indices, finiteness of sums and results. It decodes each domain and row
 separately, so failures carry a position:
-- `InvalidDomain(variable)` for integer bounds outside 32 bits, mapped to
-  `InvalidDomain(key)`;
+- `InvalidDomain(variable)` for integer bounds outside 32 bits or non-finite
+  bounds, mapped to `InvalidDomain(key)`;
 - `NonFiniteObjective` and `NonFiniteRow(row)` for overflowing products/sums or
-  non-finite input, mapped to `NonFinite(InObjective | InConstraint(index))`;
+  non-finite input, mapped to `NonFinite(InObjective)` or
+  `NonFinite(InConstraint(row, constraint))`;
 - `MalformedModel`, `InvalidObjective` and `InvalidRow(row)` for contract
   violations, which mean a bug in the producer and surface as `SolverFailure`.
 

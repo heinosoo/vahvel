@@ -70,7 +70,8 @@ duplicates and zeros, in one tail-recursive loop over an explicit stack of
 frames. Scaling and summing happen in Rust. `Binary` lowers to the same integer
 domain as `Integer(Some(0), Some(1))`. The column keys stay in Gleam and are
 never passed to the NIF; they turn solver values into a keyed solution and
-driver error positions into keys. Solutions are
+driver error positions into keys. Row positions map back to the constraints
+themselves, so a `SolveError` names what the caller wrote. Solutions are
 immutable snapshots indexed by the same keys, and carry the driver's statistics
 with the solver time as a `Duration`. `evaluate` looks up values in Gleam and
 sends the indexed expression and values to `driver_evaluate`, which shares

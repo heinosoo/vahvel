@@ -43,7 +43,7 @@ pub fn unreferenced_key_is_not_a_variable_test() {
   let model = m.Model(..base(), objective: m.Minimize(Linear(1.0, Chair)))
   let assert Ok(m.Optimal(solution)) = m.solve(model)
   m.value(solution, Chair) |> should.equal(Ok(0.0))
-  m.value(solution, Missing) |> should.equal(Error(Nil))
+  m.value(solution, Missing) |> should.equal(Error(m.NotInSolution(Missing)))
 }
 
 pub fn zero_coefficient_reference_creates_variable_test() {
@@ -299,8 +299,9 @@ pub fn non_finite_sums_report_location_test() {
   let fine = m.LessEqual(Linear(1.0, Chair), Constant(1.0))
   // Moving `-max·chair` across sides makes it `+max·chair`.
   let overflowing = m.LessEqual(Linear(max, Chair), Linear(0.0 -. max, Chair))
+  // The error names the constraint as well as its position.
   m.solve(m.Model(..model, constraints: [fine, overflowing]))
-  |> should.equal(Error(m.NonFinite(m.InConstraint(1))))
+  |> should.equal(Error(m.NonFinite(m.InConstraint(1, overflowing))))
 }
 
 pub fn scaled_overflow_reports_location_test() {
@@ -314,8 +315,9 @@ pub fn scaled_overflow_reports_location_test() {
   list.each(expressions, fn(expression) {
     m.solve(m.Model(..base(), objective: m.Minimize(expression)))
     |> should.equal(Error(m.NonFinite(m.InObjective)))
-    m.solve(m.Model(..base(), constraints: [m.Equal(Sum([]), expression)]))
-    |> should.equal(Error(m.NonFinite(m.InConstraint(0))))
+    let row = m.Equal(Sum([]), expression)
+    m.solve(m.Model(..base(), constraints: [row]))
+    |> should.equal(Error(m.NonFinite(m.InConstraint(0, row))))
     m.evaluate(solution, expression) |> should.equal(Error(m.NonFiniteValue))
   })
 }
@@ -353,7 +355,7 @@ pub fn solution_values_test() {
   close(m.objective(solution), 17.0)
   let values = m.values(solution)
   dict.size(values) |> should.equal(2)
-  dict.get(values, Chair) |> should.equal(m.value(solution, Chair))
+  dict.get(values, Chair) |> should.equal(Ok(2.0))
   close_value(solution, Table, 2.0)
 }
 

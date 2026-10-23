@@ -97,7 +97,7 @@ never a silent zero:
 ```gleam
 waffle.evaluate(solution, sales)  // Ok(22.5)
 waffle.value(solution, Bake(Berry))  // Ok(3.0)
-waffle.value(solution, Station(Classic))  // Error(Nil)
+waffle.value(solution, Station(Classic))  // Error(NotInSolution(..))
 waffle.stats(solution).nodes  // branch-and-bound nodes
 ```
 

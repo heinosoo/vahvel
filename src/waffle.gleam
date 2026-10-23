@@ -71,21 +71,24 @@ pub type Model(v) {
   )
 }
 
-/// Invalid input or a solver failure, distinct from infeasibility or unboundedness.
-pub type Error(v) {
-  /// The integer bounds of this variable's domain do not fit signed 32 bits.
+/// Why a model could not be solved. Infeasibility and unboundedness are
+/// answers, not errors; see `Outcome`.
+pub type SolveError(v) {
+  /// This variable's domain can't be solved here: its integer bounds do not
+  /// fit the backend's signed 32 bits, or a bound is not finite.
   InvalidDomain(v)
   /// An input or intermediate calculation is infinite or NaN.
-  NonFinite(Location)
-  /// The solver failed numerically or internally.
+  NonFinite(Location(v))
+  /// The solver failed numerically or internally. The message is for
+  /// diagnostics only.
   SolverFailure(String)
 }
 
 /// Where in a model an error occurred.
-pub type Location {
+pub type Location(v) {
   InObjective
-  /// Zero-based position in `Model.constraints`.
-  InConstraint(index: Int)
+  /// The constraint, and its zero-based position in `Model.constraints`.
+  InConstraint(index: Int, constraint: Constraint(v))
 }
 
 /// A solution carries only values belonging to this solved snapshot.
@@ -113,8 +116,9 @@ pub type Outcome(v) {
   Unbounded
 }
 
-/// Why an expression could not be evaluated against a solution.
-pub type EvaluationError(v) {
+/// Why a solution could not answer a query. `value` and `evaluate` share it,
+/// so reports can chain both with `result.try`.
+pub type QueryError(v) {
   /// The solved model never referenced this variable, so it has no value.
   NotInSolution(v)
   /// The result is not finite: a product or sum overflowed.
@@ -235,10 +239,11 @@ fn compile(model: Model(v)) -> #(driver.Model, List(v)) {
 }
 
 /// Solve a model, returning its optimum, infeasibility or unboundedness.
-pub fn solve(model: Model(v)) -> Result(Outcome(v), Error(v)) {
+pub fn solve(model: Model(v)) -> Result(Outcome(v), SolveError(v)) {
   let #(numeric, keys) = compile(model)
   use outcome <- result.try(
-    driver.solve(numeric) |> result.map_error(native_error(_, keys)),
+    driver.solve(numeric)
+    |> result.map_error(native_error(_, keys, model.constraints)),
   )
   case outcome {
     driver.Infeasible -> Ok(Infeasible)
@@ -255,7 +260,11 @@ pub fn solve(model: Model(v)) -> Result(Outcome(v), Error(v)) {
 }
 
 // Other model rejections indicate a bug in lowering, not invalid user input.
-fn native_error(error: driver.DriverError, keys: List(v)) -> Error(v) {
+fn native_error(
+  error: driver.DriverError,
+  keys: List(v),
+  constraints: List(Constraint(v)),
+) -> SolveError(v) {
   case error {
     driver.InvalidModel(driver.InvalidDomain(index)) ->
       case list.drop(keys, index) {
@@ -264,7 +273,10 @@ fn native_error(error: driver.DriverError, keys: List(v)) -> Error(v) {
       }
     driver.InvalidModel(driver.NonFiniteObjective) -> NonFinite(InObjective)
     driver.InvalidModel(driver.NonFiniteRow(index)) ->
-      NonFinite(InConstraint(index))
+      case list.drop(constraints, index) {
+        [constraint, ..] -> NonFinite(InConstraint(index, constraint))
+        [] -> SolverFailure("Driver reported an unknown constraint position")
+      }
     driver.InvalidModel(_) -> SolverFailure("Compiled model was rejected")
     driver.SolverFailure(message) -> SolverFailure(message)
   }
@@ -281,9 +293,9 @@ pub fn stats(solution: Solution(v)) -> Stats {
 }
 
 /// Look up a primal value by variable key. A key that no expression references
-/// is an error, never zero.
-pub fn value(solution: Solution(v), key: v) -> Result(Float, Nil) {
-  dict.get(solution.values, key)
+/// is `NotInSolution(key)`, never zero.
+pub fn value(solution: Solution(v), key: v) -> Result(Float, QueryError(v)) {
+  dict.get(solution.values, key) |> result.replace_error(NotInSolution(key))
 }
 
 /// All primal values, keyed by every variable the model referenced.
@@ -297,12 +309,10 @@ pub fn values(solution: Solution(v)) -> Dict(v, Float) {
 pub fn evaluate(
   solution: Solution(v),
   expression: Expression(v),
-) -> Result(Float, EvaluationError(v)) {
+) -> Result(Float, QueryError(v)) {
   let #(columns, expression) = lower(Columns(dict.new(), []), expression)
   use values <- result.try(
-    list.try_map(list.reverse(columns.keys), fn(key) {
-      dict.get(solution.values, key) |> result.replace_error(NotInSolution(key))
-    }),
+    list.try_map(list.reverse(columns.keys), value(solution, _)),
   )
   driver.evaluate(expression, values)
   |> result.replace_error(NonFiniteValue)
