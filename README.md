@@ -96,7 +96,9 @@ The setup script builds the native library from source using Cargo. It skips the
 - Gleam
 - Erlang/OTP
 - Rust (install via https://rustup.rs/)
-- cmake (required to build the native library)
+- cmake and libclang (required to build the native library)
+
+For development, `flake.nix` provides the full toolchain: run `nix develop`, or `direnv allow` with nix-direnv.
 
 ## Status
 

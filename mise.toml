@@ -1,7 +1,0 @@
-[tools]
-erlang = "28.3.1"
-gleam = "1.14.0"
-rust = { version = "1.93.1", profile = "default" }
-just = "1.46.0"
-rebar = "3.26.0"
-cmake = "4.2.3"

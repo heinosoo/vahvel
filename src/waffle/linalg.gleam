@@ -222,7 +222,10 @@ fn validate_dimensions(
   }
 }
 
-fn do_solve(a: matrix.Matrix, b: matrix.Matrix) -> Result(matrix.Matrix, String) {
+fn do_solve(
+  a: matrix.Matrix,
+  b: matrix.Matrix,
+) -> Result(matrix.Matrix, String) {
   let a_data = matrix.to_binary(a)
   let b_data = matrix.to_binary(b)
   let rows = matrix.rows(a)

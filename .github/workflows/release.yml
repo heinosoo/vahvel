@@ -101,10 +101,9 @@ jobs:
           TARGET="${{ steps.version.outputs.target }}"
           sed -i "s/^pub const package_version = \".*\"/pub const package_version = \"${TARGET}\"/" src/waffle/version.gleam
 
-      - uses: jdx/mise-action@v3
-        with:
-          install: true
-      - run: rustup component add rustfmt clippy
+      - uses: cachix/install-nix-action@v31
+      # Exports the flake's dev shell into later steps' environment.
+      - uses: nicknovitski/nix-develop@v1
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: native/waffle
@@ -143,6 +142,9 @@ jobs:
           git tag "v${TARGET}"
           git push origin main --tags
 
+      # Known issue: this binary is built in the Nix dev shell, so it carries a
+      # /nix/store RUNPATH and requires the glibc/libstdc++ of nixpkgs (currently
+      # GLIBC_2.39, GLIBCXX_3.4.30). It won't load on older distros.
       - name: Package NIF binary
         run: |
           TARGET="${{ steps.version.outputs.target }}"

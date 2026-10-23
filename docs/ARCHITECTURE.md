@@ -183,8 +183,10 @@ Tests fail if `gleam.toml` and `version.gleam` drift. Setup rebuilds if NIF does
 |-------------|-------|
 | Rust toolchain | Install via https://rustup.rs/ |
 | cmake | Required by the `highs` crate (ILP solver) |
+| libclang | Required by `highs-sys`, which generates its bindings with bindgen |
 
 Install cmake: `apt install cmake` / `brew install cmake` / Windows: download from cmake.org
+Install libclang: `apt install libclang-dev` / ships with Xcode command line tools on macOS
 
 ### Why Source Build?
 

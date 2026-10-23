@@ -39,4 +39,4 @@ upgrade:
     gleam add gleam_stdlib shellout simplifile
     gleam add --dev gleeunit tom
     cargo add faer rustler highs bytemuck rand rand_distr --manifest-path native/waffle/Cargo.toml
-    mise upgrade --bump
+    nix flake update

@@ -10,3 +10,6 @@ native/*/target/
 priv/*.so
 priv/*.dylib
 priv/*.dll
+
+# direnv / nix-direnv cache
+.direnv/

@@ -579,7 +579,10 @@ fn find_float_in_col(
 
 /// Extract a single row as a list of floats.
 /// Returns 0.0 for elements not explicitly stored.
-pub fn row(matrix: SparseMatrix, index: Int) -> Result(List(Float), SparseError) {
+pub fn row(
+  matrix: SparseMatrix,
+  index: Int,
+) -> Result(List(Float), SparseError) {
   case index >= 0 && index < matrix.rows {
     False ->
       Error(InvalidDimensions(
@@ -653,7 +656,10 @@ fn build_dense_col(
 
 /// Extract a single column as a list of floats.
 /// Returns 0.0 for elements not explicitly stored.
-pub fn col(matrix: SparseMatrix, index: Int) -> Result(List(Float), SparseError) {
+pub fn col(
+  matrix: SparseMatrix,
+  index: Int,
+) -> Result(List(Float), SparseError) {
   case index >= 0 && index < matrix.cols {
     False ->
       Error(InvalidDimensions(
@@ -778,6 +784,8 @@ pub fn to_string(matrix: SparseMatrix) -> String {
 }
 
 @internal
-pub fn to_csc_data(matrix: SparseMatrix) -> #(Int, BitArray, BitArray, BitArray) {
+pub fn to_csc_data(
+  matrix: SparseMatrix,
+) -> #(Int, BitArray, BitArray, BitArray) {
   #(matrix.nnz, matrix.col_ptr, matrix.row_indices, matrix.values)
 }

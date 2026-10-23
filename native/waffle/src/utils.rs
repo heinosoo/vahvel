@@ -56,14 +56,10 @@ pub fn binary_to_cow_f64(bin: &[u8]) -> Result<Cow<'_, [f64]>, WaffleError> {
     match bytemuck::try_cast_slice(bin) {
         Ok(slice) => Ok(Cow::Borrowed(slice)),
         Err(_) => {
-            let len = bin.len() / 8;
-            let mut vec = Vec::with_capacity(len);
-            let chunks = bin.chunks_exact(8);
-            for chunk in chunks {
-                let val = f64::from_ne_bytes(chunk.try_into().unwrap());
-                vec.push(val);
-            }
-            Ok(Cow::Owned(vec))
+            let (chunks, _) = bin.as_chunks::<8>();
+            Ok(Cow::Owned(
+                chunks.iter().map(|c| f64::from_ne_bytes(*c)).collect(),
+            ))
         }
     }
 }
@@ -79,14 +75,10 @@ pub fn binary_to_cow_u64(bin: &[u8]) -> Result<Cow<'_, [u64]>, WaffleError> {
     match bytemuck::try_cast_slice(bin) {
         Ok(slice) => Ok(Cow::Borrowed(slice)),
         Err(_) => {
-            let len = bin.len() / 8;
-            let mut vec = Vec::with_capacity(len);
-            let chunks = bin.chunks_exact(8);
-            for chunk in chunks {
-                let val = u64::from_ne_bytes(chunk.try_into().unwrap());
-                vec.push(val);
-            }
-            Ok(Cow::Owned(vec))
+            let (chunks, _) = bin.as_chunks::<8>();
+            Ok(Cow::Owned(
+                chunks.iter().map(|c| u64::from_ne_bytes(*c)).collect(),
+            ))
         }
     }
 }

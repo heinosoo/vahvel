@@ -18,10 +18,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v3
-        with:
-          install: true
-      - run: rustup component add rustfmt clippy
+      - uses: cachix/install-nix-action@v31
+      # Exports the flake's dev shell into later steps' environment.
+      - uses: nicknovitski/nix-develop@v1
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: native/waffle

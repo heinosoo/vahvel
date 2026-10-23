@@ -129,7 +129,9 @@ Use [docs.rs](https://docs.rs) for Rust crate documentation. Key crates:
 
 ## Development Workflow
 
-The project uses a `justfile` for unified dev commands across both languages. Install [just](https://github.com/casey/just) and run recipes from the project root:
+The toolchain (Gleam, Erlang, Rust, just, cmake, libclang) comes from `flake.nix`; `.envrc` loads it through nix-direnv. Versions are pinned by `flake.lock` (`just upgrade` bumps it). CI runs in the same dev shell.
+
+The project uses a `justfile` for unified dev commands across both languages. Run recipes from the project root:
 
 **Always use `just` commands.** Don't run `gleam` or `cargo` directly. The justfile ensures:
 - Both languages are formatted together
