@@ -78,7 +78,7 @@ variables are first referenced.
 
 More examples are in [test/waffle_test.gleam](test/waffle_test.gleam).
 [ARCHITECTURE.md](ARCHITECTURE.md) describes how the library fits together,
-[API-DESIGN.md](API-DESIGN.md) records the design decisions, and
+[DESIGN.md](DESIGN.md) explains the design decisions, and
 [ROADMAP.md](ROADMAP.md) lists planned work.
 
 ## Development

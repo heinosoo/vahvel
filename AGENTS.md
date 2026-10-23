@@ -1,21 +1,36 @@
-# Waffle — coding guide
+# Waffle — contributor guide
 
-Read `README.md` for setup and `src/waffle/internal/driver.gleam` for the internal
-model contract.
+Start here. General working rules are below; everything else lives in one place:
+
+| You want to | Read |
+| --- | --- |
+| Use the library or set it up | `README.md` |
+| Understand how it works now | `ARCHITECTURE.md` |
+| Know why it is this way, or change the public API | `DESIGN.md` ("Modeling API"), `src/waffle.gleam` |
+| Change the driver, Rust or NIFs | `ARCHITECTURE.md` ("Numeric driver contract", "Native boundary"), `DESIGN.md` ("Native boundary") |
+| Plan work or find open questions | `ROADMAP.md` |
+
+## Workflow
 
 - Use `just` recipes for development. Run `just fmt` and `just` before committing.
+- Use conventional commit messages.
+- Keep the docs in their lanes: behavior changes update `ARCHITECTURE.md`,
+  decision changes update `DESIGN.md` in place, and finished roadmap items are
+  removed from `ROADMAP.md`.
+
+## Code
+
 - Write idiomatic Gleam: custom types, pattern matching, `Result`, and `use`
   bindings instead of deeply nested cases. No production panics or `let assert`.
 - Annotate and document public types/functions. Keep comments minimal.
-- Use stable Rust and avoid unsafe code. Compute NIFs use `DirtyCpu` scheduling
-  and return tagged results matching the Gleam types. NIFs whose work is small
-  and linear in their input (e.g. evaluating one expression) run on normal
-  schedulers, where dirty scheduling would cost more than the work.
-- Validate input at the NIF boundary. Never change an explicit bound, relax
-  integer variables, or return nonfinite floats to the BEAM.
+- Describe in Gleam, compute in Rust: no float arithmetic on user data in Gleam.
+  Rust and NIF rules are in `DESIGN.md` ("NIF rules").
+
+## Testing
+
 - Test through Gleam and the real NIF with gleeunit. Cover solver results and
   invalid input; avoid assertions on exact error wording.
-- Use conventional commit messages.
+- Test files mirror the source tree; test the public API through `solve`.
 
 ## Software Design
 

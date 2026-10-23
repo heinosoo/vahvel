@@ -3,8 +3,8 @@
 Waffle is a Gleam library for linear and mixed-integer linear programming. Gleam
 code describes models; a Rust NIF validates and solves them with
 [microlp](https://docs.rs/microlp/0.6.0/microlp/). This document describes how the
-pieces fit together. API design decisions and their reasoning are in
-[API-DESIGN.md](API-DESIGN.md); planned work is in [ROADMAP.md](ROADMAP.md).
+pieces fit together as they are now. The reasons behind them are in
+[DESIGN.md](DESIGN.md); planned work is in [ROADMAP.md](ROADMAP.md).
 
 Status: `waffle` is the public modeling module and is unstable while the
 package is 0.x. `waffle/setup` is the public build entry point. Everything below
@@ -30,23 +30,14 @@ flowchart TD
 | Native | `native/waffle/src/lib.rs`, `driver.rs` | Term decoding, canonicalization, validation, solver calls, evaluation |
 | Build and setup | `src/waffle/setup.gleam`, `src/waffle/internal/build.gleam`, `src/waffle/internal/version.gleam` | Compiling the NIF, copying it to `priv/`, version checks |
 
-Erlang modules share one global namespace and take their name from `-module`,
-not their path, so every `.erl` file is prefixed with `waffle_`.
+Every `.erl` file is prefixed with `waffle_` (DESIGN.md: "NIF rules").
 
 Each layer only talks to the one below it. The modeling layer never sees column
 numbers from the outside, and the native layer never sees names or keys.
 
-**Guiding rule: describe in Gleam, compute in Rust** (API-DESIGN D1). Gleam
-handles keys, columns, domains and structure; Rust does every numeric
-operation: canonicalization, validation, solving, evaluation. This keeps the
-modeling layer identical across targets (BEAM floats can't overflow silently,
-JS floats can) and puts the expensive work where it is fast. The modeling layer
-contains no float arithmetic at all.
-
-Intended direction: when a JS target arrives via WASM, the Rust code splits into
-a target-independent engine (canonicalize, validate, solve) and thin adapters
-(Rustler for the BEAM, wasm-bindgen for JS). The engine only ever sees indices,
-never Gleam keys.
+Gleam handles keys, columns, domains and structure; Rust does every numeric
+operation: canonicalization, validation, solving, evaluation. The modeling layer
+contains no float arithmetic (DESIGN.md: "Describe in Gleam, compute in Rust").
 
 ## Modeling layer
 
@@ -74,11 +65,10 @@ Compilation is pure, deterministic and arithmetic-free: columns follow the order
 of first reference (objective, then constraints), rows follow constraint order,
 and each term list becomes an indexed `Expression(terms, constants)` with terms
 in their original order, duplicates and zeros included. Summing happens in Rust.
-The column keys stay in Gleam
-and are never passed to the NIF; they turn solver values into a keyed solution
-and driver error positions into keys. Solutions are immutable snapshots indexed
-by the same keys. The API shape is
-under active design; see API-DESIGN.md.
+The column keys stay in Gleam and are never passed to the NIF; they turn solver
+values into a keyed solution and driver error positions into keys. Solutions are
+immutable snapshots indexed by the same keys. `evaluate` looks up values in
+Gleam and sums them through `driver_evaluate`.
 
 ## Numeric driver contract
 
@@ -92,8 +82,8 @@ under active design; see API-DESIGN.md.
 - `Domain` is `Continuous(lower, upper)` with `Unbounded | Finite(Float)` bounds,
   or `Integer(lower, upper)` with inclusive `Option(Int)` bounds fitting signed
   32 bits; Rust turns `None` into `i32::MIN`/`i32::MAX`, microlp's integer
-  range. Binary variables are `Integer(Some(0), Some(1))`. A domain with `lower > upper` is valid
-  but empty and makes the model infeasible.
+  range. Binary variables are `Integer(Some(0), Some(1))`. A domain with
+  `lower > upper` is valid but empty and makes the model infeasible.
 - `Row(lhs, relation, rhs)` relates two expressions.
 - `solve` returns `Ok(Optimal(objective, values) | Infeasible | UnboundedProblem)`
   or `Error(InvalidModel(reason) | SolverFailure(_))`. Invalid input is distinct
@@ -110,12 +100,11 @@ the native layer canonicalizes and enforces it.
 
 ## Native boundary
 
-`driver_solve` canonicalizes, validates and solves a model. It runs on a dirty
-CPU scheduler so long solves don't block normal BEAM schedulers.
-`driver_evaluate` computes `Σ coefficient · value + Σ constants` for one
-expression at a solution (the modeling layer looks up the values first) and
-returns `Error(Nil)` for a non-finite result. Its work is small and linear, so it
-runs on a normal scheduler.
+`driver_solve` canonicalizes, validates and solves a model on a dirty CPU
+scheduler. `driver_evaluate` computes `Σ coefficient · value + Σ constants` for
+one expression at a solution and returns `Error(Nil)` for a non-finite result;
+it runs on a normal scheduler. The rules NIFs follow are in DESIGN.md ("NIF
+rules").
 
 **Term mapping.** Rustler derives decoders that match Gleam's Erlang
 representation directly:
@@ -123,7 +112,7 @@ representation directly:
 | Gleam | Erlang term | Rust derive |
 | --- | --- | --- |
 | `Minimize`, `LessEqual` (no fields) | `minimize`, `less_equal` | `NifUnitEnum` |
-| `Finite(1.0)`, `Integer(0, 1)` | `{finite, 1.0}`, `{integer, 0, 1}` | `NifTaggedEnum` |
+| `Finite(1.0)`, `Integer(Some(0), None)` | `{finite, 1.0}`, `{integer, {some, 0}, none}` | `NifTaggedEnum` |
 | `Row(..)`, `Expression(..)`, `Model(..)` | `{row, ..}`, `{expression, ..}`, `{model, ..}` | `NifRecord` with `#[tag]` |
 | `None`, `Some(1)` (`Option(Int)`) | `none`, `{some, 1}` | `NifTaggedEnum` (`IntegerBound`) |
 | `Result(a, e)` | `{ok, A}`, `{error, E}` | `Result<T, E>` |

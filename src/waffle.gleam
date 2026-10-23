@@ -2,8 +2,8 @@
 //// data, keyed by your own types, and solve it with a native solver.
 ////
 //// The API is unstable while the package is 0.x. This module describes
-//// models; all numeric work happens in Rust. Design decisions are recorded in
-//// `API-DESIGN.md`.
+//// models; all numeric work happens in Rust. Design decisions are explained in
+//// `DESIGN.md`.
 
 import gleam/dict.{type Dict}
 import gleam/list
