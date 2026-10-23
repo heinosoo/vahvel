@@ -168,9 +168,37 @@ struct Model {
     rows: Vec<Row>,
 }
 
+/// microlp's solve statistics. Counts and time saturate at `u64::MAX`.
+#[derive(NifRecord)]
+#[tag = "stats"]
+struct Stats {
+    nodes: u64,
+    iterations: u64,
+    nanoseconds: u64,
+}
+
+impl Stats {
+    /// No solver call: the driver answered a trivial model itself.
+    const NONE: Self = Self {
+        nodes: 0,
+        iterations: 0,
+        nanoseconds: 0,
+    };
+}
+
+impl From<microlp::Stats> for Stats {
+    fn from(stats: microlp::Stats) -> Self {
+        Self {
+            nodes: stats.nodes_solved,
+            iterations: stats.lp_iterations,
+            nanoseconds: u64::try_from(stats.elapsed.as_nanos()).unwrap_or(u64::MAX),
+        }
+    }
+}
+
 #[derive(NifTaggedEnum)]
 enum Outcome {
-    Optimal(f64, Vec<f64>),
+    Optimal(f64, Vec<f64>, Stats),
     Infeasible,
     UnboundedProblem,
 }
@@ -270,7 +298,7 @@ fn solve(model: Model) -> Result<Outcome, DriverError> {
         }
     }
     if model.variables.is_empty() {
-        return Ok(Outcome::Optimal(model.offset, vec![]));
+        return Ok(Outcome::Optimal(model.offset, vec![], Stats::NONE));
     }
 
     let mut problem = Problem::new(match model.direction {
@@ -322,7 +350,7 @@ fn solve(model: Model) -> Result<Outcome, DriverError> {
             "Nonfinite solution or objective".into(),
         ));
     }
-    Ok(Outcome::Optimal(objective, values))
+    Ok(Outcome::Optimal(objective, values, solution.stats().into()))
 }
 
 /// `Σ coefficient · value + Σ constants`, summed in input order. Small and

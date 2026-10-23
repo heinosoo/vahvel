@@ -3,6 +3,7 @@ import gleam/float
 import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/time/duration
 import gleeunit
 import gleeunit/should
 import waffle.{Constant, Linear} as m
@@ -306,6 +307,47 @@ pub fn explicit_outcomes_test() {
   |> should.equal(Ok(m.Infeasible))
   m.solve(m.Model(..empty, objective: m.Maximize([Linear(1.0, Chair)])))
   |> should.equal(Ok(m.Unbounded))
+}
+
+pub fn continuous_stats_test() {
+  let model =
+    m.Model(
+      domain: nonnegative,
+      objective: m.Maximize([Linear(1.0, Chair), Linear(1.0, Table)]),
+      constraints: [
+        m.LessEqual([Linear(1.0, Chair), Linear(2.0, Table)], [Constant(4.0)]),
+        m.LessEqual([Linear(3.0, Chair), Linear(1.0, Table)], [Constant(6.0)]),
+      ],
+    )
+  let assert Ok(m.Optimal(solution)) = m.solve(model)
+  let stats = m.stats(solution)
+  stats.nodes |> should.equal(0)
+  { stats.iterations > 0 } |> should.be_true
+}
+
+pub fn integer_stats_count_branching_test() {
+  // The relaxation optimum x + y = 1.5 is fractional, so the solver branches.
+  let model =
+    m.Model(
+      domain: fn(_) { m.Integer(Some(0), Some(1)) },
+      objective: m.Maximize([Linear(1.0, Chair), Linear(1.0, Table)]),
+      constraints: [
+        m.LessEqual([Linear(2.0, Chair), Linear(2.0, Table)], [Constant(3.0)]),
+      ],
+    )
+  let assert Ok(m.Optimal(solution)) = m.solve(model)
+  close(m.objective(solution), 1.0)
+  { m.stats(solution).nodes > 0 } |> should.be_true
+}
+
+pub fn model_without_variables_has_zero_stats_test() {
+  let assert Ok(m.Optimal(solution)) = m.solve(base())
+  m.stats(solution)
+  |> should.equal(m.Stats(
+    nodes: 0,
+    iterations: 0,
+    solve_time: duration.nanoseconds(0),
+  ))
 }
 
 pub fn domains_test() {

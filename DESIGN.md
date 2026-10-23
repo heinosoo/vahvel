@@ -329,6 +329,29 @@ immutable snapshots.
 reporting than single lookups. Passing pairs instead of indices leaves the NIF
 with no malformed-input case.
 
+### Solve statistics
+
+**Decision.** `stats(solution)` returns a public `Stats` record: branch-and-bound
+nodes (zero for pure LP), simplex iterations including the root LP, and solver
+time as a `gleam/time/duration.Duration`. There is one `solve`; statistics
+travel inside the opaque `Solution`. `Infeasible` and `Unbounded` carry none.
+
+**Why.** microlp collects statistics on every solve, so a second solve function
+without them would save nothing and double the surface for later options.
+Inside `Solution` they leave `solve` and `Outcome` unchanged for callers who
+ignore them. microlp 0.6.0 reports infeasibility and unboundedness as errors
+without statistics, and empty domains and constant rows never reach it, so
+stats on those variants would be invented or partial. Solver time lets
+benchmarks separate solving from construction and NIF overhead.
+
+**Rejected.**
+- *`solve_with_stats` alongside `solve`.* Two entry points for the same work.
+- *Stats on every `Outcome` variant, or `#(Outcome, Stats)`.* Forces every
+  caller to handle data most ignore, with nothing real to put in `Infeasible`.
+- *Best bound and gap.* For an optimum they are the objective and zero; the gap
+  returns with `Feasible` (see "Solve limits").
+- *Time as `Int` microseconds.* `Duration` states the unit in the type.
+
 ### The API owns its types
 
 **Decision.** `waffle` is the one public modeling module. Users never import
@@ -444,9 +467,10 @@ An explicit "unavailable" result always beats zero, NaN or invented prices.
 
 No time or iteration limits yet. When added, the outcome separates why solving
 stopped from what data is available: optimal, feasible but unproven
-(`Feasible(solution, gap)`), and stopped without a primal value
-(`Stopped(reason)`). A time limit is not infeasibility, and a feasible incumbent
-is not optimal. Today the driver treats any unexpected non-optimal return as a
+(`Feasible(solution)`), and stopped without a primal value
+(`Stopped(reason, stats)`, from microlp's `InterruptedSolve`). The gap of a
+feasible result belongs in its `Stats`, not in the variant. A time limit is not
+infeasibility, and a feasible incumbent is not optimal. Today the driver treats any unexpected non-optimal return as a
 `SolverFailure`. microlp 0.6.0 already supports `set_time_limit`, `solve_with`,
 `TerminationReason`, `InterruptedSolve` and `resume`.
 

@@ -9,6 +9,7 @@ import gleam/dict.{type Dict}
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
+import gleam/time/duration.{type Duration}
 import waffle/internal/driver
 
 /// One term of a linear expression. An expression is a `List(Term(v))` whose
@@ -84,7 +85,21 @@ pub type Location {
 
 /// A solution carries only values belonging to this solved snapshot.
 pub opaque type Solution(v) {
-  Solution(objective: Float, values: Dict(v, Float))
+  Solution(objective: Float, values: Dict(v, Float), stats: Stats)
+}
+
+/// How much work the solver did. A model the driver answers without calling
+/// the solver, such as one with no variables, reports zero for everything.
+pub type Stats {
+  Stats(
+    /// Branch-and-bound nodes solved; zero for a purely continuous model.
+    nodes: Int,
+    /// Simplex iterations, including the root relaxation.
+    iterations: Int,
+    /// Time spent inside the solver, excluding model construction and the
+    /// native call.
+    solve_time: Duration,
+  )
 }
 
 /// Only an optimum carries a queryable solution.
@@ -196,8 +211,14 @@ pub fn solve(model: Model(v)) -> Result(Outcome(v), Error(v)) {
   case outcome {
     driver.Infeasible -> Ok(Infeasible)
     driver.UnboundedProblem -> Ok(Unbounded)
-    driver.Optimal(objective, values) ->
-      Ok(Optimal(Solution(objective, dict.from_list(list.zip(keys, values)))))
+    driver.Optimal(objective, values, driver.Stats(nodes, iterations, time)) ->
+      Ok(
+        Optimal(Solution(
+          objective,
+          dict.from_list(list.zip(keys, values)),
+          Stats(nodes, iterations, duration.nanoseconds(time)),
+        )),
+      )
   }
 }
 
@@ -222,6 +243,11 @@ fn native_error(error: driver.DriverError, keys: List(v)) -> Error(v) {
 /// Objective value including its constant terms.
 pub fn objective(solution: Solution(v)) -> Float {
   solution.objective
+}
+
+/// Statistics of the solve that produced this solution.
+pub fn stats(solution: Solution(v)) -> Stats {
+  solution.stats
 }
 
 /// Look up a primal value by variable key. A key that no expression references

@@ -7,19 +7,15 @@ work is removed from this file; git log keeps it. Design decisions are in
 
 ## Next
 
-- **Solve statistics.** Return microlp's per-solve stats (branch-and-bound
-  nodes, simplex iterations, solver time, best bound, gap) as data, e.g.
-  `stats(solution)`. Decide whether `Infeasible` and `Unbounded` carry stats
-  too, which changes the outcome type and ties in with solve limits. The
-  benchmark uses solver time to separate construction and NIF overhead from
-  solving.
 - **Examples and performance.** More end-to-end examples, and a construction
-  benchmark on larger sparse models. Measure the per-term key lookup that stays
+  benchmark on larger sparse models; `stats(solution).solve_time` separates
+  solving from construction and NIF overhead. Measure the per-term key lookup that stays
   in Gleam against the work done in Rust (DESIGN.md: "Describe in Gleam, compute
   in Rust").
 - **Solve limits.** Time and iteration limits with an outcome that separates
   optimal, feasible-but-unproven and stopped results (DESIGN.md: "Solve
   limits"). microlp already supports this; the driver contract changes with it.
+  The gap of a feasible result goes into `Stats`.
 - **Dual values.** Needs a dual-capable backend and the requirements in
   DESIGN.md ("Dual values").
 - **Truly unbounded integer variables.** A `None` integer bound currently stops

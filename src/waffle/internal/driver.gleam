@@ -56,11 +56,18 @@ pub type Model {
   )
 }
 
-/// An optimal result includes the objective offset and values in variable order.
+/// An optimal result includes the objective offset, values in variable order
+/// and solve statistics.
 pub type Outcome {
-  Optimal(objective: Float, values: List(Float))
+  Optimal(objective: Float, values: List(Float), stats: Stats)
   Infeasible
   UnboundedProblem
+}
+
+/// Branch-and-bound nodes, simplex iterations and time spent in the solver.
+/// All zero when the driver answers a model without calling the solver.
+pub type Stats {
+  Stats(nodes: Int, iterations: Int, nanoseconds: Int)
 }
 
 /// Invalid IR is distinct from a numerical or internal solver failure.

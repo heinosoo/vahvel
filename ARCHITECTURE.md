@@ -67,8 +67,9 @@ and each term list becomes an indexed `Expression(terms, constants)` with terms
 in their original order, duplicates and zeros included. Summing happens in Rust.
 The column keys stay in Gleam and are never passed to the NIF; they turn solver
 values into a keyed solution and driver error positions into keys. Solutions are
-immutable snapshots indexed by the same keys. `evaluate` looks up values in
-Gleam and sums them through `driver_evaluate`.
+immutable snapshots indexed by the same keys, and carry the driver's statistics
+with the solver time as a `Duration`. `evaluate` looks up values in Gleam and
+sums them through `driver_evaluate`.
 
 ## Numeric driver contract
 
@@ -85,8 +86,11 @@ Gleam and sums them through `driver_evaluate`.
   range. Binary variables are `Integer(Some(0), Some(1))`. A domain with
   `lower > upper` is valid but empty and makes the model infeasible.
 - `Row(lhs, relation, rhs)` relates two expressions.
-- `solve` returns `Ok(Optimal(objective, values) | Infeasible | UnboundedProblem)`
-  or `Error(InvalidModel(reason) | SolverFailure(_))`. Invalid input is distinct
+- `solve` returns
+  `Ok(Optimal(objective, values, stats) | Infeasible | UnboundedProblem)` or
+  `Error(InvalidModel(reason) | SolverFailure(_))`. `Stats(nodes, iterations,
+  nanoseconds)` copies microlp's node count, simplex iterations and elapsed
+  solver time, all zero when the driver answers without calling microlp. Invalid input is distinct
   from a numerical or internal failure. The reason says where:
   `MalformedModel`, `InvalidObjective`, `InvalidDomain(variable)`,
   `InvalidRow(row)`, `NonFiniteObjective` or `NonFiniteRow(row)`, with
@@ -136,7 +140,8 @@ A Gleam type change must be matched in `driver.rs`, and vice versa.
    row means `Infeasible`; a model with no variables returns its offset as the
    optimum.
 4. Build a microlp `Problem` and solve. microlp's infeasible and unbounded errors
-   become outcomes; any other non-optimal return is a `SolverFailure`.
+   become outcomes; any other non-optimal return is a `SolverFailure`. An
+   optimum carries microlp's statistics.
 5. Reject non-finite objective or values instead of returning them to the BEAM.
 
 Solver panics are caught with `catch_unwind` and returned as `SolverFailure`, so

@@ -5,7 +5,7 @@ import gleeunit/should
 import waffle/internal/driver as d
 
 fn assert_assignment(model: d.Model, values: List(Float), objective: Float) {
-  let assert Ok(d.Optimal(actual_objective, actual_values)) = d.solve(model)
+  let assert Ok(d.Optimal(actual_objective, actual_values, _)) = d.solve(model)
   should.equal(list.length(actual_values), list.length(values))
   list.zip(actual_values, values)
   |> list.each(fn(pair) {
@@ -465,15 +465,15 @@ pub fn integer_without_bounds_test() {
     [7.0],
     7.0,
   )
-  d.solve(numeric(d.Minimize, [d.Integer(Some(3), None)], [1.0], 0.0, []))
-  |> should.equal(Ok(d.Optimal(3.0, [3.0])))
+  let assert Ok(d.Optimal(3.0, [3.0], _)) =
+    d.solve(numeric(d.Minimize, [d.Integer(Some(3), None)], [1.0], 0.0, []))
 }
 
 // Documents the backend limit: a missing integer bound is the edge of the
 // signed 32-bit range, so an unbounded direction reports that edge as optimal.
 pub fn missing_integer_bound_is_the_32_bit_range_test() {
-  d.solve(numeric(d.Maximize, [d.Integer(Some(0), None)], [1.0], 0.0, []))
-  |> should.equal(Ok(d.Optimal(2_147_483_647.0, [2_147_483_647.0])))
+  let assert Ok(d.Optimal(2_147_483_647.0, [2_147_483_647.0], _)) =
+    d.solve(numeric(d.Maximize, [d.Integer(Some(0), None)], [1.0], 0.0, []))
 }
 
 pub fn evaluate_test() {

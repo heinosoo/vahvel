@@ -70,6 +70,7 @@ pub fn main() {
   let assert Ok(waffle.Optimal(solution)) = waffle.solve(model)
   waffle.objective(solution)  // 6.0: items 1 and 2
   waffle.value(solution, 0)  // Ok(0.0)
+  waffle.stats(solution).nodes  // branch-and-bound nodes the solver needed
 }
 ```
 
