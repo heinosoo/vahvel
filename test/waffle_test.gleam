@@ -152,7 +152,7 @@ pub fn binary_selection_is_not_relaxed_test() {
   let items = [#("a", 3.0, 5.0), #("b", 2.0, 3.0), #("c", 2.0, 3.0)]
   let model =
     m.Model(
-      domain: fn(_) { m.Integer(Some(0), Some(1)) },
+      domain: fn(_) { m.Binary },
       objective: m.Maximize(
         list.map(items, fn(item) { Linear(item.2, item.0) }),
       ),
@@ -177,7 +177,7 @@ pub fn int_keys_test() {
     })
   let model =
     m.Model(
-      domain: fn(_) { m.Integer(Some(0), Some(1)) },
+      domain: fn(_) { m.Binary },
       objective: m.Maximize(
         list.map(items, fn(item) { Linear(item.2, item.0) }),
       ),

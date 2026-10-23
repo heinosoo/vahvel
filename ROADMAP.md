@@ -43,6 +43,7 @@ work is removed from this file; git log keeps it. Design decisions are in
 - Would key-driven rows and bounds (`bound: fn(row) -> Interval`) serve large
   indexed constraint families better than per-row constraints?
 - Does a representative model need a `scale` helper for reused expressions?
-- Are domain shorthands (`Binary`, `NonNegative`) worth a second spelling?
+- Would a `NonNegative` domain shorthand improve readability enough to justify
+  a second spelling?
 - Should errors be collected rather than reporting the first, once diagnostics
   need it?

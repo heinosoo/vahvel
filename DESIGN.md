@@ -256,20 +256,26 @@ Gleam because a NIF can't call the closure.
 
 ```gleam
 pub type Domain {
+  Binary
   Continuous(lower: Option(Float), upper: Option(Float))
   Integer(lower: Option(Int), upper: Option(Int))
 }
 ```
 
-`None` means no bound; binary is `Integer(Some(0), Some(1))`. Continuous and
-integer bounds behave the same for the user. microlp limits integer variables to
-signed 32 bits, so a `None` integer bound means "no bound beyond that range":
-Rust fills in `i32::MIN`/`i32::MAX`, microlp's documented convention. A truly
-unbounded integer direction therefore reports `Optimal` at ±2³¹, which the
-`Domain` docs state and a driver test pins.
+`None` means no bound; `Binary` lowers to `Integer(Some(0), Some(1))`.
+Continuous and integer bounds behave the same for the user. microlp limits
+integer variables to signed 32 bits, so a `None` integer bound means "no bound
+beyond that range": Rust fills in `i32::MIN`/`i32::MAX`, microlp's documented
+convention. A truly unbounded integer direction therefore reports `Optimal` at
+±2³¹, which the `Domain` docs state and a driver test pins.
 
 **Why.** Users shouldn't have to guess a "large enough" integer bound, and the
 backend limit belongs in one place, in Rust.
+
+**Convenience forms.** `Binary` states modeling intent and shares the integer
+implementation. Further shorthands, such as `NonNegative`, are judged by caller
+readability, not rejected for being a second spelling (see ROADMAP.md open
+questions).
 
 **Rejected.**
 - *Required integer bounds.* Honest about the backend, but asymmetric with
@@ -280,7 +286,6 @@ backend limit belongs in one place, in Rust.
   zero-cost variable is parked at its bound among several optima.
 - *A custom `Bound` type.* Its `Unbounded` clashes with `Outcome.Unbounded`;
   `Option` is the standard way to say "maybe absent".
-- *`Binary`, `NonNegative` shorthands.* Second spellings of the general form.
 
 ### Keys are application values, local to a model
 

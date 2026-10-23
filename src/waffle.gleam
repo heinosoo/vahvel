@@ -43,13 +43,16 @@ pub type Objective(v) {
 }
 
 /// The values a variable may take. `None` means no bound on that side. Bounds
-/// are inclusive; binary is `Integer(Some(0), Some(1))`. A lower bound above the
-/// upper bound is an empty domain, so the model is infeasible.
+/// are inclusive; `Binary` is shorthand for `Integer(Some(0), Some(1))`.
+/// A lower bound above the upper bound is an empty domain, so the model is
+/// infeasible.
 ///
 /// The current backend limits integer variables to the signed 32-bit range:
 /// explicit integer bounds must fit it, and a `None` integer bound stops at its
 /// edge. An integer value at ±2³¹ therefore means that limit was reached.
 pub type Domain {
+  /// An integer variable restricted to zero or one.
+  Binary
   Continuous(lower: Option(Float), upper: Option(Float))
   Integer(lower: Option(Int), upper: Option(Int))
 }
@@ -181,6 +184,7 @@ fn bound(bound: Option(Float)) -> driver.Bound {
 
 fn driver_domain(domain: Domain) -> driver.Domain {
   case domain {
+    Binary -> driver.Integer(Some(0), Some(1))
     Continuous(lower, upper) -> driver.Continuous(bound(lower), bound(upper))
     Integer(lower, upper) -> driver.Integer(lower, upper)
   }

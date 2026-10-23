@@ -57,7 +57,7 @@ pub fn main() {
   })
   let model =
     waffle.Model(
-      domain: fn(_) { waffle.Integer(Some(0), Some(1)) },
+      domain: fn(_) { waffle.Binary },
       objective: waffle.Maximize(
         list.map(items, fn(item) { Linear(item.2, item.0) }),
       ),

@@ -65,6 +65,7 @@ Compilation is pure, deterministic and arithmetic-free: columns follow the order
 of first reference (objective, then constraints), rows follow constraint order,
 and each term list becomes an indexed `Expression(terms, constants)` with terms
 in their original order, duplicates and zeros included. Summing happens in Rust.
+`Binary` lowers to the same integer domain as `Integer(Some(0), Some(1))`.
 The column keys stay in Gleam and are never passed to the NIF; they turn solver
 values into a keyed solution and driver error positions into keys. Solutions are
 immutable snapshots indexed by the same keys, and carry the driver's statistics
