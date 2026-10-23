@@ -32,6 +32,18 @@ flowchart TD
 Each layer only talks to the one below it. The modeling layer never sees column
 numbers from the outside, and the native layer never sees names or keys.
 
+**Guiding rule: describe in Gleam, compute in Rust** (API-DESIGN D1). Gleam
+handles keys, columns, domains and structure; Rust does every numeric
+operation: canonicalization, validation, solving, evaluation. This keeps the
+modeling layer identical across targets (BEAM floats can't overflow silently,
+JS floats can) and puts the expensive work where it is fast. Today the modeling
+layer still sums coefficients itself; ROADMAP step 4 moves that into Rust.
+
+Intended direction: when a JS target arrives via WASM, the Rust code splits into
+a target-independent engine (canonicalize, validate, solve) and thin adapters
+(Rustler for the BEAM, wasm-bindgen for JS). The engine only ever sees indices,
+never Gleam keys.
+
 ## Modeling layer
 
 `model.gleam` turns a symbolic model, written with application-owned keys, into

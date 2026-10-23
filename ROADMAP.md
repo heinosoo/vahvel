@@ -8,17 +8,24 @@ These are rough priorities; API shapes and backend choices remain open.
 Decisions are recorded in [API-DESIGN.md](API-DESIGN.md). One commit per step,
 each reviewed before the next and leaving `just` green.
 
-1. **Driver contract** (Rust and `driver.gleam`): `InvalidModel` carries the
-   position of the invalid variable or row; an empty domain is `Infeasible`.
-   D17.
-2. **Expressions and constraints:** `Term` lists, keyless
+1. Done. **Driver contract** (Rust and `driver.gleam`): `InvalidModel` carries
+   the position of the invalid variable or row; an empty domain is
+   `Infeasible`. D17.
+2. Done. **Expressions and constraints:** `Term` lists, keyless
    `LessEqual`/`Equal`/`GreaterEqual`, `Minimize`/`Maximize`; remove the
    expression algebra, `multiply`, the `dual` stub, and constraint keys. D3, D5,
    D9, D11, D12, D20.
-3. **Variables by use:** `domain` function, modeling-layer domain types, and
-   driver positions mapped back to variable keys. D7, D22.
-4. **Overflow checks** during compilation. D17.
-5. **Solution queries:** `values` and `evaluate`. D19.
+3. Done. **Variables by use:** `domain` function, modeling-layer domain types,
+   and driver positions mapped back to variable keys. D7, D22.
+4. **Canonicalize in Rust.** The driver takes indexed, unsummed expressions
+   (`Expression(terms, constants)`, rows as `lhs relation rhs`) and does all
+   numeric work: `lhs − rhs`, sort, merge duplicates, drop zeros, sum constants,
+   finiteness checks reported as `NonFiniteObjective`/`NonFiniteRow(row)`. The
+   modeling layer drops its float arithmetic and maps those errors to
+   `NonFinite(location)`. Canonicalization tests move to the driver tests. D1,
+   D4, D17.
+5. **Solution queries:** `values`, and `evaluate` with the arithmetic in a small
+   NIF. D19.
 
 Afterwards:
 
@@ -28,9 +35,11 @@ Afterwards:
 - Truly unbounded integer variables: a `None` integer bound currently stops at
   the signed 32-bit range. Needs microlp to accept infinite integer bounds (it
   stores them as floats internally) or another backend. D22.
-- Re-evaluate module boundaries between `model` and `driver`, e.g. whether the
-  driver should own row canonicalization (sorting, merging duplicates, dropping
-  zeros) once a second IR producer appears. D1, D23.
+- Re-evaluate module boundaries between `model` and `driver`. Canonicalization
+  moves to Rust in step 4 (D1); still open: whether `compile` should stay public
+  now that it returns uncanonicalized driver data. D1, D23.
+- JS target via Rust compiled to WASM: split the Rust code into a
+  target-independent engine and thin adapters (Rustler, wasm-bindgen). D1.
 
 ## Representative models
 

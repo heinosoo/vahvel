@@ -11,10 +11,10 @@ Status values:
 
 | # | Decision | Status |
 | --- | --- | --- |
-| [D1](#d1-symbolic-layer-over-the-numeric-driver) | Symbolic layer over the numeric driver | Implemented |
+| [D1](#d1-describe-in-gleam-compute-in-rust) | Describe in Gleam, compute in Rust | Accepted |
 | [D2](#d2-representative-models-drive-the-api) | Representative models drive the API | Implemented |
 | [D3](#d3-affine-only-expressions) | Affine-only expressions | Implemented |
-| [D4](#d4-eager-canonical-expression-representation) | Eager canonical expression representation | Implemented |
+| [D4](#d4-eager-canonical-expression-representation) | Eager canonical expression representation | Partly implemented |
 | [D5](#d5-expressions-are-lists-of-terms) | Expressions are lists of terms | Implemented |
 | [D6](#d6-application-keys-as-references) | Application keys as references | Implemented |
 | [D7](#d7-variables-declared-by-use-with-a-domain-function) | Variables declared by use, with a domain function | Implemented |
@@ -37,23 +37,56 @@ Status values:
 | [D24](#d24-solve-limits-are-deferred) | Solve limits are deferred | Accepted |
 | [D25](#d25-out-of-scope) | Out of scope | Accepted |
 
-## D1. Symbolic layer over the numeric driver
+## D1. Describe in Gleam, compute in Rust
 
-**Decision.** The modeling API compiles to the existing `driver.Model` (sparse
-rows, explicit domains, objective vector and offset). The driver contract changes
-only deliberately, in Rust and Gleam together, as with D17's positioned errors
-and empty-domain infeasibility.
+**Decision.** The Gleam modeling layer is symbolic only: it assigns columns to
+keys, evaluates domains, and lowers term lists to indexed but unsummed
+expressions. It does no arithmetic on user floats. The Rust driver does all
+numeric work: canonicalization (`lhs − rhs`, sorting, merging duplicates,
+dropping zeros, summing constants), validation, solving, and evaluation. They
+meet in one contract, the driver model, sent in a single NIF call. That contract
+changes only deliberately, in Rust and Gleam together.
 
-**Why.** The driver is small, validated, and already tested through the real NIF.
-Keeping it as the only native boundary means modeling work never touches unsafe
-or native code.
+```
+Gleam modeling layer: keys → columns, domain(key), term lists → indexed expressions
+  │ one dirty-CPU NIF call
+Rust: decode (Rustler adapter) → canonicalize → validate → solve → check results
+  │ values in column order | positioned error
+Gleam modeling layer: values → keyed Solution; positions → keys and locations
+```
+
+**Why.**
+- Performance: summing and sorting in Rust is much faster than Gleam
+  dictionaries.
+- Portability: float behavior differs by target (the BEAM raises on overflow and
+  can't hold infinity or NaN; JS silently produces both). With no float
+  arithmetic in Gleam, the modeling layer behaves identically everywhere, and a
+  future WASM build shares the same Rust numeric rules.
+- One place for numeric rules, which also decides where future checks belong.
+
+**What stays in Gleam.** Key discovery and column assignment, because `domain`
+is a Gleam closure a NIF can't call (D7), and because keys are arbitrary Gleam
+values while the Rust engine only sees indices. This costs one dictionary lookup
+per term in Gleam; the construction benchmark (D4) should measure it.
+
+**Adaptability.** Moving more work to Rust means changing the one contract.
+Presolve, scaling, or building CSC for Clarabel stay inside Rust and are
+invisible to Gleam. Persistent native models would need a resource handle
+(D25). Moving key discovery would need a two-phase protocol or a different way
+to supply domains (D7). A future WASM target would split the Rust code into a
+target-independent engine plus thin adapters (Rustler, wasm-bindgen).
 
 **Alternatives.**
-- *Direct matrix/row generators as the user API.* Simple, and useful for imported
-  numeric models, but exposes column order, coefficient aggregation, and matrix
-  dimensions to application code. Kept internal only.
-- *A richer native model.* Moves validation and naming into Rust, doubling the
-  places where domain rules live.
+- *Canonicalize and check in Gleam* (earlier code, and a discarded overflow
+  check). Needs IEEE edge-case reasoning (a round-to-even tie at the largest
+  float) and target-specific behavior in the modeling layer.
+- *Map keys to indices in Rust as well.* Rust would hash Rustler terms (or JS
+  values under WASM) and could not call the `domain` closure without a second
+  call and native state.
+- *Direct matrix/row generators as the user API.* Exposes column order,
+  coefficient aggregation, and matrix dimensions to application code.
+- *Build a sparse matrix (CSC/CSR) for every backend.* microlp takes rows one at
+  a time; only a Clarabel adapter needs CSC.
 
 ## D2. Representative models drive the API
 
@@ -118,9 +151,10 @@ capability, not squeezed into the linear row format.
 
 ## D4. Eager canonical expression representation
 
-**Decision.** No expression tree. Expressions are flat term lists (D5),
-canonicalized once at compilation. Cost is linear in the number of terms and
-compilation needs no recursion.
+**Decision.** No expression tree. Expressions are flat term lists (D5). Gleam
+lowers them to indexed term lists in one pass; Rust canonicalizes them once by
+sorting and merging (D1). Cost is linear in the number of terms in Gleam plus a
+sort in Rust, and nothing recurses.
 
 **Why.** Predictable cost, no recursion at compile time, and no re-lowering of
 nested structure for each use. The tree's only benefit, structure for diagnostics
@@ -255,7 +289,9 @@ key type from the domain function.
 
 **Costs.** A variable never referenced does not exist; querying it reports an
 unknown key. A model holding a closure cannot be compared with `should.equal` or
-printed.
+printed. Because a NIF can't call the closure, key discovery and column
+assignment stay in Gleam (D1); moving them to Rust later would need a two-phase
+protocol or another way to supply domains.
 
 **Alternatives.**
 - *Explicit declaration list* (earlier code). Inspectable and comparable, but
@@ -530,38 +566,43 @@ reverse map for dual recovery. The Rust driver drops empty rows before calling
 microlp, so a dual-capable driver also needs its own row map.
 
 **Why.** The NIF stays numeric and small; queries by key or constraint value
-need no native support.
+need no native support. Keys are arbitrary Gleam values, while the Rust engine
+stays target-independent by seeing only indices (D1).
 
-**Alternatives.** Passing names to the native layer. No benefit for microlp.
+**Alternatives.** Passing names to the native layer. No benefit for microlp, and
+it would tie the Rust engine to BEAM terms.
 
 ## D17. Numeric validation boundary
 
 **Decision.**
-- The NIF stays the single, authoritative check of the IR: bounds, integer
-  range, row shape, dimensions, and finite results. No clamping or integrality
-  relaxation.
+- Rust is the single place for numeric checks (D1): bounds, integer range,
+  indices, finiteness of inputs and of canonicalized sums, and finite results.
+  No clamping or integrality relaxation.
 - The NIF reports *where* a model is invalid: `InvalidModel` carries
   `MalformedModel`, `InvalidObjective`, `InvalidDomain(variable)` or
   `InvalidRow(row)`. Rust decodes each domain and row separately so even decode
   failures (integer bounds outside 32 bits) have a position. The modeling layer
   maps positions back to variable keys or constraint positions.
-- Compilation checks float overflow in Gleam before each addition or scaling and
-  returns `Error(Overflow(location))`, where the location is the objective or a
-  constraint's list position. For finite `a, b > 0`, `a +. b` overflows exactly
-  when `a > max_float -. b`; other signs follow symmetrically.
+- Non-finite numbers, whether a sum overflowed while canonicalizing or (under a
+  future JS/WASM target) an input was already infinite or NaN, are user-data
+  errors distinct from invalid IR: the driver reports `NonFiniteObjective` or
+  `NonFiniteRow(row)`, and the modeling layer returns
+  `NonFinite(InObjective | InConstraint(index))`. Rust summing in `f64`
+  produces infinity instead of raising, so the finiteness check catches
+  overflow without special arithmetic.
 - An empty domain (`lower > upper`, continuous or integer) is an `Infeasible`
   outcome, not an invalid model, consistent with unsatisfiable constant rows
   (D18). Integer bounds outside 32 bits remain invalid: that is a backend
   limit, not math.
 
-**Why.** BEAM floats are always finite: infinity and NaN can't be parsed,
-decoded, or produced by arithmetic, and overflow raises `badarith` instead of
-returning infinity. So user input can't be non-finite, and once compilation
-produces the IR every row-shape rule holds by construction. The only invalid
-inputs a user can produce are bad domains and overflow during compilation.
-Overflow must be caught in Gleam because the exception happens before the NIF
-sees the model. Positions from Rust keep each rule in one place while still
-naming the offending key.
+**Why.** On the BEAM, floats are always finite (infinity and NaN can't be
+parsed, decoded, or produced) and overflow raises `badarith`. On JS, overflow
+silently produces infinity and NaN is possible. Doing no float arithmetic in
+Gleam (D1) removes the crash on the BEAM and the target difference, and
+Rust's finiteness checks become meaningful rather than defensive. The invalid
+inputs a user can produce are bad domains and non-finite numbers; everything
+else would be a waffle bug. Positions from Rust keep each rule in one place
+while still naming the offending key.
 
 **Alternatives.**
 - *Validate domains again in Gleam* (`InvalidDomain(key)` without Rust changes).
@@ -569,8 +610,11 @@ naming the offending key.
 - *Make invalid domains unrepresentable* via D22's own domain type. Covers
   `Binary` and `NonNegative`, but a general `Between(lower, upper)` and the
   integer range still need checking.
-- *Catch the overflow exception through an Erlang FFI wrapper.* Less code, but
-  exceptions as control flow are not idiomatic Gleam.
+- *Check overflow in Gleam before each addition.* Implemented and discarded:
+  correct on both targets, but required reasoning about a round-to-even tie at
+  the largest float inside the modeling layer.
+- *Per-target FFI* (catch `badarith` on the BEAM, `isFinite` on JS). Two
+  implementations of one rule, and Gleam still does the arithmetic.
 - *Treat `lower > upper` as invalid* (current Rust behavior). Data-driven models
   can legitimately produce empty ranges; that's infeasibility.
 
@@ -594,6 +638,9 @@ limits arrive (D24), add `Feasible(solution, gap)` and `Stopped(reason)`.
 `Result`, never a substituted zero. Solutions are immutable snapshots.
 Accepted additions: `values(solution) -> Dict(v, Float)` and
 `evaluate(solution, expression)` for computing costs, slacks and breakdowns.
+`evaluate` multiplies coefficients by values, which can overflow, so per D1 the
+arithmetic happens in Rust: Gleam maps keys to values, and a small NIF computes
+the sum and reports non-finite results.
 
 **Why.** Silent zeros hide typos. Evaluating expressions is more useful than
 single-key lookups for reporting.
