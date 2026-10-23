@@ -7,6 +7,12 @@ work is removed from this file; git log keeps it. Design decisions are in
 
 ## Next
 
+- **Solve statistics.** Return microlp's per-solve stats (branch-and-bound
+  nodes, simplex iterations, solver time, best bound, gap) as data, e.g.
+  `stats(solution)`. Decide whether `Infeasible` and `Unbounded` carry stats
+  too, which changes the outcome type and ties in with solve limits. The
+  benchmark uses solver time to separate construction and NIF overhead from
+  solving.
 - **Examples and performance.** More end-to-end examples, and a construction
   benchmark on larger sparse models. Measure the per-term key lookup that stays
   in Gleam against the work done in Rust (DESIGN.md: "Describe in Gleam, compute
@@ -30,6 +36,9 @@ work is removed from this file; git log keeps it. Design decisions are in
   explicit override and clear errors for unsupported models.
 - **JS target via WASM.** Split the Rust code into a target-independent engine
   and thin adapters (Rustler, wasm-bindgen).
+- **Optional solver trace.** Only if debugging needs it: forward microlp's `log`
+  output to Erlang's `logger`, off by default and never including model data.
+  Statistics returned as data come first.
 
 ## Open questions
 
