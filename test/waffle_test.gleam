@@ -41,9 +41,13 @@ pub fn production_test() {
   }
   let model =
     m.Model(
-      domain,
-      m.Maximize([Linear(3.0, Chair), Linear(2.0, Table), Constant(7.0)]),
-      [m.LessEqual([chair, table], [Constant(4.0)])],
+      domain:,
+      objective: m.Maximize([
+        Linear(3.0, Chair),
+        Linear(2.0, Table),
+        Constant(7.0),
+      ]),
+      constraints: [m.LessEqual([chair, table], [Constant(4.0)])],
     )
   let assert Ok(m.Optimal(solution)) = m.solve(model)
   close(m.objective(solution), 17.0)
@@ -65,7 +69,9 @@ pub fn solution_queries_test() {
     }
   }
   let assert Ok(m.Optimal(solution)) =
-    m.solve(m.Model(domain, m.Maximize(profit), [hours]))
+    m.solve(
+      m.Model(domain:, objective: m.Maximize(profit), constraints: [hours]),
+    )
   let values = m.values(solution)
   dict.size(values) |> should.equal(2)
   dict.get(values, Chair) |> should.equal(m.value(solution, Chair))
@@ -128,11 +134,11 @@ pub fn transportation_with_tuple_keys_and_functional_sets_test() {
     })
   let assert Ok(m.Optimal(solution)) =
     m.solve(m.Model(
-      nonnegative,
-      m.Minimize(
+      domain: nonnegative,
+      objective: m.Minimize(
         list.map(routes, fn(route) { Linear(route.2, #(route.0, route.1)) }),
       ),
-      list.append(supply, demand),
+      constraints: list.append(supply, demand),
     ))
   close(m.objective(solution), 7.0)
   close_value(solution, #(North, East), 2.0)
@@ -145,9 +151,11 @@ pub fn binary_selection_is_not_relaxed_test() {
   let items = [#("a", 3.0, 5.0), #("b", 2.0, 3.0), #("c", 2.0, 3.0)]
   let model =
     m.Model(
-      fn(_) { m.Integer(Some(0), Some(1)) },
-      m.Maximize(list.map(items, fn(item) { Linear(item.2, item.0) })),
-      [
+      domain: fn(_) { m.Integer(Some(0), Some(1)) },
+      objective: m.Maximize(
+        list.map(items, fn(item) { Linear(item.2, item.0) }),
+      ),
+      constraints: [
         m.LessEqual(list.map(items, fn(item) { Linear(item.1, item.0) }), [
           Constant(4.0),
         ]),
@@ -168,9 +176,11 @@ pub fn int_keys_test() {
     })
   let model =
     m.Model(
-      fn(_) { m.Integer(Some(0), Some(1)) },
-      m.Maximize(list.map(items, fn(item) { Linear(item.2, item.0) })),
-      [
+      domain: fn(_) { m.Integer(Some(0), Some(1)) },
+      objective: m.Maximize(
+        list.map(items, fn(item) { Linear(item.2, item.0) }),
+      ),
+      constraints: [
         m.LessEqual(list.map(items, fn(item) { Linear(item.1, item.0) }), [
           Constant(4.0),
         ]),
@@ -189,9 +199,9 @@ pub fn int_keys_are_names_not_columns_test() {
   // first, so it is column 0, yet each key still gets its own bound.
   let model =
     m.Model(
-      fn(k) { m.Continuous(Some(0.0), Some(int.to_float(k))) },
-      m.Maximize([Linear(1.0, 7), Linear(1.0, 3)]),
-      [],
+      domain: fn(k) { m.Continuous(Some(0.0), Some(int.to_float(k))) },
+      objective: m.Maximize([Linear(1.0, 7), Linear(1.0, 3)]),
+      constraints: [],
     )
   let assert Ok(m.Optimal(solution)) = m.solve(model)
   close_value(solution, 7, 7.0)
@@ -200,7 +210,7 @@ pub fn int_keys_are_names_not_columns_test() {
 }
 
 fn base() -> m.Model(Product) {
-  m.Model(nonnegative, m.Minimize([]), [])
+  m.Model(domain: nonnegative, objective: m.Minimize([]), constraints: [])
 }
 
 pub fn constants_and_terms_on_both_sides_solve_test() {
@@ -242,9 +252,13 @@ pub fn domains_apply_to_their_keys_test() {
   // optimum is table = 5, chair = 2; swapping them would make it unbounded.
   // Table is referenced first, so it is column 0 and Chair column 1.
   let model =
-    m.Model(domain, m.Maximize([Linear(3.0, Table), Linear(1.0, Chair)]), [
-      m.LessEqual([Linear(1.0, Chair), Linear(1.0, Table)], [Constant(7.5)]),
-    ])
+    m.Model(
+      domain:,
+      objective: m.Maximize([Linear(3.0, Table), Linear(1.0, Chair)]),
+      constraints: [
+        m.LessEqual([Linear(1.0, Chair), Linear(1.0, Table)], [Constant(7.5)]),
+      ],
+    )
   let assert Ok(m.Optimal(solution)) = m.solve(model)
   close_value(solution, Table, 5.0)
   close_value(solution, Chair, 2.0)

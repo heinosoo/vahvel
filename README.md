@@ -24,9 +24,17 @@ pub fn main() {
   }
   let model =
     waffle.Model(
-      domain,
-      waffle.Maximize([Linear(3.0, Chair), Linear(2.0, Table), Constant(7.0)]),
-      [waffle.LessEqual([Linear(1.0, Chair), Linear(1.0, Table)], [Constant(4.0)])],
+      domain:,
+      objective: waffle.Maximize([
+        Linear(3.0, Chair),
+        Linear(2.0, Table),
+        Constant(7.0),
+      ]),
+      constraints: [
+        waffle.LessEqual([Linear(1.0, Chair), Linear(1.0, Table)], [
+          Constant(4.0),
+        ]),
+      ],
     )
   let assert Ok(waffle.Optimal(solution)) = waffle.solve(model)
   waffle.objective(solution)  // 17.0
@@ -49,9 +57,11 @@ pub fn main() {
   })
   let model =
     waffle.Model(
-      fn(_) { waffle.Integer(Some(0), Some(1)) },
-      waffle.Maximize(list.map(items, fn(item) { Linear(item.2, item.0) })),
-      [
+      domain: fn(_) { waffle.Integer(Some(0), Some(1)) },
+      objective: waffle.Maximize(
+        list.map(items, fn(item) { Linear(item.2, item.0) }),
+      ),
+      constraints: [
         waffle.LessEqual(list.map(items, fn(item) { Linear(item.1, item.0) }), [
           Constant(4.0),
         ]),
