@@ -24,11 +24,14 @@ each reviewed before the next and leaving `just` green.
    modeling layer drops its float arithmetic and maps those errors to
    `NonFinite(location)`. Canonicalization tests move to the driver tests. D1,
    D4, D17.
-5. **Solution queries:** `values`, and `evaluate` with the arithmetic in a small
-   NIF. D19.
+5. Done. **Solution queries:** `values`, and `evaluate` with the arithmetic in a
+   small NIF. D19.
 
 Afterwards:
 
+- Organize design records and instructions: AGENTS.md, API-DESIGN.md and
+  ARCHITECTURE.md overlap (e.g. NIF scheduling and validation rules appear in
+  several places). Decide which document owns which kind of rule.
 - Benchmark model construction on larger sparse models. D4.
 - Revisit model-local keys versus runtime handles. D8.
 - Solve-limit and dual-capable backend contracts. D24, D20.

@@ -29,7 +29,7 @@ Status values:
 | [D16](#d16-names-and-provenance-stay-in-gleam) | Names and provenance stay in Gleam | Implemented |
 | [D17](#d17-numeric-validation-boundary) | Numeric validation boundary | Partly implemented |
 | [D18](#d18-outcomes-are-separate-from-errors) | Outcomes are separate from errors | Implemented |
-| [D19](#d19-solution-queries) | Solution queries | Partly implemented |
+| [D19](#d19-solution-queries) | Solution queries | Implemented |
 | [D20](#d20-no-dual-values-until-a-backend-provides-them) | No dual values until a backend provides them | Implemented |
 | [D21](#d21-plain-gleam-collections-for-index-sets) | Plain Gleam collections for index sets | Implemented |
 | [D22](#d22-the-api-owns-its-domain-types) | The API owns its domain types | Implemented |
@@ -645,8 +645,13 @@ limits arrive (D24), add `Feasible(solution, gap)` and `Stopped(reason)`.
 Accepted additions: `values(solution) -> Dict(v, Float)` and
 `evaluate(solution, expression)` for computing costs, slacks and breakdowns.
 `evaluate` multiplies coefficients by values, which can overflow, so per D1 the
-arithmetic happens in Rust: Gleam maps keys to values, and a small NIF computes
-the sum and reports non-finite results.
+arithmetic happens in Rust: Gleam looks up each key's value and a small NIF
+sums `#(coefficient, value)` pairs plus constants. It returns
+`Result(Float, EvaluationError(v))`: `NotInSolution(key)` for a variable the
+solved model never referenced (found in Gleam, before calling Rust), or
+`NonFiniteValue` for an overflowing result. Passing pairs rather than indices
+leaves the NIF with no malformed-input case. The NIF runs on a normal
+scheduler because its work is small and linear.
 
 **Why.** Silent zeros hide typos. Evaluating expressions is more useful than
 single-key lookups for reporting.

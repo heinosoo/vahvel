@@ -8,7 +8,9 @@ model contract.
   bindings instead of deeply nested cases. No production panics or `let assert`.
 - Annotate and document public types/functions. Keep comments minimal.
 - Use stable Rust and avoid unsafe code. Compute NIFs use `DirtyCpu` scheduling
-  and return tagged results matching the Gleam types.
+  and return tagged results matching the Gleam types. NIFs whose work is small
+  and linear in their input (e.g. evaluating one expression) run on normal
+  schedulers, where dirty scheduling would cost more than the work.
 - Validate input at the NIF boundary. Never change an explicit bound, relax
   integer variables, or return nonfinite floats to the BEAM.
 - Test through Gleam and the real NIF with gleeunit. Cover solver results and

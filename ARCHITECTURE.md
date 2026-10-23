@@ -106,8 +106,12 @@ the native layer canonicalizes and enforces it.
 
 ## Native boundary
 
-`driver_solve` is the only compute NIF. It runs on a dirty CPU scheduler so long
-solves don't block normal BEAM schedulers.
+`driver_solve` canonicalizes, validates and solves a model. It runs on a dirty
+CPU scheduler so long solves don't block normal BEAM schedulers.
+`driver_evaluate` computes `Σ coefficient · value + Σ constants` for one
+expression at a solution (the modeling layer looks up the values first) and
+returns `Error(Nil)` for a non-finite result. Its work is small and linear, so it
+runs on a normal scheduler.
 
 **Term mapping.** Rustler derives decoders that match Gleam's Erlang
 representation directly:
@@ -145,7 +149,10 @@ A Gleam type change must be matched in `driver.rs`, and vice versa.
 Solver panics are caught with `catch_unwind` and returned as `SolverFailure`, so
 the NIF always answers with a tagged result.
 
-`nif_version` is a second, trivial NIF used for build/version checks.
+Sums start from `0.0` and follow input order; Rust's `Iterator::sum` for `f64`
+starts from `-0.0`, which would make empty sums `-0.0`.
+
+`nif_version` is a trivial NIF used for build/version checks.
 
 ## Build, loading and versions
 

@@ -1,3 +1,4 @@
+import gleam/dict
 import gleam/float
 import gleam/list
 import gleam/option.{None, Some}
@@ -44,6 +45,43 @@ pub fn production_test() {
   close_value(solution, Table, 2.0)
   // Never referenced, so it is not a variable of this model.
   m.value(solution, Missing) |> should.equal(Error(Nil))
+}
+
+pub fn solution_queries_test() {
+  let chair = Linear(1.0, Chair)
+  let table = Linear(1.0, Table)
+  let profit = [Linear(3.0, Chair), Linear(2.0, Table), Constant(7.0)]
+  let hours = m.LessEqual([chair, table], [Constant(4.0)])
+  let domain = fn(product) {
+    case product {
+      Chair -> m.Continuous(Some(0.0), Some(2.0))
+      Table | Missing -> m.Continuous(Some(0.0), None)
+    }
+  }
+  let assert Ok(m.Optimal(solution)) =
+    m.solve(m.Model(domain, m.Maximize(profit), [hours]))
+  let values = m.values(solution)
+  dict.size(values) |> should.equal(2)
+  dict.get(values, Chair) |> should.equal(m.value(solution, Chair))
+  // The objective expression evaluates to the objective value.
+  let assert Ok(objective) = m.evaluate(solution, profit)
+  close(objective, m.objective(solution))
+  // Cost breakdown: chairs contribute 3 · 2.
+  let assert Ok(chairs) = m.evaluate(solution, [Linear(3.0, Chair)])
+  close(chairs, 6.0)
+  // Slack of the hours constraint: rhs − lhs.
+  let assert Ok(slack) =
+    m.evaluate(solution, [
+      Constant(4.0),
+      Linear(-1.0, Chair),
+      Linear(-1.0, Table),
+    ])
+  close(slack, 0.0)
+  m.evaluate(solution, []) |> should.equal(Ok(0.0))
+  m.evaluate(solution, [chair, Linear(1.0, Missing)])
+  |> should.equal(Error(m.NotInSolution(Missing)))
+  m.evaluate(solution, [Linear(1.7976931348623157e308, Chair)])
+  |> should.equal(Error(m.NonFiniteValue))
 }
 
 type Factory {

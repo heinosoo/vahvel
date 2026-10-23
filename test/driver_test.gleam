@@ -475,3 +475,22 @@ pub fn missing_integer_bound_is_the_32_bit_range_test() {
   d.solve(numeric(d.Maximize, [d.Integer(Some(0), None)], [1.0], 0.0, []))
   |> should.equal(Ok(d.Optimal(2_147_483_647.0, [2_147_483_647.0])))
 }
+
+pub fn evaluate_test() {
+  // 2·3 − 1·4 + 1 + 0.5
+  d.evaluate([#(2.0, 3.0), #(-1.0, 4.0)], [1.0, 0.5]) |> should.equal(Ok(3.5))
+  d.evaluate([], []) |> should.equal(Ok(0.0))
+  d.evaluate([#(0.0, max)], []) |> should.equal(Ok(0.0))
+}
+
+pub fn evaluate_non_finite_is_an_error_test() {
+  list.each(
+    [
+      #([#(max, 2.0)], []),
+      #([#(max, 1.0), #(max, 1.0)], []),
+      #([], [max, max]),
+      #([#(max, 1.0)], [max]),
+    ],
+    fn(input) { d.evaluate(input.0, input.1) |> should.equal(Error(Nil)) },
+  )
+}

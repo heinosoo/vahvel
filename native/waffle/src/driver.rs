@@ -1,5 +1,6 @@
 use microlp::{ComparisonOp, OptimizationDirection, Problem, SolutionStatus, SolveOutcome};
-use rustler::{NifRecord, NifTaggedEnum, NifUnitEnum, Term};
+use rustler::types::atom as atoms;
+use rustler::{Atom, NifRecord, NifTaggedEnum, NifUnitEnum, Term};
 
 #[derive(NifUnitEnum)]
 enum Direction {
@@ -109,6 +110,12 @@ enum Defect {
     NonFinite,
 }
 
+/// Sum in input order from `0.0`. `Iterator::sum` for `f64` starts from `-0.0`,
+/// so an empty sum would be `-0.0`.
+fn sum(values: impl Iterator<Item = f64>) -> f64 {
+    values.fold(0.0, |total, value| total + value)
+}
+
 /// Canonicalize `lhs - rhs` into sorted, merged, nonzero terms and a constant.
 /// Duplicates are summed in input order (a stable sort keeps it deterministic);
 /// an overflowing sum becomes infinite and is reported as non-finite.
@@ -134,7 +141,7 @@ fn canonical(
             _ => merged.push((i, c)),
         }
     }
-    let constant = lhs.constants.iter().sum::<f64>() - rhs.constants.iter().sum::<f64>();
+    let constant = sum(lhs.constants.iter().copied()) - sum(rhs.constants.iter().copied());
     if !constant.is_finite() || merged.iter().any(|&(_, c)| !c.is_finite()) {
         return Err(Defect::NonFinite);
     }
@@ -316,4 +323,17 @@ fn solve(model: Model) -> Result<Outcome, DriverError> {
         ));
     }
     Ok(Outcome::Optimal(objective, values))
+}
+
+/// `Σ coefficient · value + Σ constants`, summed in input order. Small and
+/// linear, so it runs on a normal scheduler. A non-finite result (overflow) is
+/// `Err(nil)`, Gleam's `Error(Nil)`.
+#[rustler::nif]
+fn driver_evaluate(products: Vec<(f64, f64)>, constants: Vec<f64>) -> Result<f64, Atom> {
+    let value = sum(products.iter().map(|&(c, v)| c * v)) + sum(constants.iter().copied());
+    if value.is_finite() {
+        Ok(value)
+    } else {
+        Err(atoms::nil())
+    }
 }

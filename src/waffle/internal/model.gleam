@@ -91,6 +91,14 @@ pub type Outcome(v) {
   Unbounded
 }
 
+/// Why an expression could not be evaluated against a solution.
+pub type EvaluationError(v) {
+  /// The solved model never referenced this variable, so it has no value.
+  NotInSolution(v)
+  /// The result is not finite: a product or sum overflowed.
+  NonFiniteValue
+}
+
 /// Columns in order of first reference.
 type Columns(v) {
   Columns(index: Dict(v, Int), keys: List(v))
@@ -217,4 +225,31 @@ pub fn objective(solution: Solution(v)) -> Float {
 /// is an error, never zero.
 pub fn value(solution: Solution(v), key: v) -> Result(Float, Nil) {
   dict.get(solution.values, key)
+}
+
+/// All primal values, keyed by every variable the model referenced.
+pub fn values(solution: Solution(v)) -> Dict(v, Float) {
+  solution.values
+}
+
+/// Evaluate an expression at this solution, e.g. a cost breakdown or the slack
+/// of a constraint (`evaluate(solution, rhs)` minus `evaluate(solution, lhs)`).
+/// Values are looked up here; the arithmetic happens in Rust.
+pub fn evaluate(
+  solution: Solution(v),
+  expression: List(Term(v)),
+) -> Result(Float, EvaluationError(v)) {
+  use #(products, constants) <- result.try({
+    use #(products, constants), term <- list.try_fold(expression, #([], []))
+    case term {
+      Constant(value) -> Ok(#(products, [value, ..constants]))
+      Linear(coefficient, key) ->
+        case dict.get(solution.values, key) {
+          Ok(value) -> Ok(#([#(coefficient, value), ..products], constants))
+          Error(Nil) -> Error(NotInSolution(key))
+        }
+    }
+  })
+  driver.evaluate(list.reverse(products), list.reverse(constants))
+  |> result.replace_error(NonFiniteValue)
 }

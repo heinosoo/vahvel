@@ -1,6 +1,6 @@
 -module(nif).
 -on_load(init/0).
--export([init/0, nif_version/0, nif_version_result/0, driver_solve/1]).
+-export([init/0, nif_version/0, nif_version_result/0, driver_solve/1, driver_evaluate/2]).
 
 init() ->
     SoName = code:priv_dir(waffle) ++ "/waffle",
@@ -17,4 +17,7 @@ nif_version_result() ->
     end.
 
 driver_solve(_Model) ->
+    erlang:nif_error(nif_not_loaded).
+
+driver_evaluate(_Products, _Constants) ->
     erlang:nif_error(nif_not_loaded).
