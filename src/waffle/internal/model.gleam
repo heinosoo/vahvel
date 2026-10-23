@@ -1,4 +1,5 @@
-//// Disposable modeling experiment. Not a supported public API.
+//// Symbolic LP/MILP modeling over the numeric driver. Not a supported public API.
+//// Design decisions are recorded in `API-DESIGN.md`.
 
 import gleam/dict.{type Dict}
 import gleam/int
@@ -6,7 +7,8 @@ import gleam/list
 import gleam/result
 import waffle/internal/driver
 
-/// Symbolic expression; multiplication is an experimental general-AST extension.
+/// Symbolic expression. Products are allowed here but rejected at compilation
+/// unless one side is constant.
 pub opaque type Expression(key) {
   Constant(Float)
   Variable(key)
@@ -49,7 +51,7 @@ pub opaque type Solution(variable, constraint) {
   Solution(Float, Dict(variable, Float), Dict(constraint, Int))
 }
 
-/// Only an optimum carries a queryable solution in this experiment.
+/// Only an optimum carries a queryable solution.
 pub type Outcome(variable, constraint) {
   Optimal(Solution(variable, constraint))
   Infeasible
@@ -90,7 +92,7 @@ pub fn scale(
   Scale(expression, coefficient)
 }
 
-/// General AST experiment: nonlinear products are rejected during compilation.
+/// Multiply expressions; nonlinear products are rejected during compilation.
 pub fn multiply(
   left: Expression(key),
   right: Expression(key),
@@ -195,7 +197,7 @@ fn row_keys(
 }
 
 /// Lower to the existing IR. Numeric validation remains at the native boundary.
-/// Experimental limitation: overflowing Gleam arithmetic is not caught here.
+/// Known limitation: overflowing Gleam arithmetic is not caught here.
 pub fn compile(model: Model(v, c)) -> Result(driver.Model, Error(v, c)) {
   use #(numeric, _) <- result.try(compile_keyed(model))
   Ok(numeric)

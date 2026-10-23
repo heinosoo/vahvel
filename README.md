@@ -10,10 +10,10 @@ There is no public modeling API yet.
 
 See [ROADMAP.md](ROADMAP.md) for the planned redesign.
 
-The [architecture proposal](ARCHITECTURE.md) and
-[executable modeling experiments](test/model_poc_test.gleam) explore an idiomatic
-Gleam API, including affine expressions and an experimental general expression
-tree. This internal PoC is not a supported public API. Run it with `just test`.
+[ARCHITECTURE.md](ARCHITECTURE.md) describes how the library fits together.
+Modeling API decisions are recorded in [API-DESIGN.md](API-DESIGN.md), and the
+[executable modeling examples](test/model_test.gleam) exercise the internal
+modeling layer. It is not a supported public API yet. Run it with `just test`.
 
 ## Development
 

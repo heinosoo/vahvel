@@ -3,7 +3,7 @@ import gleam/int
 import gleam/list
 import gleeunit/should
 import waffle/internal/driver as d
-import waffle/internal/model_poc as m
+import waffle/internal/model as m
 
 type Product {
   Chair

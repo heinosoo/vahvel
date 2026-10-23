@@ -1,263 +1,153 @@
-# Waffle architecture proposal
+# Waffle architecture
 
-Status: experimental design and throwaway PoC, not a stable public API.
+Waffle is a Gleam library for linear and mixed-integer linear programming. Gleam
+code describes models; a Rust NIF validates and solves them with
+[microlp](https://docs.rs/microlp/0.6.0/microlp/). This document describes how the
+pieces fit together. API design decisions and their reasoning are in
+[API-DESIGN.md](API-DESIGN.md); planned work is in [ROADMAP.md](ROADMAP.md).
 
-## Intent
+Status: everything below `waffle/internal` is internal. There is no supported
+public modeling API yet.
 
-Start the roadmap with representative LP/MILP models and use them to discover a
-small, idiomatic Gleam modeling API. Users should express decisions and equations
-with custom types, lists, functions, pipelines, and exhaustive pattern matching.
-They should not manage solver column numbers or reproduce Julia macros in Gleam.
+## Layers
 
-The existing numeric driver is the foundation: sparse rows, explicit domains,
-objective coefficients and offset, validated by a dirty CPU Rustler NIF. Preserve
-that contract while exploring the modeling layer independently.
+```mermaid
+flowchart TD
+  A["Application model<br/>(custom-type keys, lists)"] --> B
+  B["waffle/internal/model<br/>symbolic model, compilation, keyed solutions"] --> C
+  C["waffle/internal/driver<br/>canonical numeric IR (Gleam types)"] --> D
+  D["ffi/nif.erl<br/>NIF stubs, loads priv/waffle.*"] --> E
+  E["native/waffle (Rust cdylib)<br/>decode, validate, solve"] --> F
+  F["microlp<br/>simplex + branch and bound"]
+```
 
-## Representative models
-
-| Model | Decisions and constraints | What it tests |
+| Layer | Files | Owns |
 | --- | --- | --- |
-| Production LP | Product quantities, resource capacity, profit | Scalar composition, bounds, objective offset, named results |
-| Transportation LP | Shipments on allowed routes, supply and demand | Tuple/custom-type keys, sparse index sets, grouped sums, equality rows |
-| Binary selection MILP | Choose items within a weight budget | Functional construction, binary domains, integrality |
-| Degenerate/invalid models | Empty sums, cancelling terms, unknown keys, duplicate declarations | Validation and explicit outcomes |
+| Modeling | `src/waffle/internal/model.gleam` | Symbolic expressions and constraints, key validation, compilation to IR, keyed solution queries |
+| Numeric driver | `src/waffle/internal/driver.gleam` | The IR contract: domains, objective vector and offset, sparse rows, outcomes, errors |
+| Erlang FFI | `src/waffle/internal/ffi/nif.erl`, `platform.erl` | Loading the shared library and the `nif_not_loaded` fallbacks |
+| Native | `native/waffle/src/lib.rs`, `driver.rs` | Term decoding, IR validation, solver calls, result encoding |
+| Build and setup | `src/waffle_build.gleam`, `src/waffle_setup.gleam`, `src/waffle/version.gleam` | Compiling the NIF, copying it to `priv/`, version checks |
 
-The PoC tests are executable model examples. A transportation model should be
-built from allowed routes, not a dense Cartesian product followed by filtering.
-No performance claim follows from these small examples.
+Each layer only talks to the one below it. The modeling layer never sees column
+numbers from the outside, and the native layer never sees names or keys.
 
-## Approaches
+## Modeling layer
 
-1. **Direct matrix/row generators.** Simple compilation and useful for imported
-   numeric models, but exposes ordering, coefficient aggregation, and matrix
-   dimensions to application code. Retain this internally; do not make it the
-   primary modeling interface.
-2. **General symbolic AST.** Supports arbitrary expression syntax and future
-   rewrites, but accepts nonlinear expressions that today's solver cannot handle.
-   It also introduces degree analysis and more validation before delivering LPs.
-3. **Restricted affine expressions (recommended for this experiment).** An opaque
-   `Expression(key)` with constants, references, scaling, and sums. This may be
-   represented as an affine AST, then lowered once into sparse rows. In a stable
-   affine-only interface, multiplying two expressions would be absent. A future
-   quadratic type can extend capabilities explicitly without reinterpreting
-   existing affine expressions.
-
-The user requested exploring both affine construction and general AST operations
-in this PoC. Accordingly, the experiment exposes `multiply` on the same opaque
-expression type and rejects unsupported products during compilation. This is an
-intentional weakening of the proposed affine-only interface's compile-time
-guarantee, so the ergonomics and diagnostics can be evaluated before deciding.
-Neither interface is a user-approved stable API.
-Symbolic modeling and sparse matrices are complementary layers, not alternatives.
-The PoC uses an affine AST to preserve composition until compilation. A canonical
-coefficient map is another possible internal representation; benchmark before
-choosing permanently. N-ary `sum` avoids a deep tree; pipelined `add` still
-builds a left-deep one, so lowering merges the smaller coefficient map into the
-larger to keep long chains near-linear.
-This general AST experiment includes multiplication, not division, functions,
-automatic differentiation, or a nonlinear backend. A product is accepted when at
-least one lowered operand has no nonzero variable coefficients. A nonlinear child
-is rejected before an outer zero or cancellation is considered: `0 * (x * x)` is
-unsupported, while `(x - x) * x` lowers to zero. No polynomial simplification or
-quadratic-to-linear approximation is attempted.
-
-## Gleam-facing model
-
-Use pure constructors and immutable model values. Pure expression operations do
-not return `Result` at every addition; compilation resolves symbols and reports
-invalid models. Operations that can fail use typed errors and `use result.try`.
-Public types/functions must be documented; opaque types hide representation.
-
-For the first experiment, references are application-owned keys of a generic
-Gleam type. Prefer domain keys such as `Product(ProductId)` or
-`Shipment(Factory, Customer)` over strings and integer column numbers. Variable
-and constraint keys have separate generic parameters. Declaration order determines
-IR order; dictionary iteration never determines column or row order.
-
-Keys are names within the supplied model, not globally unique model handles.
-An expression deliberately resolves against the model being compiled. The same
-key can be reused across scenarios; passing a different model with that key does
-not constitute a detectable ownership error. Unknown keys and duplicate
-registrations are errors. This avoids mutable allocation and branch-dependent
-integer handle collisions, but cannot catch accidental same-key reuse across
-models. Before stabilizing, compare this with opaque runtime-identified handles
-on models assembled from independent components. Do not claim phantom types alone
-provide fresh per-model identities in Gleam.
-
-Keep one experimental module while responsibilities remain small. A production
-split should follow real boundaries: expression algebra, model validation and
-compilation, and solution queries. Do not create forwarding modules merely to
-imitate another library's namespace.
-
-## Collections and index sets
-
-Use ordinary `List`, `Dict`, custom types and tuples. `list.map` builds terms and
-constraints; `list.filter` selects allowed combinations; `list.fold` accumulates
-models; an expression `sum` consumes a list and defines the empty sum as zero.
-Use `list.group` or a precomputed adjacency dictionary for repeated network sums;
-repeatedly filtering every route for every node scales poorly.
-
-No tensor broadcasting, bespoke index-set DSL, magic attribute lookup, or implicit
-zip truncation. A later indexed declaration helper should reject duplicate keys
-rather than inheriting `dict.from_list`'s replacement behavior. If a dot-product
-helper accepts two lists, unequal lengths must be an error. A list of keyed
-coefficient records is often clearer and avoids parallel-array mismatches.
-
-## Compilation and IR
+`model.gleam` turns a symbolic model, written with application-owned keys, into
+the numeric IR, and maps the numeric result back to those keys.
 
 ```mermaid
 flowchart LR
-  A[Domain data and Gleam collections] --> B[Affine symbolic model]
-  B --> C[Resolve keys and normalize expressions]
-  C --> D[Canonical numeric IR]
-  C --> E[Key-to-column and key-to-row maps]
-  D --> F[Validated Rust solver adapter]
-  F --> G[Explicit outcome and available values]
+  A[Symbolic model] --> B[Resolve keys, assign columns and rows]
+  B --> C[Combine coefficients, move constants]
+  C --> D[driver.Model]
+  B --> E[Key-to-column and key-to-row maps]
+  D --> F[driver.solve]
+  F --> G[Outcome with keyed solution]
   E --> G
 ```
 
-Compilation assigns columns in declaration order, resolves every reference,
-combines repeated coefficients, drops exact zeros, and sorts sparse indices.
-For `lhs relation rhs`, lower `lhs - rhs` and move its constant to the numeric
-right-hand side. Preserve the objective constant separately. Do not drop small
-nonzero coefficients with a heuristic epsilon. Validate references even inside
-zero-scaled or cancelling expressions so invalid references cannot disappear.
+Compilation is pure and deterministic: columns follow declaration order, rows
+follow constraint order, repeated coefficients are summed, exact zeros dropped,
+and sparse indices sorted. The key maps stay in Gleam and are never passed to
+the NIF. Solutions are immutable snapshots indexed by the same keys. The API
+shape is under active design; see API-DESIGN.md.
 
-Keep names, provenance, and result maps on the Gleam side. They are not solver
-inputs. Preserve row identities when implementing transformations: splitting or
-scaling rows requires a reverse map for dual recovery. The PoC does no such row
-transformations beyond moving constants and collecting coefficients.
+## Numeric driver contract
 
-The NIF remains the authoritative defensive boundary for finite numbers, domain
-bounds, integer range, sorted sparse rows, dimensions, and finite results. No
-clamping, integrality relaxation, or unchecked native assumptions. The experiment
-relies on that existing numeric validation when solving; a stable standalone
-compiler must additionally provide contextual numeric errors before native calls.
-Arithmetic overflow during symbolic evaluation also needs a tagged error before
-stabilization: BEAM float operations can fail before the NIF sees the model.
+`driver.gleam` defines the IR that crosses the native boundary:
 
-## Outcomes and querying
+- `Model(direction, variables, objective, offset, rows)`. Variable references
+  are zero-based positions in `variables`.
+- `Domain` is `Continuous(lower, upper)` with `Unbounded | Finite(Float)` bounds,
+  or `Integer(lower, upper)` with inclusive bounds fitting signed 32 bits.
+  Binary variables are `Integer(0, 1)`.
+- `Row(terms, relation, rhs)` with strictly increasing indices and nonzero
+  finite coefficients. An empty row has a left-hand side of zero.
+- The objective vector has exactly one finite coefficient per variable. The
+  offset is kept separately and added to the reported objective.
+- `solve` returns `Ok(Optimal(objective, values) | Infeasible | UnboundedProblem)`
+  or `Error(InvalidModel(_) | SolverFailure(_))`. Invalid input is distinct from
+  a numerical or internal failure.
 
-The PoC exposes `Optimal(solution)`, `Infeasible`, and `Unbounded` separately from
-`Result` errors. Only the optimal constructor carries a primal solution. Query
-values using the same application key, returning an error for an unknown key.
-Solutions are immutable snapshots, independent of subsequent model construction.
+This contract is the single numeric interface. Higher layers produce it;
+the native layer enforces it.
 
-When solve limits are added, separate *why solving stopped* from *what data is
-available*. A future outcome should distinguish optimal, feasible-but-unproven,
-and stopped-without-primal-value states. A time limit is not infeasibility, and a
-feasible incumbent is not optimal. Do not add unreachable status variants to the
-PoC merely to resemble other APIs. The current driver intentionally treats an
-unexpected non-optimal native return as a solver failure; limits require changing
-that driver contract and its Rust encoding together. microlp 0.6.0 already
-provides `set_time_limit`, `solve_with`, `TerminationReason`, `InterruptedSolve`
-and `resume`; an interrupted solve currently lands in the driver's generic
-non-optimal branch.
+## Native boundary
 
-### Dual values
+`driver_solve` is the only compute NIF. It runs on a dirty CPU scheduler so long
+solves don't block normal BEAM schedulers.
 
-microlp 0.6.0 exposes primal values, status, gap and statistics, but no public
-constraint-dual accessor. The current NIF therefore cannot provide native duals.
-An explicit unavailable result is preferable to zero, NaN, or invented prices.
-The PoC checks that a constraint key exists and reports backend unavailability.
+**Term mapping.** Rustler derives decoders that match Gleam's Erlang
+representation directly:
 
-For a supporting LP backend, expose typed availability and keyed dual queries,
-including reasons such as unsupported backend, unavailable result, and integer
-model. Keep primal and dual availability independent. MILP incumbents do not
-carry ordinary LP shadow prices; solving a relaxation or fixing integer decisions
-is a distinct, explicitly requested model with different economic meaning.
+| Gleam | Erlang term | Rust derive |
+| --- | --- | --- |
+| `Minimize`, `LessEqual` (no fields) | `minimize`, `less_equal` | `NifUnitEnum` |
+| `Finite(1.0)`, `Integer(0, 1)` | `{finite, 1.0}`, `{integer, 0, 1}` | `NifTaggedEnum` |
+| `Row(..)`, `Model(..)` | `{row, ..}`, `{model, ..}` | `NifRecord` with `#[tag]` |
+| `Result(a, e)` | `{ok, A}`, `{error, E}` | `Result<T, E>` |
 
-Before shipping duals, specify whether values are Lagrange multipliers or objective
-sensitivity to RHS changes; define signs for each relation and objective direction,
-bound duals/reduced costs, and transformations back to original rows. Verify
-analytic LPs, KKT conditions, and controlled RHS perturbations. A future explicit
-dual-model construction could use microlp, but is outside this PoC and would need
-its own transformation and validation tests.
+A Gleam type change must be matched in `driver.rs`, and vice versa.
 
-## Scope and acceptance
+**Steps in `driver.rs`.**
 
-The requested PoC is disposable exploration under `waffle/internal`, not a new
-supported public package surface. It should demonstrate affine construction,
-functional indexed modeling, deterministic canonical compilation, real-NIF LP and
-MILP solving, explicit outcomes, keyed primal lookup, and honest unavailable duals.
-Tests should cover objective offsets, constraints with expressions on both sides,
-repeated/cancelling terms, duplicates, undeclared keys, empty models, infeasible and
-unbounded models, and invalid domains through the real NIF.
+1. Decode the term. Malformed terms and integers outside `i32` become
+   `InvalidModel`.
+2. Validate the whole model before solving: objective length, finite
+   coefficients, offsets and bounds, `lower <= upper`, row indices in range and
+   strictly increasing, nonzero coefficients. Nothing is clamped, rounded or
+   relaxed.
+3. Handle empty rows directly: an unsatisfiable constant row means `Infeasible`.
+   A model with no variables returns its offset as the optimum.
+4. Build a microlp `Problem` and solve. microlp's infeasible and unbounded errors
+   become outcomes; any other non-optimal return is a `SolverFailure`.
+5. Reject non-finite objective or values instead of returning them to the BEAM.
 
-### Executable usage and findings
+Solver panics are caught with `catch_unwind` and returned as `SolverFailure`, so
+the NIF always answers with a tagged result.
 
-The implementation is in `src/waffle/internal/model_poc.gleam`; runnable examples
-are in `test/model_poc_test.gleam`. Run `just test` to exercise the real NIF.
-For example, the same objective can be written through the affine operations:
+`nif_version` is a second, trivial NIF used for build/version checks.
 
-```gleam
-let profit = chair
-  |> m.scale(3.0)
-  |> m.add(m.scale(table, 2.0))
-  |> m.add(m.constant(7.0))
-```
+## Build, loading and versions
 
-or the experimental general AST:
+- `just build` runs `gleam run -m waffle_build`, which runs
+  `cargo build --release` in `native/waffle` and copies the platform library to
+  `priv/waffle.{so,dylib,dll}`.
+- `gleam run -m waffle_setup` rebuilds only if the library is missing or its
+  `nif_version` differs from `waffle/version.package_version`; `--force`
+  rebuilds anyway.
+- `nif.erl` loads `priv/waffle` in its `on_load` hook. Until it is loaded, every
+  stub raises `nif_not_loaded`.
+- The package version lives in `gleam.toml`, `native/waffle/Cargo.toml` and
+  `src/waffle/version.gleam`. The release workflow bumps all three together, and
+  `version_test` checks they agree.
+- Linux targets link `libstdc++` statically (`native/waffle/.cargo/config.toml`).
 
-```gleam
-let profit = m.sum([
-  m.multiply(m.constant(3.0), chair),
-  m.multiply(table, m.add(m.constant(1.0), m.constant(1.0))),
-  m.constant(7.0),
-])
-```
+## Testing
 
-Both compile to identical numeric IR and solve the production example to 17.0.
-The transportation example solves to cost 7.0; binary selection solves to value
-6.0, preserving integer domains. The examples use custom-type and tuple keys,
-ordinary `list.map`/`list.filter`, exhaustive outcomes, and keyed solution queries.
-The small transportation example uses filtering for readability; large networks
-should use precomputed groups as described above.
+All tests are gleeunit tests that go through the real NIF; there are no Rust
+unit tests and no mocks.
 
-Initial finding: general AST operations are straightforward to represent, but
-their main cost is semantic ambiguity and delayed rejection, not syntax alone.
-The affine path is shorter for numeric coefficients. Retain this experimental
-comparison for review; defer broader nonlinear operations to a separate roadmap
-item unless a representative model establishes their benefit.
+- `test/driver_test.gleam`: the numeric contract, covering continuous and
+  integer solves, offsets, infeasible and unbounded outcomes, constant models,
+  and rejection of invalid IR (dimensions, indices, ordering, bounds, overflow,
+  malformed terms).
+- `test/model_test.gleam`: representative models (production, transportation,
+  binary selection), canonical compilation, key validation, and outcomes.
+- `test/version_test.gleam`: NIF and package versions match.
 
-This is a correctness and ergonomics spike. Compilation recursively traverses
-the tree and merges maps; deep/shared trees and large-scale performance have not
-been tested. There is no expression printer or detailed expression-location
-diagnostic yet. Generic `NonlinearExpression` is sufficient to demonstrate the
-boundary, but insufficient for a polished modeling API. Domain types currently
-come directly from the internal driver; a supported API must own its domain
-types without requiring users to import internal modules.
+## Tooling and CI
 
-No solver replacement, nonlinear support, QP implementation, automatic solver
-selection, solve limits, persistent native model resources, or performance promises
-in this step. Keep Rust unchanged. Run `just fmt` and `just` for the PoC.
-
-Next decisions after reviewing the executable examples: key-based references versus
-allocated handles; affine AST versus coefficient map construction cost; contextual
-numeric diagnostics; larger sparse model construction benchmarks; then solve-limit
-and dual-capable backend contracts. Quadratic/conic IR should be an explicit future
-capability, not squeezed into the present linear row format.
-
-## Research
-
-Reviewed 2026-10-23. These are design influences, not interfaces to copy.
-
-- [JuMP expressions](https://jump.dev/JuMP.jl/stable/manual/expressions/): specialized
-  affine/quadratic expression representations motivate capability-specific types.
-  JuMP also has a general `NonlinearExpr` tree and promotes products to a richer
-  expression type rather than rejecting them, a counterpoint to compile-time
-  rejection in this PoC.
-- [Pyomo sets](https://pyomo.readthedocs.io/en/stable/explanation/modeling/math_programming/sets.html):
-  indexed and sparse sets motivate domain-driven collections; Gleam already has
-  the functional primitives needed for the first iteration.
-- [MathOpt](https://developers.google.com/optimization/math_opt): separates modeling
-  from solving and supports solver-independent models.
-- [MathOpt result contract](https://developers.google.com/optimization/service/reference/rest/v1/mathopt/solveMathOptModel):
-  termination, primal results, and dual results are distinct concepts.
-- [JuMP solutions](https://jump.dev/JuMP.jl/stable/manual/solutions/): availability
-  must be checked independently of termination, and certificates differ from values.
-- [microlp 0.6.0 Solution](https://docs.rs/microlp/0.6.0/microlp/struct.Solution.html):
-  current backend capabilities and absence of a public dual accessor; time limits
-  and interrupted/resumable solves are already supported by the crate.
-- [Gleam opaque types](https://tour.gleam.run/advanced-features/opaque-types/):
-  hide expression representation while preserving a small typed API.
+- `nix develop` (or direnv) provides Gleam, Erlang/OTP, Rust and just. The flake
+  also supplies the native build toolchain, so CI and local builds match.
+- `just` runs format checks, Clippy with warnings as errors, the native build,
+  and tests. `just fmt` formats Gleam and Rust.
+- `.github/workflows/test.yml` runs `just lint` and `just test` in the Nix dev
+  shell on pushes and pull requests.
+- `.github/workflows/release.yml` is manually triggered: it bumps the version,
+  runs the checks, tags, and attaches a Linux x86_64 library to the GitHub
+  release. That binary is built in Nix and may depend on Nix runtime paths, so
+  it is not a portable prebuilt artifact; a cross-platform matrix is sketched
+  in the workflow but not enabled.

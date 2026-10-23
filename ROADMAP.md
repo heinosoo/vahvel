@@ -3,6 +3,29 @@
 Focus: an idiomatic Gleam optimization library with a small native solver layer.
 These are rough priorities; API shapes and backend choices remain open.
 
+## Next: implement accepted API decisions
+
+Decisions are recorded in [API-DESIGN.md](API-DESIGN.md). One commit per step,
+each reviewed before the next and leaving `just` green.
+
+1. **Driver contract** (Rust and `driver.gleam`): `InvalidModel` carries the
+   position of the invalid variable or row; an empty continuous domain is
+   `Infeasible`. D17.
+2. **Expressions and constraints:** `Term` lists, keyless
+   `LessEqual`/`Equal`/`GreaterEqual`, `Minimize`/`Maximize`; remove the
+   expression algebra, `multiply`, the `dual` stub, and constraint keys. D3, D5,
+   D9, D11, D12, D20.
+3. **Variables by use:** `domain` function, modeling-layer domain types, and
+   driver positions mapped back to variable keys. D7, D22.
+4. **Overflow checks** during compilation. D17.
+5. **Solution queries:** `values` and `evaluate`. D19.
+
+Afterwards:
+
+- Benchmark model construction on larger sparse models. D4.
+- Revisit model-local keys versus runtime handles. D8.
+- Solve-limit and dual-capable backend contracts. D24, D20.
+
 ## Representative models
 
 Explore representative LP/MILP models to guide a general-purpose API.
