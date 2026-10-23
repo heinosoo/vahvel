@@ -23,6 +23,11 @@ work is removed from this file; git log keeps it. Design decisions are in
   expression reuse and subtraction are available through `Sum` and `Scaled`.
   Use the end-to-end examples to define reporting conventions and choose small
   helpers.
+- **Evaluating candidate assignments.** Evaluate expressions and constraints
+  against caller-supplied values (`Dict(v, Float)`), not only a `Solution`:
+  check a hand-made plan or a heuristic's result against the model, and report
+  what-if costs. Reuses the driver's evaluation path; decide how missing
+  variables and constraint violations are reported.
 - **Solve limits.** Time and iteration limits with an outcome that separates
   optimal, feasible-but-unproven and stopped results (DESIGN.md: "Solve
   limits"). microlp already supports this; the driver contract changes with it.
@@ -43,6 +48,30 @@ work is removed from this file; git log keeps it. Design decisions are in
   explicit override and clear errors for unsupported models.
 - **JS target via WASM.** Split the Rust code into a target-independent engine
   and thin adapters (Rustler, wasm-bindgen).
+- **Expression printing (tentative).** Render expressions and constraints
+  readably for debugging and error messages, e.g. `3·Chair + 2·Table + 7 ≤ 4`.
+  Keys are arbitrary values, so callers would pass a `fn(v) -> String` or
+  accept `string.inspect`. Only if debugging or diagnostics need it.
+- **Precompiled NIFs.** Download prebuilt libraries so users need no Rust
+  toolchain, like Elixir's `rustler_precompiled`. Today the release binary
+  isn't portable and everyone builds from source. Users then run machine code
+  they can't audit against the source, so: pin each binary's checksum in the
+  Hex package, build in public CI with provenance (Gleam's own releases ship
+  sigstore attestations and SBOMs), and keep building from source first-class
+  for users whose policies require it. Gleam's maintainers consider
+  ecosystem-wide binary distribution too costly to certify
+  ([gleam#3165](https://github.com/gleam-lang/gleam/discussions/3165)), so this
+  stays per package. libsql_gleam and glimra ship precompiled NIFs but don't
+  document how.
+- **Reusable Gleam–Rust NIF tooling.** Extract the setup, build and
+  version-check flow (and precompiled downloads, once they exist) into a small
+  package that doesn't depend on optimization. Gleam has no build hooks, so
+  other Gleam projects with Rust NIFs rebuild the same plumbing. Watch
+  [Gleamler](https://github.com/chlonishe/gleamler), which generates Gleam
+  bindings, types and the Erlang stub from Rust (early, and Rust becomes the
+  source of the contract), and Rustler's
+  [#777](https://github.com/rusterlium/rustler/pull/777), which embeds NIF
+  signatures so wrapper stubs can be generated (draft, Elixir-only).
 - **Optional solver trace.** Only if debugging needs it: forward microlp's `log`
   output to Erlang's `logger`, off by default and never including model data.
   Statistics returned as data come first.
