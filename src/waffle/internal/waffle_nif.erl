@@ -19,5 +19,5 @@ nif_version_result() ->
 driver_solve(_Model) ->
     erlang:nif_error(nif_not_loaded).
 
-driver_evaluate(_Products, _Constants) ->
+driver_evaluate(_Expression, _Values) ->
     erlang:nif_error(nif_not_loaded).

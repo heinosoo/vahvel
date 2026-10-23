@@ -28,10 +28,14 @@ pub type Domain {
   Integer(lower: Option(Int), upper: Option(Int))
 }
 
-/// The value `Σ coefficient · variable[index] + Σ constants`. Indices may
-/// repeat and appear in any order, and coefficients may be zero.
+/// An unsummed expression with variable keys replaced by column indices. The
+/// tree mirrors the public expression; Rust performs all scaling and summation,
+/// visiting leaves in depth-first input order.
 pub type Expression {
-  Expression(terms: List(#(Int, Float)), constants: List(Float))
+  Linear(coefficient: Float, variable: Int)
+  Constant(value: Float)
+  Sum(expressions: List(Expression))
+  Scaled(coefficient: Float, expression: Expression)
 }
 
 /// Relation between the two sides of a row.
@@ -87,10 +91,10 @@ pub type InvalidReason {
   InvalidDomain(variable: Int)
   /// The row at this position is malformed or references a missing variable.
   InvalidRow(row: Int)
-  /// A summed objective coefficient or the offset is not finite, from overflow
+  /// An objective coefficient, scale or offset is not finite, from overflow
   /// or non-finite input.
   NonFiniteObjective
-  /// A summed coefficient or constant of the row at this position is not finite.
+  /// A coefficient, scale or constant of the row at this position is not finite.
   NonFiniteRow(row: Int)
 }
 
@@ -101,10 +105,10 @@ pub type InvalidReason {
 @external(erlang, "waffle_nif", "driver_solve")
 pub fn solve(model: Model) -> Result(Outcome, DriverError)
 
-/// `Σ coefficient · value + Σ constants` for `#(coefficient, value)` pairs.
-/// Errors if the result is not finite, e.g. because a product or sum overflowed.
+/// Canonicalize with the same rules as solve, then evaluate at indexed values.
+/// Invalid expressions or non-finite intermediate products/sums are errors.
 @external(erlang, "waffle_nif", "driver_evaluate")
 pub fn evaluate(
-  products: List(#(Float, Float)),
-  constants: List(Float),
+  expression: Expression,
+  values: List(Float),
 ) -> Result(Float, Nil)

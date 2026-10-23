@@ -24,7 +24,7 @@ flowchart TD
 
 | Layer | Files | Owns |
 | --- | --- | --- |
-| Modeling | `src/waffle.gleam` | Terms, constraints, objectives and domains; lowering keys to columns; keyed solution queries |
+| Modeling | `src/waffle.gleam` | Expressions, constraints, objectives and domains; lowering keys to columns; keyed solution queries |
 | Numeric driver | `src/waffle/internal/driver.gleam` | The contract with Rust: domains, unsummed expressions, rows, outcomes, errors |
 | Erlang FFI | `src/waffle/internal/waffle_nif.erl`, `waffle_build_ffi.erl` | Loading the shared library and the `nif_not_loaded` fallbacks; OS detection for the build |
 | Native | `native/waffle/src/lib.rs`, `driver.rs` | Term decoding, canonicalization, validation, solver calls, evaluation |
@@ -43,15 +43,16 @@ contains no float arithmetic (DESIGN.md: "Describe in Gleam, compute in Rust").
 
 `waffle.gleam` turns a symbolic model, written with application-owned keys, into
 the driver model, and maps the numeric result back to those keys. Expressions are
-plain lists of terms (`Linear(coefficient, key)` or `Constant(value)`), and
-constraints relate two expressions (`LessEqual`, `Equal`, `GreaterEqual`). A
+affine trees (`Linear(coefficient, key)`, `Constant(value)`,
+`Sum(expressions)` or `Scaled(coefficient, expression)`), and constraints
+relate two expressions (`LessEqual`, `Equal`, `GreaterEqual`). A
 variable exists once an expression references it; the model's `domain`
 function gives each variable's bounds and integrality.
 
 ```mermaid
 flowchart LR
   A[Symbolic model] --> B[Assign columns on first reference]
-  B --> C[Replace keys by columns, split constants]
+  B --> C[Replace keys by columns, preserve tree]
   C --> D[driver.Model]
   B --> E[Column keys]
   D --> F[driver.solve]
@@ -63,14 +64,17 @@ flowchart LR
 
 Compilation is pure, deterministic and arithmetic-free: columns follow the order
 of first reference (objective, then constraints), rows follow constraint order,
-and each term list becomes an indexed `Expression(terms, constants)` with terms
-in their original order, duplicates and zeros included. Summing happens in Rust.
-`Binary` lowers to the same integer domain as `Integer(Some(0), Some(1))`.
-The column keys stay in Gleam and are never passed to the NIF; they turn solver
-values into a keyed solution and driver error positions into keys. Solutions are
+and each expression becomes the same tree with keys replaced by columns.
+Lowering preserves the tree shape and the depth-first order of leaves, including
+duplicates and zeros, in one tail-recursive loop over an explicit stack of
+frames. Scaling and summing happen in Rust. `Binary` lowers to the same integer
+domain as `Integer(Some(0), Some(1))`. The column keys stay in Gleam and are
+never passed to the NIF; they turn solver values into a keyed solution and
+driver error positions into keys. Solutions are
 immutable snapshots indexed by the same keys, and carry the driver's statistics
 with the solver time as a `Duration`. `evaluate` looks up values in Gleam and
-sums them through `driver_evaluate`.
+sends the indexed expression and values to `driver_evaluate`, which shares
+canonicalization with solving before multiplying by solution values.
 
 ## Numeric driver contract
 
@@ -78,9 +82,10 @@ sums them through `driver_evaluate`.
 
 - `Model(direction, variables, objective, rows)`. Variable references are
   zero-based positions in `variables`.
-- `Expression(terms, constants)` is `Σ coefficient · x[index] + Σ constants`.
-  It is not canonical: indices may repeat, appear in any order and carry zero
-  coefficients. The objective's constants are its offset.
+- `Expression` is `Linear(coefficient, index)`, `Constant(value)`,
+  `Sum(expressions)` or `Scaled(coefficient, expression)`, nested to any depth.
+  Indices may repeat and coefficients may be zero. The objective's constants
+  are its offset.
 - `Domain` is `Continuous(lower, upper)` with `Unbounded | Finite(Float)` bounds,
   or `Integer(lower, upper)` with inclusive `Option(Int)` bounds fitting signed
   32 bits; Rust turns `None` into `i32::MIN`/`i32::MAX`, microlp's integer
@@ -106,10 +111,11 @@ the native layer canonicalizes and enforces it.
 ## Native boundary
 
 `driver_solve` canonicalizes, validates and solves a model on a dirty CPU
-scheduler. `driver_evaluate` computes `Σ coefficient · value + Σ constants` for
-one expression at a solution and returns `Error(Nil)` for a non-finite result;
-it runs on a normal scheduler. The rules NIFs follow are in DESIGN.md ("NIF
-rules").
+scheduler. `driver_evaluate` canonicalizes an indexed expression by the same
+rules and computes its value at the supplied solution values, returning
+`Error(Nil)` for an invalid expression or non-finite arithmetic. It also runs on
+a dirty CPU scheduler because decoding and sorting are unrestricted work. The
+rules NIFs follow are in DESIGN.md ("NIF rules").
 
 **Term mapping.** Rustler derives decoders that match Gleam's Erlang
 representation directly:
@@ -118,25 +124,29 @@ representation directly:
 | --- | --- | --- |
 | `Minimize`, `LessEqual` (no fields) | `minimize`, `less_equal` | `NifUnitEnum` |
 | `Finite(1.0)`, `Integer(Some(0), None)` | `{finite, 1.0}`, `{integer, {some, 0}, none}` | `NifTaggedEnum` |
-| `Row(..)`, `Expression(..)`, `Model(..)` | `{row, ..}`, `{expression, ..}`, `{model, ..}` | `NifRecord` with `#[tag]` |
+| `Sum([..])`, `Scaled(2.0, ..)` (one node) | `{sum, [..]}`, `{scaled, 2.0, ..}` | `NifTaggedEnum` (`Node`) with `Term` children |
+| `Row(..)`, `Model(..)` | `{row, ..}`, `{model, ..}` | `NifRecord` with `#[tag]` |
 | `None`, `Some(1)` (`Option(Int)`) | `none`, `{some, 1}` | `NifTaggedEnum` (`IntegerBound`) |
 | `Result(a, e)` | `{ok, A}`, `{error, E}` | `Result<T, E>` |
 
-A Gleam type change must be matched in `driver.rs`, and vice versa.
+A Gleam type change must be matched in `driver.rs`, and vice versa. Expressions
+are never decoded into a nested Rust value: each node's children stay `Term`s
+on an explicit stack, so decoding, traversal and drop never recurse.
 
 **Steps in `driver.rs`.**
 
 1. Decode the model shell, then each variable domain, the objective and each
    row separately, so a failure reports its position. A term that isn't a model
    is `MalformedModel`; integer bounds outside `i32` are `InvalidDomain(i)`.
-2. Canonicalize the objective and each row (`lhs − rhs`): collect terms, stable
-   sort by index, sum duplicates in input order, sum constants, check every sum
-   is finite, then drop zeros. Overflow becomes infinity in `f64` and is
-   reported as `NonFiniteObjective`/`NonFiniteRow(i)`; an index out of range is
-   `InvalidObjective`/`InvalidRow(i)`. The objective becomes a dense vector plus
-   offset; each row becomes sorted nonzero terms and a right-hand side.
-   Everything is validated before solving, and nothing is clamped, rounded or
-   relaxed.
+2. Canonicalize the objective and each row (`lhs − rhs`) by the rules in
+   DESIGN.md ("Canonicalization"): expand the tree depth-first, multiplying
+   scale factors into leaves; stable-sort terms by index, sum duplicates and
+   constants in input order, then drop zeros. Every product and sum is checked. Overflow becomes infinity in
+   `f64` and is reported as `NonFiniteObjective`/`NonFiniteRow(i)`; a malformed
+   node or an index out of range is `InvalidObjective`/`InvalidRow(i)`. The
+   objective becomes a dense vector plus offset; each row becomes sorted
+   nonzero terms and a right-hand side. Everything is validated before solving,
+   and nothing is clamped, rounded or relaxed.
 3. Answer trivial cases directly: an empty domain or an unsatisfiable constant
    row means `Infeasible`; a model with no variables returns its offset as the
    optimum.
@@ -147,9 +157,6 @@ A Gleam type change must be matched in `driver.rs`, and vice versa.
 
 Solver panics are caught with `catch_unwind` and returned as `SolverFailure`, so
 the NIF always answers with a tagged result.
-
-Sums start from `0.0` and follow input order; Rust's `Iterator::sum` for `f64`
-starts from `-0.0`, which would make empty sums `-0.0`.
 
 `nif_version` is a trivial NIF used for build/version checks.
 
@@ -178,12 +185,12 @@ Test files mirror the source tree, so test modules are namespaced too.
 
 - `test/waffle_test.gleam`: gleeunit's entry point and the modeling API:
   representative models (production, transportation, binary selection),
-  constants and terms on both sides, domains, outcomes, non-finite errors, and
-  solution queries.
+  constants and terms on both sides, domains, outcomes, non-finite errors,
+  expression reuse, summation order, deep nesting, and solution queries.
 - `test/waffle/internal/driver_test.gleam`: the numeric contract, covering
   continuous and integer solves, canonicalization, offsets, infeasible and
   unbounded outcomes, constant models, positioned errors, non-finite sums,
-  malformed terms, and `evaluate`.
+  malformed terms and expressions, and `evaluate`.
 - `test/waffle/internal/version_test.gleam`: NIF and package versions match.
 
 ## Tooling and CI

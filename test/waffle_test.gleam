@@ -6,7 +6,7 @@ import gleam/option.{None, Some}
 import gleam/time/duration
 import gleeunit
 import gleeunit/should
-import waffle.{Constant, Linear} as m
+import waffle.{Constant, Linear, Scaled, Sum} as m
 
 pub fn main() {
   gleeunit.main()
@@ -43,12 +43,10 @@ pub fn production_test() {
   let model =
     m.Model(
       domain:,
-      objective: m.Maximize([
-        Linear(3.0, Chair),
-        Linear(2.0, Table),
-        Constant(7.0),
-      ]),
-      constraints: [m.LessEqual([chair, table], [Constant(4.0)])],
+      objective: m.Maximize(
+        Sum([Linear(3.0, Chair), Linear(2.0, Table), Constant(7.0)]),
+      ),
+      constraints: [m.LessEqual(Sum([chair, table]), Constant(4.0))],
     )
   let assert Ok(m.Optimal(solution)) = m.solve(model)
   close(m.objective(solution), 17.0)
@@ -61,8 +59,8 @@ pub fn production_test() {
 pub fn solution_queries_test() {
   let chair = Linear(1.0, Chair)
   let table = Linear(1.0, Table)
-  let profit = [Linear(3.0, Chair), Linear(2.0, Table), Constant(7.0)]
-  let hours = m.LessEqual([chair, table], [Constant(4.0)])
+  let profit = Sum([Linear(3.0, Chair), Linear(2.0, Table), Constant(7.0)])
+  let hours = m.LessEqual(Sum([chair, table]), Constant(4.0))
   let domain = fn(product) {
     case product {
       Chair -> m.Continuous(Some(0.0), Some(2.0))
@@ -80,20 +78,19 @@ pub fn solution_queries_test() {
   let assert Ok(objective) = m.evaluate(solution, profit)
   close(objective, m.objective(solution))
   // Cost breakdown: chairs contribute 3 · 2.
-  let assert Ok(chairs) = m.evaluate(solution, [Linear(3.0, Chair)])
+  let assert Ok(chairs) = m.evaluate(solution, Linear(3.0, Chair))
   close(chairs, 6.0)
   // Slack of the hours constraint: rhs − lhs.
   let assert Ok(slack) =
-    m.evaluate(solution, [
-      Constant(4.0),
-      Linear(-1.0, Chair),
-      Linear(-1.0, Table),
-    ])
+    m.evaluate(
+      solution,
+      Sum([Constant(4.0), Linear(-1.0, Chair), Linear(-1.0, Table)]),
+    )
   close(slack, 0.0)
-  m.evaluate(solution, []) |> should.equal(Ok(0.0))
-  m.evaluate(solution, [chair, Linear(1.0, Missing)])
+  m.evaluate(solution, Sum([])) |> should.equal(Ok(0.0))
+  m.evaluate(solution, Sum([chair, Linear(1.0, Missing)]))
   |> should.equal(Error(m.NotInSolution(Missing)))
-  m.evaluate(solution, [Linear(1.7976931348623157e308, Chair)])
+  m.evaluate(solution, Linear(1.7976931348623157e308, Chair))
   |> should.equal(Error(m.NonFiniteValue))
 }
 
@@ -123,7 +120,8 @@ pub fn transportation_with_tuple_keys_and_functional_sets_test() {
         routes
         |> list.filter(fn(route) { route.0 == factory.0 })
         |> list.map(ship)
-      m.LessEqual(outgoing, [Constant(factory.1)])
+        |> Sum
+      m.LessEqual(outgoing, Constant(factory.1))
     })
   let demand =
     list.map([#(East, 2.0), #(West, 3.0)], fn(customer) {
@@ -131,13 +129,16 @@ pub fn transportation_with_tuple_keys_and_functional_sets_test() {
         routes
         |> list.filter(fn(route) { route.1 == customer.0 })
         |> list.map(ship)
-      m.Equal(incoming, [Constant(customer.1)])
+        |> Sum
+      m.Equal(incoming, Constant(customer.1))
     })
   let assert Ok(m.Optimal(solution)) =
     m.solve(m.Model(
       domain: nonnegative,
       objective: m.Minimize(
-        list.map(routes, fn(route) { Linear(route.2, #(route.0, route.1)) }),
+        Sum(
+          list.map(routes, fn(route) { Linear(route.2, #(route.0, route.1)) }),
+        ),
       ),
       constraints: list.append(supply, demand),
     ))
@@ -154,12 +155,13 @@ pub fn binary_selection_is_not_relaxed_test() {
     m.Model(
       domain: fn(_) { m.Binary },
       objective: m.Maximize(
-        list.map(items, fn(item) { Linear(item.2, item.0) }),
+        Sum(list.map(items, fn(item) { Linear(item.2, item.0) })),
       ),
       constraints: [
-        m.LessEqual(list.map(items, fn(item) { Linear(item.1, item.0) }), [
+        m.LessEqual(
+          Sum(list.map(items, fn(item) { Linear(item.1, item.0) })),
           Constant(4.0),
-        ]),
+        ),
       ],
     )
   let assert Ok(m.Optimal(solution)) = m.solve(model)
@@ -175,17 +177,13 @@ pub fn int_keys_test() {
     list.index_map([#(3.0, 5.0), #(2.0, 3.0), #(2.0, 3.0)], fn(item, i) {
       #(i, item.0, item.1)
     })
+  let value = list.map(items, fn(item) { Linear(item.2, item.0) }) |> Sum
+  let weight = list.map(items, fn(item) { Linear(item.1, item.0) }) |> Sum
   let model =
     m.Model(
       domain: fn(_) { m.Binary },
-      objective: m.Maximize(
-        list.map(items, fn(item) { Linear(item.2, item.0) }),
-      ),
-      constraints: [
-        m.LessEqual(list.map(items, fn(item) { Linear(item.1, item.0) }), [
-          Constant(4.0),
-        ]),
-      ],
+      objective: m.Maximize(value),
+      constraints: [m.LessEqual(weight, Constant(4.0))],
     )
   let assert Ok(m.Optimal(solution)) = m.solve(model)
   close(m.objective(solution), 6.0)
@@ -201,7 +199,7 @@ pub fn int_keys_are_names_not_columns_test() {
   let model =
     m.Model(
       domain: fn(k) { m.Continuous(Some(0.0), Some(int.to_float(k))) },
-      objective: m.Maximize([Linear(1.0, 7), Linear(1.0, 3)]),
+      objective: m.Maximize(Sum([Linear(1.0, 7), Linear(1.0, 3)])),
       constraints: [],
     )
   let assert Ok(m.Optimal(solution)) = m.solve(model)
@@ -211,7 +209,7 @@ pub fn int_keys_are_names_not_columns_test() {
 }
 
 fn base() -> m.Model(Product) {
-  m.Model(domain: nonnegative, objective: m.Minimize([]), constraints: [])
+  m.Model(domain: nonnegative, objective: m.Minimize(Sum([])), constraints: [])
 }
 
 pub fn constants_and_terms_on_both_sides_solve_test() {
@@ -222,17 +220,19 @@ pub fn constants_and_terms_on_both_sides_solve_test() {
   let model =
     m.Model(
       ..base(),
-      objective: m.Minimize([
-        chair,
-        table,
-        Linear(2.0, Table),
-        chair,
-        Linear(-2.0, Table),
-        Constant(4.0),
-      ]),
+      objective: m.Minimize(
+        Sum([
+          chair,
+          table,
+          Linear(2.0, Table),
+          chair,
+          Linear(-2.0, Table),
+          Constant(4.0),
+        ]),
+      ),
       constraints: [
-        m.GreaterEqual([table, Constant(3.0)], [chair, Constant(5.0)]),
-        m.Equal([chair, Constant(1.0)], [Constant(3.0)]),
+        m.GreaterEqual(Sum([table, Constant(3.0)]), Sum([chair, Constant(5.0)])),
+        m.Equal(Sum([chair, Constant(1.0)]), Constant(3.0)),
       ],
     )
   let assert Ok(m.Optimal(solution)) = m.solve(model)
@@ -255,9 +255,12 @@ pub fn domains_apply_to_their_keys_test() {
   let model =
     m.Model(
       domain:,
-      objective: m.Maximize([Linear(3.0, Table), Linear(1.0, Chair)]),
+      objective: m.Maximize(Sum([Linear(3.0, Table), Linear(1.0, Chair)])),
       constraints: [
-        m.LessEqual([Linear(1.0, Chair), Linear(1.0, Table)], [Constant(7.5)]),
+        m.LessEqual(
+          Sum([Linear(1.0, Chair), Linear(1.0, Table)]),
+          Constant(7.5),
+        ),
       ],
     )
   let assert Ok(m.Optimal(solution)) = m.solve(model)
@@ -267,15 +270,15 @@ pub fn domains_apply_to_their_keys_test() {
 }
 
 pub fn zero_coefficient_reference_creates_variable_test() {
-  let model = m.Model(..base(), objective: m.Minimize([Linear(0.0, Chair)]))
+  let model = m.Model(..base(), objective: m.Minimize(Linear(0.0, Chair)))
   let assert Ok(m.Optimal(solution)) = m.solve(model)
   m.value(solution, Chair) |> should.equal(Ok(0.0))
 }
 
 pub fn identical_constraints_are_allowed_test() {
-  let row = m.LessEqual([Linear(1.0, Chair)], [Constant(1.0)])
+  let row = m.LessEqual(Linear(1.0, Chair), Constant(1.0))
   let model =
-    m.Model(..base(), objective: m.Maximize([Linear(1.0, Chair)]), constraints: [
+    m.Model(..base(), objective: m.Maximize(Linear(1.0, Chair)), constraints: [
       row,
       row,
     ])
@@ -288,24 +291,36 @@ const max = 1.7976931348623157e308
 pub fn non_finite_sums_report_location_test() {
   let model = base()
   m.solve(
-    m.Model(..model, objective: m.Minimize([Constant(max), Constant(max)])),
+    m.Model(..model, objective: m.Minimize(Sum([Constant(max), Constant(max)]))),
   )
   |> should.equal(Error(m.NonFinite(m.InObjective)))
-  let fine = m.LessEqual([Linear(1.0, Chair)], [Constant(1.0)])
+  let fine = m.LessEqual(Linear(1.0, Chair), Constant(1.0))
   // Moving `-max·chair` across sides makes it `+max·chair`.
-  let overflowing =
-    m.LessEqual([Linear(max, Chair)], [Linear(0.0 -. max, Chair)])
+  let overflowing = m.LessEqual(Linear(max, Chair), Linear(0.0 -. max, Chair))
   m.solve(m.Model(..model, constraints: [fine, overflowing]))
   |> should.equal(Error(m.NonFinite(m.InConstraint(1))))
+}
+
+pub fn constants_sum_in_depth_first_input_order_test() {
+  // max + max overflows before − max is added.
+  let overflowing =
+    Sum([Sum([Constant(max), Constant(max)]), Constant(0.0 -. max)])
+  m.solve(m.Model(..base(), objective: m.Minimize(overflowing)))
+  |> should.equal(Error(m.NonFinite(m.InObjective)))
+  // max − max + max never leaves the finite range.
+  let fine = Sum([Constant(max), Sum([Constant(0.0 -. max), Constant(max)])])
+  let assert Ok(m.Optimal(solution)) =
+    m.solve(m.Model(..base(), objective: m.Minimize(fine)))
+  m.objective(solution) |> should.equal(max)
 }
 
 pub fn explicit_outcomes_test() {
   let empty = base()
   let assert Ok(m.Optimal(solution)) = m.solve(empty)
   m.objective(solution) |> should.equal(0.0)
-  m.solve(m.Model(..empty, constraints: [m.Equal([], [Constant(1.0)])]))
+  m.solve(m.Model(..empty, constraints: [m.Equal(Sum([]), Constant(1.0))]))
   |> should.equal(Ok(m.Infeasible))
-  m.solve(m.Model(..empty, objective: m.Maximize([Linear(1.0, Chair)])))
+  m.solve(m.Model(..empty, objective: m.Maximize(Linear(1.0, Chair))))
   |> should.equal(Ok(m.Unbounded))
 }
 
@@ -313,10 +328,16 @@ pub fn continuous_stats_test() {
   let model =
     m.Model(
       domain: nonnegative,
-      objective: m.Maximize([Linear(1.0, Chair), Linear(1.0, Table)]),
+      objective: m.Maximize(Sum([Linear(1.0, Chair), Linear(1.0, Table)])),
       constraints: [
-        m.LessEqual([Linear(1.0, Chair), Linear(2.0, Table)], [Constant(4.0)]),
-        m.LessEqual([Linear(3.0, Chair), Linear(1.0, Table)], [Constant(6.0)]),
+        m.LessEqual(
+          Sum([Linear(1.0, Chair), Linear(2.0, Table)]),
+          Constant(4.0),
+        ),
+        m.LessEqual(
+          Sum([Linear(3.0, Chair), Linear(1.0, Table)]),
+          Constant(6.0),
+        ),
       ],
     )
   let assert Ok(m.Optimal(solution)) = m.solve(model)
@@ -330,9 +351,12 @@ pub fn integer_stats_count_branching_test() {
   let model =
     m.Model(
       domain: fn(_) { m.Integer(Some(0), Some(1)) },
-      objective: m.Maximize([Linear(1.0, Chair), Linear(1.0, Table)]),
+      objective: m.Maximize(Sum([Linear(1.0, Chair), Linear(1.0, Table)])),
       constraints: [
-        m.LessEqual([Linear(2.0, Chair), Linear(2.0, Table)], [Constant(3.0)]),
+        m.LessEqual(
+          Sum([Linear(2.0, Chair), Linear(2.0, Table)]),
+          Constant(3.0),
+        ),
       ],
     )
   let assert Ok(m.Optimal(solution)) = m.solve(model)
@@ -354,7 +378,7 @@ pub fn domains_test() {
   let model =
     m.Model(
       ..base(),
-      objective: m.Minimize([Linear(1.0, Chair), Linear(1.0, Table)]),
+      objective: m.Minimize(Sum([Linear(1.0, Chair), Linear(1.0, Table)])),
     )
   let only_table = fn(domain) {
     fn(product) {
@@ -379,4 +403,100 @@ pub fn domains_test() {
       |> should.equal(Ok(m.Infeasible))
     },
   )
+}
+
+pub fn expressions_are_reusable_test() {
+  let revenue = Sum([Linear(5.0, Chair), Linear(4.0, Table)])
+  let cost = Sum([Linear(1.0, Chair), Linear(2.0, Table), Constant(3.0)])
+  let profit = Sum([revenue, Scaled(-1.0, cost)])
+  let hours = Sum([Linear(1.0, Chair), Linear(1.0, Table)])
+  let model =
+    m.Model(
+      domain: nonnegative,
+      objective: m.Maximize(Scaled(0.5, Scaled(2.0, profit))),
+      constraints: [
+        m.LessEqual(Scaled(2.0, hours), Scaled(2.0, Constant(4.0))),
+        m.Equal(Linear(1.0, Table), Constant(1.0)),
+      ],
+    )
+  let assert Ok(m.Optimal(solution)) = m.solve(model)
+  close_value(solution, Chair, 3.0)
+  close_value(solution, Table, 1.0)
+  close(m.objective(solution), 11.0)
+  m.evaluate(solution, profit) |> should.equal(Ok(11.0))
+  m.evaluate(solution, cost) |> should.equal(Ok(8.0))
+  m.evaluate(solution, Sum([Scaled(2.0, Scaled(-1.0, cost)), Constant(1.0)]))
+  |> should.equal(Ok(-15.0))
+}
+
+pub fn zero_and_empty_scales_test() {
+  let expression = Sum([Scaled(0.0, Linear(2.0, Chair)), Scaled(3.0, Sum([]))])
+  let assert Ok(m.Optimal(solution)) =
+    m.solve(m.Model(..base(), objective: m.Minimize(expression)))
+  m.value(solution, Chair) |> should.equal(Ok(0.0))
+  m.evaluate(solution, expression) |> should.equal(Ok(0.0))
+  m.evaluate(solution, Scaled(0.0, Linear(1.0, Missing)))
+  |> should.equal(Error(m.NotInSolution(Missing)))
+  m.solve(
+    m.Model(
+      ..base(),
+      domain: fn(_) { m.Integer(Some(2), Some(1)) },
+      objective: m.Minimize(expression),
+    ),
+  )
+  |> should.equal(Ok(m.Infeasible))
+}
+
+pub fn scaled_overflow_reports_location_test() {
+  let expressions = [
+    Scaled(2.0, Linear(max, Chair)),
+    Scaled(2.0, Constant(max)),
+    Scaled(max, Scaled(2.0, Sum([]))),
+  ]
+  let assert Ok(m.Optimal(solution)) =
+    m.solve(m.Model(..base(), objective: m.Minimize(Linear(0.0, Chair))))
+  list.each(expressions, fn(expression) {
+    m.solve(m.Model(..base(), objective: m.Minimize(expression)))
+    |> should.equal(Error(m.NonFinite(m.InObjective)))
+    m.solve(m.Model(..base(), constraints: [m.Equal(Sum([]), expression)]))
+    |> should.equal(Error(m.NonFinite(m.InConstraint(0))))
+    m.evaluate(solution, expression) |> should.equal(Error(m.NonFiniteValue))
+  })
+}
+
+pub fn evaluation_combines_coefficients_before_multiplying_test() {
+  let expression = Sum([Linear(1.0e308, Chair), Linear(-1.0e308, Chair)])
+  let assert Ok(m.Optimal(solution)) =
+    m.solve(
+      m.Model(
+        domain: fn(_) { m.Continuous(Some(2.0), Some(2.0)) },
+        objective: m.Minimize(expression),
+        constraints: [],
+      ),
+    )
+  m.objective(solution) |> should.equal(0.0)
+  m.evaluate(solution, expression) |> should.equal(Ok(0.0))
+  m.evaluate(solution, Scaled(1.0, expression)) |> should.equal(Ok(0.0))
+}
+
+pub fn deep_expressions_test() {
+  // A sum accumulated in a fold nests once per step.
+  let sum =
+    int.range(0, 100_000, Linear(1.0, Chair), fn(e, _) {
+      Sum([e, Linear(0.0, Chair)])
+    })
+  let scaled =
+    int.range(0, 100_000, Linear(1.0, Chair), fn(e, _) { Scaled(1.0, e) })
+  list.each([sum, scaled], fn(expression) {
+    let assert Ok(m.Optimal(solution)) =
+      m.solve(
+        m.Model(
+          domain: fn(_) { m.Binary },
+          objective: m.Maximize(expression),
+          constraints: [m.LessEqual(expression, Constant(1.0))],
+        ),
+      )
+    m.objective(solution) |> should.equal(1.0)
+    m.evaluate(solution, expression) |> should.equal(Ok(1.0))
+  })
 }

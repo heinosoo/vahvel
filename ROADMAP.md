@@ -7,11 +7,22 @@ work is removed from this file; git log keeps it. Design decisions are in
 
 ## Next
 
-- **Examples and performance.** More end-to-end examples, and a construction
-  benchmark on larger sparse models; `stats(solution).solve_time` separates
-  solving from construction and NIF overhead. Measure the per-term key lookup that stays
-  in Gleam against the work done in Rust (DESIGN.md: "Describe in Gleam, compute
-  in Rust").
+- **End-to-end modeling examples.** Exercise sparse inputs with precomputed
+  adjacency, mixed variable families, reused expressions, scenario changes and
+  complete solution reporting. Include empty index sets, isolated network nodes
+  and variables needed only for reporting: check whether discovery by reference
+  is sufficient or callers need a way to retain otherwise unreferenced variables.
+- **Performance.** Benchmark construction on larger sparse models;
+  `stats(solution).solve_time` separates solving from construction and NIF
+  overhead. Measure the per-term key lookup that stays in Gleam against the work
+  done in Rust (DESIGN.md: "Describe in Gleam, compute in Rust"). Benchmark
+  nested expression construction and evaluation, including column discovery,
+  canonicalization, NIF decoding and dirty-scheduler overhead. Use results to
+  decide whether a bounded fast path for small evaluations is worthwhile.
+- **Constraint reporting.** Consider direct constraint slack/residual queries;
+  expression reuse and subtraction are available through `Sum` and `Scaled`.
+  Use the end-to-end examples to define reporting conventions and choose small
+  helpers.
 - **Solve limits.** Time and iteration limits with an outcome that separates
   optimal, feasible-but-unproven and stopped results (DESIGN.md: "Solve
   limits"). microlp already supports this; the driver contract changes with it.
@@ -42,7 +53,6 @@ work is removed from this file; git log keeps it. Design decisions are in
   independent components, so cross-model mix-ups are detected?
 - Would key-driven rows and bounds (`bound: fn(row) -> Interval`) serve large
   indexed constraint families better than per-row constraints?
-- Does a representative model need a `scale` helper for reused expressions?
 - Would a `NonNegative` domain shorthand improve readability enough to justify
   a second spelling?
 - Should errors be collected rather than reporting the first, once diagnostics

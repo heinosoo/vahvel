@@ -1,9 +1,7 @@
 //// Linear and mixed-integer programming. Describe a model with plain Gleam
 //// data, keyed by your own types, and solve it with a native solver.
 ////
-//// The API is unstable while the package is 0.x. This module describes
-//// models; all numeric work happens in Rust. Design decisions are explained in
-//// `DESIGN.md`.
+//// The API is unstable while the package is 0.x.
 
 import gleam/dict.{type Dict}
 import gleam/list
@@ -12,34 +10,39 @@ import gleam/result
 import gleam/time/duration.{type Duration}
 import waffle/internal/driver
 
-/// One term of a linear expression. An expression is a `List(Term(v))` whose
-/// value is the sum of its terms; the empty list is zero. Duplicate variables
-/// and zero coefficients are allowed and combined at compilation.
+/// An affine expression over variable keys. Duplicate variables and zero
+/// coefficients are allowed, and expressions nest to any depth.
 ///
 /// ```gleam
-/// [Linear(3.0, X), Linear(2.0, Y), Constant(7.0)]  // 3x + 2y + 7
-/// list.append(e1, e2)                               // e1 + e2
+/// Sum([Linear(3.0, X), Linear(2.0, Y), Constant(7.0)])  // 3x + 2y + 7
+/// Sum([revenue, Scaled(-1.0, cost)])                    // revenue − cost
+/// list.map(items, fn(i) { Linear(i.weight, Pick(i.id)) }) |> Sum
 /// ```
 ///
 /// For shorter literals, rename the constructors at the import:
 /// `import waffle.{Linear as L, Constant as C}`.
-pub type Term(v) {
+pub type Expression(v) {
   Linear(coefficient: Float, variable: v)
   Constant(value: Float)
+  /// The sum of the expressions; the empty sum is zero.
+  Sum(expressions: List(Expression(v)))
+  /// Scale an expression, including its constants. Scaling by zero still
+  /// references the expression's variables.
+  Scaled(coefficient: Float, expression: Expression(v))
 }
 
 /// A linear relation between two expressions. Constraints have no names; a
 /// constraint value is its own identity.
 pub type Constraint(v) {
-  LessEqual(lhs: List(Term(v)), rhs: List(Term(v)))
-  Equal(lhs: List(Term(v)), rhs: List(Term(v)))
-  GreaterEqual(lhs: List(Term(v)), rhs: List(Term(v)))
+  LessEqual(lhs: Expression(v), rhs: Expression(v))
+  Equal(lhs: Expression(v), rhs: Expression(v))
+  GreaterEqual(lhs: Expression(v), rhs: Expression(v))
 }
 
 /// The expression to optimize, with its direction.
 pub type Objective(v) {
-  Minimize(List(Term(v)))
-  Maximize(List(Term(v)))
+  Minimize(Expression(v))
+  Maximize(Expression(v))
 }
 
 /// The values a variable may take. `None` means no bound on that side. Bounds
@@ -57,9 +60,9 @@ pub type Domain {
   Integer(lower: Option(Int), upper: Option(Int))
 }
 
-/// Immutable symbolic input. A variable exists once an expression references
-/// it, and `domain` gives the values each variable may take. Keys have
-/// model-local name semantics.
+/// A model to solve. A variable exists once an expression references it, and
+/// `domain` gives its allowed values. The same key may be reused in different
+/// models.
 pub type Model(v) {
   Model(
     domain: fn(v) -> Domain,
@@ -68,12 +71,11 @@ pub type Model(v) {
   )
 }
 
-/// Compilation and solver failures are distinct from mathematical outcomes.
+/// Invalid input or a solver failure, distinct from infeasibility or unboundedness.
 pub type Error(v) {
   /// The integer bounds of this variable's domain do not fit signed 32 bits.
   InvalidDomain(v)
-  /// A summed coefficient or constant here is not finite: the sum overflowed,
-  /// or (on targets that allow it) an input was already infinite or NaN.
+  /// An input or intermediate calculation is infinite or NaN.
   NonFinite(Location)
   /// The solver failed numerically or internally.
   SolverFailure(String)
@@ -91,8 +93,7 @@ pub opaque type Solution(v) {
   Solution(objective: Float, values: Dict(v, Float), stats: Stats)
 }
 
-/// How much work the solver did. A model the driver answers without calling
-/// the solver, such as one with no variables, reports zero for everything.
+/// How much work the solver did. Models requiring no solver work report zeros.
 pub type Stats {
   Stats(
     /// Branch-and-bound nodes solved; zero for a purely continuous model.
@@ -120,7 +121,7 @@ pub type EvaluationError(v) {
   NonFiniteValue
 }
 
-/// Columns in order of first reference.
+// Keys are accumulated in reverse order of first reference.
 type Columns(v) {
   Columns(index: Dict(v, Int), keys: List(v))
 }
@@ -138,27 +139,57 @@ fn column(columns: Columns(v), key: v) -> #(Columns(v), Int) {
   }
 }
 
-/// Replace keys by columns, assigning columns to new variables. Variables with
-/// zero coefficients still get a column: they are referenced. No arithmetic
-/// happens here; Rust canonicalizes the expression.
+// Lowering walks the tree with an explicit stack of frames, so deep
+// expressions, such as sums accumulated in a fold, run in constant stack space.
+type Step(v) {
+  Descend(Expression(v))
+  Ascend(driver.Expression)
+}
+
+type Frame(v) {
+  // Lowered children in reverse order, then the children still to visit.
+  InSum(lowered: List(driver.Expression), pending: List(Expression(v)))
+  InScaled(coefficient: Float)
+}
+
+// Discover references in depth-first input order, including zero coefficients.
 fn lower(
   columns: Columns(v),
-  terms: List(Term(v)),
+  expression: Expression(v),
 ) -> #(Columns(v), driver.Expression) {
-  let #(columns, indexed, constants) = {
-    use #(columns, indexed, constants), term <- list.fold(
-      terms,
-      #(columns, [], []),
-    )
-    case term {
-      Constant(value) -> #(columns, indexed, [value, ..constants])
-      Linear(coefficient, key) -> {
-        let #(columns, index) = column(columns, key)
-        #(columns, [#(index, coefficient), ..indexed], constants)
-      }
+  lower_loop(columns, Descend(expression), [])
+}
+
+fn lower_loop(
+  columns: Columns(v),
+  step: Step(v),
+  frames: List(Frame(v)),
+) -> #(Columns(v), driver.Expression) {
+  case step, frames {
+    Descend(Linear(coefficient, key)), _ -> {
+      let #(columns, index) = column(columns, key)
+      lower_loop(columns, Ascend(driver.Linear(coefficient, index)), frames)
     }
+    Descend(Constant(value)), _ ->
+      lower_loop(columns, Ascend(driver.Constant(value)), frames)
+    Descend(Sum([])), _ -> lower_loop(columns, Ascend(driver.Sum([])), frames)
+    Descend(Sum([first, ..rest])), _ ->
+      lower_loop(columns, Descend(first), [InSum([], rest), ..frames])
+    Descend(Scaled(coefficient, expression)), _ ->
+      lower_loop(columns, Descend(expression), [InScaled(coefficient), ..frames])
+    Ascend(lowered), [] -> #(columns, lowered)
+    Ascend(lowered), [InScaled(coefficient), ..frames] ->
+      lower_loop(columns, Ascend(driver.Scaled(coefficient, lowered)), frames)
+    Ascend(lowered), [InSum(done, []), ..frames] -> {
+      let sum = driver.Sum(list.reverse([lowered, ..done]))
+      lower_loop(columns, Ascend(sum), frames)
+    }
+    Ascend(lowered), [InSum(done, [next, ..rest]), ..frames] ->
+      lower_loop(columns, Descend(next), [
+        InSum([lowered, ..done], rest),
+        ..frames
+      ])
   }
-  #(columns, driver.Expression(list.reverse(indexed), list.reverse(constants)))
 }
 
 fn row(
@@ -190,14 +221,11 @@ fn driver_domain(domain: Domain) -> driver.Domain {
   }
 }
 
-/// Lower to the driver model and return the variable key of each column.
-/// Columns follow the order in which variables are first referenced (objective,
-/// then constraints in order) and rows follow `constraints` order. Expressions
-/// are passed on unsummed: all numeric work and validation happen in Rust.
+// Keep keys in column order to map results and positioned errors back to callers.
 fn compile(model: Model(v)) -> #(driver.Model, List(v)) {
   let #(direction, objective) = case model.objective {
-    Minimize(terms) -> #(driver.Minimize, terms)
-    Maximize(terms) -> #(driver.Maximize, terms)
+    Minimize(expression) -> #(driver.Minimize, expression)
+    Maximize(expression) -> #(driver.Maximize, expression)
   }
   let #(columns, objective) = lower(Columns(dict.new(), []), objective)
   let #(columns, rows) = list.map_fold(model.constraints, columns, row)
@@ -206,7 +234,7 @@ fn compile(model: Model(v)) -> #(driver.Model, List(v)) {
   #(driver.Model(direction, domains, objective, rows), keys)
 }
 
-/// Solve using the real microlp NIF.
+/// Solve a model, returning its optimum, infeasibility or unboundedness.
 pub fn solve(model: Model(v)) -> Result(Outcome(v), Error(v)) {
   let #(numeric, keys) = compile(model)
   use outcome <- result.try(
@@ -226,9 +254,7 @@ pub fn solve(model: Model(v)) -> Result(Outcome(v), Error(v)) {
   }
 }
 
-/// Domains and non-finite sums come from user data; any other rejection means
-/// compilation produced invalid IR, which is an internal failure. Driver rows
-/// correspond one-to-one to constraints.
+// Other model rejections indicate a bug in lowering, not invalid user input.
 fn native_error(error: driver.DriverError, keys: List(v)) -> Error(v) {
   case error {
     driver.InvalidModel(driver.InvalidDomain(index)) ->
@@ -265,24 +291,19 @@ pub fn values(solution: Solution(v)) -> Dict(v, Float) {
   solution.values
 }
 
-/// Evaluate an expression at this solution, e.g. a cost breakdown or the slack
-/// of a constraint (`evaluate(solution, rhs)` minus `evaluate(solution, lhs)`).
-/// Values are looked up here; the arithmetic happens in Rust.
+/// Evaluate an expression using the solution's variable values, e.g. a cost
+/// breakdown, or a constraint's slack as `Sum([rhs, Scaled(-1.0, lhs)])`.
+/// Returns an error for missing variables or non-finite arithmetic.
 pub fn evaluate(
   solution: Solution(v),
-  expression: List(Term(v)),
+  expression: Expression(v),
 ) -> Result(Float, EvaluationError(v)) {
-  use #(products, constants) <- result.try({
-    use #(products, constants), term <- list.try_fold(expression, #([], []))
-    case term {
-      Constant(value) -> Ok(#(products, [value, ..constants]))
-      Linear(coefficient, key) ->
-        case dict.get(solution.values, key) {
-          Ok(value) -> Ok(#([#(coefficient, value), ..products], constants))
-          Error(Nil) -> Error(NotInSolution(key))
-        }
-    }
-  })
-  driver.evaluate(list.reverse(products), list.reverse(constants))
+  let #(columns, expression) = lower(Columns(dict.new(), []), expression)
+  use values <- result.try(
+    list.try_map(list.reverse(columns.keys), fn(key) {
+      dict.get(solution.values, key) |> result.replace_error(NotInSolution(key))
+    }),
+  )
+  driver.evaluate(expression, values)
   |> result.replace_error(NonFiniteValue)
 }

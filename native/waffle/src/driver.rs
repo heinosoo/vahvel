@@ -74,28 +74,46 @@ enum Relation {
     GreaterEqual,
 }
 
-/// An uncanonicalized linear expression: indices may repeat, appear in any
-/// order, and carry zero coefficients.
-#[derive(NifRecord)]
-#[tag = "expression"]
-struct Expression {
-    terms: Vec<(usize, f64)>,
-    constants: Vec<f64>,
+/// One expression node. Children stay undecoded terms, so no nested Rust value
+/// exists whose decoding, traversal or drop would recurse.
+#[derive(NifTaggedEnum)]
+enum Node<'a> {
+    Linear(f64, usize),
+    Constant(f64),
+    Sum(Vec<Term<'a>>),
+    Scaled(f64, Term<'a>),
 }
 
-impl Expression {
-    const EMPTY: Self = Self {
-        terms: Vec::new(),
-        constants: Vec::new(),
-    };
+/// Expand an expression into indexed terms and a constant. Factors accumulate
+/// outer-to-inner from `1.0`; leaves are visited in depth-first input order.
+/// The explicit stack keeps native stack use constant at any nesting depth.
+fn expand(expression: Term<'_>, variables: usize) -> Result<(Vec<(usize, f64)>, f64), Defect> {
+    let mut terms = Vec::new();
+    let mut constant = 0.0;
+    let mut stack = vec![(expression, 1.0)];
+    while let Some((term, scale)) = stack.pop() {
+        match term.decode::<Node>().map_err(|_| Defect::Invalid)? {
+            Node::Linear(coefficient, index) => {
+                if index >= variables {
+                    return Err(Defect::Invalid);
+                }
+                terms.push((index, finite(coefficient * scale)?));
+            }
+            Node::Constant(value) => constant = finite(constant + finite(value * scale)?)?,
+            // Reversed, so the first child is popped first.
+            Node::Sum(children) => stack.extend(children.into_iter().rev().map(|c| (c, scale))),
+            Node::Scaled(factor, child) => stack.push((child, finite(scale * factor)?)),
+        }
+    }
+    Ok((terms, constant))
 }
 
 #[derive(NifRecord)]
 #[tag = "row"]
-struct RawRow {
-    lhs: Expression,
+struct RawRow<'a> {
+    lhs: Term<'a>,
     relation: Relation,
-    rhs: Expression,
+    rhs: Term<'a>,
 }
 
 /// A canonical row: strictly increasing indices, nonzero finite coefficients.
@@ -106,44 +124,42 @@ struct Row {
 }
 
 enum Defect {
-    Index,
+    /// A malformed expression or an index out of range.
+    Invalid,
     NonFinite,
 }
 
-/// Sum in input order from `0.0`. `Iterator::sum` for `f64` starts from `-0.0`,
-/// so an empty sum would be `-0.0`.
-fn sum(values: impl Iterator<Item = f64>) -> f64 {
-    values.fold(0.0, |total, value| total + value)
+fn finite(value: f64) -> Result<f64, Defect> {
+    if value.is_finite() {
+        Ok(value)
+    } else {
+        Err(Defect::NonFinite)
+    }
 }
 
-/// Canonicalize `lhs - rhs` into sorted, merged, nonzero terms and a constant.
-/// Duplicates are summed in input order (a stable sort keeps it deterministic);
-/// an overflowing sum becomes infinite and is reported as non-finite.
-fn canonical(
-    lhs: &Expression,
-    rhs: &Expression,
+/// Expand `lhs − rhs`: lhs leaves first, then negated rhs leaves.
+fn difference(
+    lhs: Term<'_>,
+    rhs: Term<'_>,
     variables: usize,
 ) -> Result<(Vec<(usize, f64)>, f64), Defect> {
-    let mut terms: Vec<(usize, f64)> = lhs
-        .terms
-        .iter()
-        .copied()
-        .chain(rhs.terms.iter().map(|&(i, c)| (i, -c)))
-        .collect();
-    if terms.iter().any(|&(i, _)| i >= variables) {
-        return Err(Defect::Index);
-    }
+    let (mut terms, lhs_constant) = expand(lhs, variables)?;
+    let (rhs_terms, rhs_constant) = expand(rhs, variables)?;
+    terms.extend(rhs_terms.into_iter().map(|(i, c)| (i, -c)));
+    Ok((terms, finite(lhs_constant - rhs_constant)?))
+}
+
+/// Sort expanded terms by index, sum duplicates in input order and drop zeros.
+fn canonical(
+    (mut terms, constant): (Vec<(usize, f64)>, f64),
+) -> Result<(Vec<(usize, f64)>, f64), Defect> {
     terms.sort_by_key(|&(i, _)| i);
     let mut merged: Vec<(usize, f64)> = Vec::with_capacity(terms.len());
     for (i, c) in terms {
         match merged.last_mut() {
-            Some(last) if last.0 == i => last.1 += c,
+            Some(last) if last.0 == i => last.1 = finite(last.1 + c)?,
             _ => merged.push((i, c)),
         }
-    }
-    let constant = sum(lhs.constants.iter().copied()) - sum(rhs.constants.iter().copied());
-    if !constant.is_finite() || merged.iter().any(|&(_, c)| !c.is_finite()) {
-        return Err(Defect::NonFinite);
     }
     merged.retain(|&(_, c)| c != 0.0);
     Ok((merged, constant))
@@ -243,13 +259,10 @@ fn decode(term: Term<'_>) -> Result<Model, InvalidReason> {
         })
         .collect::<Result<Vec<_>, _>>()?;
     let n = variables.len();
-    let objective: Expression = raw
-        .objective
-        .decode()
-        .map_err(|_| InvalidReason::InvalidObjective)?;
-    let (terms, offset) =
-        canonical(&objective, &Expression::EMPTY, n).map_err(|defect| match defect {
-            Defect::Index => InvalidReason::InvalidObjective,
+    let (terms, offset) = expand(raw.objective, n)
+        .and_then(canonical)
+        .map_err(|defect| match defect {
+            Defect::Invalid => InvalidReason::InvalidObjective,
             Defect::NonFinite => InvalidReason::NonFiniteObjective,
         })?;
     let mut dense = vec![0.0; n];
@@ -262,9 +275,10 @@ fn decode(term: Term<'_>) -> Result<Model, InvalidReason> {
         .enumerate()
         .map(|(i, term)| {
             let raw: RawRow = term.decode().map_err(|_| InvalidReason::InvalidRow(i))?;
-            let (terms, constant) =
-                canonical(&raw.lhs, &raw.rhs, n).map_err(|defect| match defect {
-                    Defect::Index => InvalidReason::InvalidRow(i),
+            let (terms, constant) = difference(raw.lhs, raw.rhs, n)
+                .and_then(canonical)
+                .map_err(|defect| match defect {
+                    Defect::Invalid => InvalidReason::InvalidRow(i),
                     Defect::NonFinite => InvalidReason::NonFiniteRow(i),
                 })?;
             Ok(Row {
@@ -353,15 +367,17 @@ fn solve(model: Model) -> Result<Outcome, DriverError> {
     Ok(Outcome::Optimal(objective, values, solution.stats().into()))
 }
 
-/// `Σ coefficient · value + Σ constants`, summed in input order. Small and
-/// linear, so it runs on a normal scheduler. A non-finite result (overflow) is
-/// `Err(nil)`, Gleam's `Error(Nil)`.
-#[rustler::nif]
-fn driver_evaluate(products: Vec<(f64, f64)>, constants: Vec<f64>) -> Result<f64, Atom> {
-    let value = sum(products.iter().map(|&(c, v)| c * v)) + sum(constants.iter().copied());
-    if value.is_finite() {
-        Ok(value)
-    } else {
-        Err(atoms::nil())
-    }
+/// Shares solve canonicalization, including scaling and duplicate merging.
+/// Sorting and decoding are unbounded work, so use a dirty CPU scheduler.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn driver_evaluate(expression: Term<'_>, values: Vec<f64>) -> Result<f64, Atom> {
+    let evaluate = || -> Result<f64, Defect> {
+        let (terms, constant) = canonical(expand(expression, values.len())?)?;
+        let mut total = 0.0;
+        for (index, coefficient) in terms {
+            total = finite(total + finite(coefficient * values[index])?)?;
+        }
+        finite(total + constant)
+    };
+    evaluate().map_err(|_| atoms::nil())
 }

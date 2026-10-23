@@ -7,20 +7,21 @@ the decisions behind it. Future work and open questions live in
 
 This file describes the current design. When a decision changes, edit its entry
 in place; git keeps the history. Each entry states the decision, why, and the
-alternatives that were rejected, one line each with the reason.
+alternatives that were rejected, one line each with the reason. When a decision
+changes, recheck the rejections elsewhere whose reasons depended on it.
 
 ## Principles
 
 ### Describe in Gleam, compute in Rust
 
 **Decision.** The Gleam layer is symbolic: it assigns columns to keys,
-evaluates domains, and lowers term lists to indexed but unsummed expressions. It
-does no arithmetic on user floats. Rust does all numeric work: canonicalization,
+evaluates domains, and lowers expressions to indexed but unsummed trees. It does
+no arithmetic on user floats. Rust does all numeric work: canonicalization,
 validation, solving and evaluation. The two meet in one contract, the driver
 model, sent in a single NIF call.
 
 ```
-Gleam: keys → columns, domain(key), term lists → indexed expressions
+Gleam: keys → columns, domain(key), expressions → indexed expressions
   │ one dirty-CPU NIF call
 Rust: decode → canonicalize → validate → solve → check results
   │ values in column order | positioned error
@@ -38,7 +39,8 @@ Gleam: values → keyed Solution; positions → keys and locations
 
 **What stays in Gleam.** Key discovery and column assignment: `domain` is a
 Gleam closure a NIF can't call, and keys are arbitrary Gleam values while Rust
-only sees indices. This costs one dictionary lookup per term in Gleam.
+only sees indices. This costs one dictionary lookup per variable reference in
+Gleam.
 
 **Adaptability.** Moving work to Rust means changing the one contract. Presolve,
 scaling, or building CSC for Clarabel stay inside Rust. Persistent native models
@@ -94,70 +96,92 @@ impossible.
 
 ### Representative models drive the API
 
-**Decision.** API changes are judged by how the production, transportation and
-binary-selection models in `test/waffle_test.gleam` read. JuMP, Pyomo and
-MathOpt are influences, not syntax to copy.
+**Decision.** API and design changes are judged by how the representative
+models in the tests read: today production, transportation and binary selection
+in `test/waffle_test.gleam`. The set grows with the end-to-end examples on the
+roadmap and can move into separate test files when it gets long. JuMP, Pyomo
+and MathOpt are influences, not syntax to copy.
 
 **Why.** Concrete models expose ergonomic costs that abstract design hides, and
-they double as regression tests. They're small, so they support no performance
-claims; other libraries rely on macros, operator overloading or mutation that
-Gleam lacks.
+they double as regression tests. They only reveal what they exercise: a set
+without expression reuse hides the value of composition. They're small, so they
+support no performance claims; other libraries rely on macros, operator
+overloading or mutation that Gleam lacks.
 
 ## Modeling API
 
-### Expressions are lists of terms
+### Expressions are an affine tree
 
-**Decision.** An expression is a plain `List(Term(v))`; the empty list is zero.
+**Decision.** An expression is a small tree: two leaves, `Linear` and
+`Constant`, and two affine combinators, `Sum` and `Scaled`. `Sum([])` is zero.
 Duplicate keys and zero coefficients are allowed: Rust canonicalizes anyway.
-Expressions are affine only; there is no `multiply`.
+There is no `multiply`, so every expression is affine by construction.
 
 ```gleam
-pub type Term(v) {
+pub type Expression(v) {
   Linear(coefficient: Float, variable: v)
   Constant(value: Float)
+  Sum(expressions: List(Expression(v)))
+  Scaled(coefficient: Float, expression: Expression(v))
 }
 
-[Linear(3.0, X), Linear(2.0, Y), Constant(7.0)]          // 3x + 2y + 7
-list.map(items, fn(i) { Linear(i.weight, Pick(i.id)) })  // Σ wᵢ pickᵢ
-list.append(e1, e2)                                       // e1 + e2
+Sum([Linear(3.0, X), Linear(2.0, Y), Constant(7.0)])          // 3x + 2y + 7
+list.map(items, fn(i) { Linear(i.weight, Pick(i.id)) }) |> Sum  // Σ wᵢ pickᵢ
+Sum([revenue, Scaled(-1.0, cost)])                            // revenue − cost
 ```
 
-**Why.** It's Gleam data: immutable, pattern-matchable, composed with the
-standard library. Every representative model is "coefficient × key, mapped over
-data". A list of *terms* is their sum, so `[x, y]` is `x + y`; the sum of two
-*expressions* is `list.append(e1, e2)`. No helpers are needed to build
-expressions; a `scale` helper for reused expressions waits until a model needs
-it.
+**Why.** Every operation takes and returns an expression, so reuse is ordinary
+nesting: a named expression goes anywhere an expression does, without
+flattening or copying. Every representative model is "coefficient × key, mapped
+over data"; the mapped list becomes one `Sum`, which ends a pipeline. Sides with
+a single term need no wrapper (`LessEqual(x, Constant(4.0))`), which offsets
+the `Sum` on sides with several. It is still plain Gleam data: immutable,
+pattern-matchable, built with the standard library, and composed without float
+arithmetic in Gleam.
 
 **Naming.** In math an affine expression is a sum of linear terms and a constant
 term, and JuMP (`terms`, `constant`), Pyomo and MathOpt (`terms`, `offset`)
-split it the same way. Constructors are named by degree, so a future quadratic
-term would be `Quadratic`, in its own type. Coefficients come first, as in `3x`.
-Verbosity is acceptable because most terms come from a `list.map`, and callers
-can rename at the import (`import waffle.{Linear as L, Constant as C}`), which
-the `Term` docs mention.
+split it the same way. Leaves are named by degree, so a future quadratic term
+would be `Quadratic`, in its own type; `Sum` and `Scaled` name the two affine
+combinators. `Linear` stays a leaf rather than `Scaled(c, Variable(key))`:
+weighted variables are the dominant construction, and two constructors per term
+would hurt readability. Coefficients come first, as in `3x`. Callers can rename
+at the import (`import waffle.{Linear as L, Constant as C}`), which the
+`Expression` docs mention.
+
+**Costs.** Summation needs an explicit `Sum`. Equal math has more spellings
+(`x`, `Sum([x])`, `Scaled(1.0, x)`); see "A constraint is its own identity".
+Trees can be as deep as the data; see "The driver contract".
 
 **Affine only.** A general tree with `multiply` was implemented and compared: it
-accepted products only when one side was constant, which `Linear` already
-covers, and it rejected the rest late and without context, with surprising
+accepted products only when one side was constant, which `Linear` and `Scaled`
+cover, and it rejected the rest late and without context, with surprising
 rules (`0 * (x * x)` rejected, `(x - x) * x` accepted). A future quadratic
 capability gets its own type (`Affine × Affine → Quadratic`) accepted only where
 a backend supports it.
 
 **Rejected.**
-- *Operator-style algebra* (`constant`, `variable`, `add`, `scale`, `sum`).
-  Imitates operator overloading Gleam lacks; every literal needs a constructor.
+- *A list of terms, nested through a `Scaled` term.* A list is an expression
+  but `Scaled` is a term, so whole expressions combine through `list.append` or
+  `Scaled(1.0, e)`, and a single term can't stand where an expression is
+  expected. Flat lists alone can't scale a reused expression without float
+  arithmetic in Gleam.
+- *Operator-style functions* (`constant`, `variable`, `add`, `scale`, `sum`).
+  Imitate operator overloading Gleam lacks and hide the structure; the tree
+  composes the same way with pattern-matchable constructors.
 - *A record of terms plus one constant.* Composition then needs a helper.
 - *An opaque canonical expression with smart constructors.* Brings back the
-  constructor noise.
+  function-call noise and hides the structure.
 - *`Dict(v, Float)`.* `dict.from_list` silently replaces duplicates, so
   `x + 2x` would become `2x`.
-- *An expression tree.* Re-lowered per use and needs care to avoid quadratic
-  merging; its only benefit, structure for printing, is unused.
+- *A general algebra tree.* Unnecessary operators and late nonlinear errors;
+  the affine tree cannot express a product of variables.
+- *`Scaled(coefficient, Variable(key))` instead of `Linear`.* Two constructors
+  for the most common term.
 - *JuMP-style promotion of products at runtime.* Needs multiple dispatch; in
   Gleam the equivalent is distinct types.
-- *`Term`/`Constant`, `Var`/`Const`, `Times`/`Plus` as constructor names.*
-  Shadowing the type name, abbreviations, and `Plus(-1.0)` respectively.
+- *`Term`, `Var`/`Const`, `Times`/`Plus` as leaf names.* A vague name,
+  abbreviations, and `Plus(-1.0)` respectively.
 
 ### Constraints relate two expressions
 
@@ -165,27 +189,27 @@ a backend supports it.
 
 ```gleam
 pub type Constraint(v) {
-  LessEqual(lhs: List(Term(v)), rhs: List(Term(v)))
-  Equal(lhs: List(Term(v)), rhs: List(Term(v)))
-  GreaterEqual(lhs: List(Term(v)), rhs: List(Term(v)))
+  LessEqual(lhs: Expression(v), rhs: Expression(v))
+  Equal(lhs: Expression(v), rhs: Expression(v))
+  GreaterEqual(lhs: Expression(v), rhs: Expression(v))
 }
 
-LessEqual([x, y], [Constant(4.0)])     // x + y ≤ 4
-LessEqual([x], [y])                    // x ≤ y
-GreaterEqual([x, y], [Constant(2.0)])  // 2 ≤ x + y ≤ 5
-LessEqual([x, y], [Constant(5.0)])     //   as two constraints
+LessEqual(Sum([x, y]), Constant(4.0))     // x + y ≤ 4
+LessEqual(x, y)                           // x ≤ y
+GreaterEqual(Sum([x, y]), Constant(2.0))  // 2 ≤ x + y ≤ 5
+LessEqual(Sum([x, y]), Constant(5.0))     //   as two constraints
 ```
 
-**Why.** Reads in math order, `x ≤ y` needs no rearranging, constants come from
-the terms, and each constraint becomes exactly one solver row. `GreaterEqual` is
-redundant with a swapped `LessEqual` but kept for readability. The cost: a ranged
-row is two constraints.
+**Why.** Reads in math order, `x ≤ y` needs no rearranging, a constant is an
+ordinary expression, and each constraint becomes exactly one solver row.
+`GreaterEqual` is redundant with a swapped `LessEqual` but kept for readability.
+The cost: a ranged row is two constraints.
 
 **Rejected.** Compared on the three rows above.
 - *An expression within an interval of numbers* (`AtMost(4.0)`,
   `Between(2.0, 5.0)`). One ranged row, but `x ≤ y` must be rearranged and the
   constant has two homes.
-- *An interval whose bounds are expressions* (`AtMost([y])`). Reads like the
+- *An interval whose bounds are expressions* (`AtMost(y)`). Reads like the
   chosen form plus a nesting level.
 - *Rows and bounds as separate, key-driven parts* (`bound: fn(row) -> Interval`).
   Exhaustive, but splits each constraint in two; see ROADMAP.md open questions.
@@ -204,7 +228,7 @@ itself is the key: values have structural equality and any BEAM term can key a
 dictionary. The function that builds a constraint is also its lookup:
 
 ```gleam
-let capacity = fn(m: Machine) { LessEqual(hours_used(m), [Constant(m.hours)]) }
+let capacity = fn(m: Machine) { LessEqual(hours_used(m), Constant(m.hours)) }
 // constraints: list.map(machines, capacity)
 dual(solution, capacity(m2))  // future
 ```
@@ -216,7 +240,8 @@ on every row, and the zipping that positional results would need.
 **Costs.**
 - Identical constraints are one key. They are also redundant, so a dual-capable
   driver merges them into one row.
-- Equal math is not equal values: `[x, y]` and `[y, x]` are separate rows.
+- Equal math is not equal values: `Sum([x, y])`, `Sum([y, x])` and
+  `Sum([Sum([x]), y])` are separate rows.
 - A lookup hashes the whole row, linear in its length.
 - Errors can't print a short name; they report the list position.
 - Values change with data across scenarios, so an old value won't find a row in
@@ -326,13 +351,16 @@ sets, the role Pyomo's `Set` plays.
 **Decision.** `value(solution, key)` returns a `Result`, never a substituted
 zero. `values(solution)` returns all values keyed by variable.
 `evaluate(solution, expression)` computes costs, breakdowns and slacks: Gleam
-looks up values, reporting `NotInSolution(key)`, and a small NIF sums
-`#(coefficient, value)` pairs, reporting `NonFiniteValue`. Solutions are
+lowers the expression and looks up its keys, reporting `NotInSolution(key)`.
+Rust receives the indexed expression and values, canonicalizes with the same
+rules as solving, and evaluates it, reporting `NonFiniteValue`. Solutions are
 immutable snapshots.
 
 **Why.** Silent zeros hide typos. Evaluating expressions is more useful for
-reporting than single lookups. Passing pairs instead of indices leaves the NIF
-with no malformed-input case.
+reporting than single lookups. Sharing canonicalization ensures duplicates are
+combined before multiplication in both paths, avoiding spurious product overflow
+for cancelling terms. The cost is column discovery and sorting on every
+evaluation; see ROADMAP.md ("Performance").
 
 ### Solve statistics
 
@@ -374,27 +402,47 @@ the internal contract.
 ### The driver contract
 
 **Decision.** Rust receives indices only: domains in column order, an objective
-expression, and rows as `lhs relation rhs`, where each expression is
-`Expression(terms, constants)`, unsummed and unordered. Rows correspond
-one-to-one to constraints, so every solver position maps back to a key or
-constraint. Keys and names never cross the boundary. The contract changes only
-deliberately, in Rust and Gleam together.
+expression, and rows as `lhs relation rhs`. Expressions mirror the public tree
+with keys replaced by indices. Rows correspond one-to-one to constraints, so
+every solver position maps back to a key or constraint. Keys and names never
+cross the boundary. The contract changes only deliberately, in Rust and Gleam
+together.
+
+Nesting depth is bounded by memory, never by a stack. Gleam lowers the tree in
+one tail-recursive loop over an explicit stack of frames. Rust decodes one node
+at a time, keeping children as undecoded terms on a `Vec` stack, so no nested
+Rust value exists whose decoding, traversal or drop would recurse.
 
 **Why.** The NIF stays numeric, small and target-independent, and Gleam needs no
-float arithmetic to produce it.
+float arithmetic to produce it. The tree keeps sums and scaling scopes
+structural and avoids a separate instruction format and scope validation. Deep
+trees are ordinary (a fold accumulating `Sum([acc, term])`), and a native stack
+overflow on a small dirty-scheduler stack would crash the VM rather than return
+a `SolverFailure`.
 
 **Rejected.**
 - *Passing names to the native layer.* No benefit for microlp, and it ties Rust
   to BEAM terms.
 - *A canonical model produced by Gleam.* Gleam would do float arithmetic.
+- *Rustler-derived recursive decoding into a Rust tree.* Each nesting level
+  costs native stack in decoding, traversal and drop.
+- *A larger native stack* (the `stacker` crate or a big-stack thread). Raises
+  the limit or adds a dependency instead of removing the recursion.
 
 ### Canonicalization
 
-**Decision.** Rust stable-sorts terms by index, sums duplicates in input order
-(starting from `0.0`), sums constants, checks finiteness, then drops exact zeros.
-Rows become `lhs − rhs relation −constant`; the objective's constants become its
-offset. Small coefficients are never dropped by an epsilon. Zero-coefficient
-terms still have their index validated.
+**Decision.** Rust expands the expression tree in depth-first input order.
+Factors multiply outer-to-inner from `1.0`, then multiply each leaf coefficient
+or constant; `Sum` contributes no factor. Each intermediate product must be
+finite, including accumulated factors over empty sums; zero scales do not skip
+references or validation. Constants sum in depth-first input order from `0.0`.
+Terms are stable-sorted by index, duplicates sum in input order, then exact
+zeros are dropped. Every sum must be finite. Rows become `lhs − rhs relation −constant`; the objective's
+constants become its offset. Small coefficients are never dropped by an epsilon.
+
+Scaling distributes over leaves before canonicalization. It is not a promise of
+exact real arithmetic: nesting and regrouping can affect rounding, underflow or
+overflow. Both solve and evaluate use these same rules.
 
 **Why.** Deterministic results; an epsilon would silently change the model;
 validating cancelled terms keeps mistakes from vanishing.
@@ -412,7 +460,7 @@ range, indices, finiteness of sums and results. It decodes each domain and row
 separately, so failures carry a position:
 - `InvalidDomain(variable)` for integer bounds outside 32 bits, mapped to
   `InvalidDomain(key)`;
-- `NonFiniteObjective` and `NonFiniteRow(row)` for overflowing sums or
+- `NonFiniteObjective` and `NonFiniteRow(row)` for overflowing products/sums or
   non-finite input, mapped to `NonFinite(InObjective | InConstraint(index))`;
 - `MalformedModel`, `InvalidObjective` and `InvalidRow(row)` for contract
   violations, which mean a bug in the producer and surface as `SolverFailure`.
@@ -437,8 +485,8 @@ Data-driven models can legitimately produce empty ranges.
 
 **Decision.**
 - Stable Rust, no `unsafe`.
-- Compute NIFs (`driver_solve`) run on `DirtyCpu` schedulers. NIFs whose work is
-  small and linear in their input (`driver_evaluate`) run on normal schedulers.
+- Compute NIFs (`driver_solve`, `driver_evaluate`) run on `DirtyCpu` schedulers.
+  Both decode unrestricted inputs and canonicalize expressions, including sorting.
 - NIFs return tagged results matching the Gleam types; Rust panics are caught
   and returned as `SolverFailure`.
 - Never change an explicit bound, relax integer variables, or return non-finite
@@ -446,9 +494,9 @@ Data-driven models can legitimately produce empty ranges.
 - Erlang modules share one global namespace and take their name from `-module`,
   so every `.erl` file is prefixed with `waffle_`.
 
-**Why.** Long solves must not block normal schedulers, while dirty scheduling
-would cost more than a single evaluation. A NIF that crashes takes down the
-caller, so every failure must be a value.
+**Why.** Solving and expression evaluation must not block normal schedulers.
+Benchmarks can justify a bounded fast path for small evaluations later. Solver
+panics are caught so callers receive a failure value.
 
 ## Deferred, with requirements
 
@@ -475,8 +523,8 @@ stopped from what data is available: optimal, feasible but unproven
 (`Feasible(solution)`), and stopped without a primal value
 (`Stopped(reason, stats)`, from microlp's `InterruptedSolve`). The gap of a
 feasible result belongs in its `Stats`, not in the variant. A time limit is not
-infeasibility, and a feasible incumbent is not optimal. Today the driver treats any unexpected non-optimal return as a
-`SolverFailure`. microlp 0.6.0 already supports `set_time_limit`, `solve_with`,
+infeasibility, and a feasible incumbent is not optimal. Today the driver treats
+any unexpected non-optimal return as a `SolverFailure`. microlp 0.6.0 already supports `set_time_limit`, `solve_with`,
 `TerminationReason`, `InterruptedSolve` and `resume`.
 
 ### Out of scope for now
