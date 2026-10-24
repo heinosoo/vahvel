@@ -222,4 +222,9 @@ pub fn checking_a_plan_test() {
   // With it, the plan earns 21.00 − 1.50: less than the solver's 21.
   let plan = dict.insert(plan, Station(Chocolate), 0.0)
   waffle.evaluate_dict(profit, plan) |> should.equal(Ok(19.5))
+  // A residual is lhs − rhs, so a `LessEqual` holds when it is at most zero:
+  // one minute and one scoop to spare.
+  supply_limits()
+  |> list.map(waffle.residual(_, dict.get(plan, _)))
+  |> should.equal([Ok(-1.0), Ok(-1.0)])
 }

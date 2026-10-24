@@ -327,8 +327,8 @@ pub fn values(solution: Solution(v)) -> Dict(v, Float) {
 }
 
 /// Evaluate an expression with the values `lookup` gives its variables, e.g. a
-/// cost breakdown, a constraint's slack as `Difference(rhs, lhs)`, or the cost
-/// of a hand-made plan. Values need not satisfy any model.
+/// cost breakdown or the cost of a hand-made plan; `residual` evaluates a
+/// constraint. Values need not satisfy any model.
 ///
 /// Every referenced variable needs a value, even one that cancels or is scaled
 /// by zero. The first variable without one, in depth-first order, is
@@ -373,4 +373,19 @@ pub fn evaluate_dict(
   values: Dict(v, Float),
 ) -> Result(Float, EvaluationError(v)) {
   evaluate(expression, dict.get(values, _))
+}
+
+/// A constraint's `lhs − rhs` at the values `lookup` gives its variables:
+/// `evaluate(Difference(lhs, rhs), lookup)`. It holds when the residual is at
+/// most zero for `LessEqual`, zero for `Equal` and at least zero for
+/// `GreaterEqual`; solver results meet that only within the solver's tolerance.
+///
+/// ```gleam
+/// list.map(constraints, fn(c) { #(c, waffle.residual(c, lookup)) })
+/// ```
+pub fn residual(
+  constraint: Constraint(v),
+  lookup: fn(v) -> Result(Float, Nil),
+) -> Result(Float, EvaluationError(v)) {
+  evaluate(Difference(constraint.lhs, constraint.rhs), lookup)
 }

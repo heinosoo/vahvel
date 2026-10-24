@@ -7,14 +7,11 @@ work is removed from this file; git log keeps it. Design decisions are in
 
 ## Next
 
-- **Constraint reporting.** A constraint's slack or residual, at a solution or
-  at caller-supplied values, to check a hand-made plan or a heuristic's result.
-  Build on `evaluate`: take the same lookup and report missing values and
-  overflow with `EvaluationError`. A violated constraint is a result of
-  checking, not an evaluation error. Decide how violations are reported, and
-  use the examples to define reporting conventions, including a complete plan
-  (the production network per period, not just its costs). Reuses the driver's
-  evaluation path.
+- **Complete plan reporting.** A report for the production network:
+  production, shipping and inventory by period, not just costs, using `value`,
+  `evaluate` and `residual`. Use it to establish how reports tell absent
+  decisions (unavailable lanes) from incorrect keys without substituting zero,
+  and whether documentation suffices or variable discovery needs API support.
 - **Solve limits.** Time and iteration limits with an outcome that separates
   optimal, feasible-but-unproven and stopped results (DESIGN.md: "Solve
   limits"). microlp already supports this; the driver contract changes with it.
@@ -37,15 +34,11 @@ additions by semantic clarity, composability, predictable validation and public
 surface cost; examples provide ergonomic evidence, not the sole acceptance
 criterion.
 
-- **Checking a supplied plan.** Go beyond expression evaluation to check
-  variable bounds, integrality and constraints. Define tolerances and distinguish
-  missing assignments, domain violations, constraint violations and numeric
-  failures. A plan can satisfy every row while assigning fractional trucks.
-- **Complete and sparse reporting.** Use a full production, shipping and
-  inventory report by period to investigate how callers distinguish absent
-  decisions from incorrect query keys. Establish reporting patterns without
-  silently substituting zero for missing values; determine whether documentation
-  suffices or variable discovery needs API support.
+- **Checking a supplied plan.** Go beyond residuals to verdicts: check
+  variable bounds, integrality and constraints. Define tolerances (solver
+  results satisfy rows only within microlp's) and distinguish missing
+  assignments, domain violations, constraint violations and numeric failures.
+  A plan can satisfy every row while assigning fractional trucks.
 - **Model inspection.** Inspect generated constraints, referenced variables and
   their domains before solving. Determine what helps diagnose incorrectly
   assembled models, and how it relates to expression printing under Diagnostics.

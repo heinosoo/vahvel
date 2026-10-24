@@ -278,8 +278,8 @@ let capacity = fn(m: Machine) { LessEqual(hours_used(m), Constant(m.hours)) }
 dual(solution, capacity(m2))  // future
 ```
 
-**Why.** Compilation and solving never used keys; slack needs none
-(`evaluate_solution(Difference(rhs, lhs), solution)`). Identity by value removes a type parameter, a field
+**Why.** Compilation and solving never used keys; residuals need none
+(`residual(constraint, lookup)`). Identity by value removes a type parameter, a field
 on every row, and the zipping that positional results would need.
 
 **Costs.**
@@ -411,7 +411,7 @@ sets, the role Pyomo's `Set` plays.
 **Decision.** `value(solution, key)` returns `Result(Float, Nil)` like
 `dict.get`, never a substituted zero. `evaluate(expression, lookup)` computes
 an expression at the values a `fn(v) -> Result(Float, Nil)` supplies, with the
-same canonicalization as solving: costs, breakdowns and slacks at a solution,
+same canonicalization as solving: costs and breakdowns at a solution,
 or the cost of a hand-made plan or a what-if. `evaluate_solution(expression,
 solution)` and `evaluate_dict(expression, values)` are exactly
 `evaluate(expression, value(solution, _))` and
@@ -438,6 +438,18 @@ report. Exact integer values make `float.round` lossless rather than a
 tolerance guess. Shared canonicalization combines duplicates before
 multiplying, avoiding spurious overflow for cancelling terms.
 
+**Residuals.** `residual(constraint, lookup)` is exactly
+`evaluate(Difference(lhs, rhs), lookup)` for every relation: a constraint holds
+when its residual is at most zero (`LessEqual`), zero (`Equal`) or at least
+zero (`GreaterEqual`). One formula means no per-relation signs to remember, and
+the constraint value keys a report of a model's rows. It gives no verdict:
+solver results satisfy rows only within the solver's tolerance, and a
+tolerance is a policy. Rust sums each side's constants before subtracting when
+solving, while evaluation adds the negated right side term by term, so a
+residual can differ in the last digits from the solver's row, and near
+overflow a row that solved can have a `NonFiniteValue` residual. Matching the
+row exactly would need a driver contract change.
+
 **Costs.** A report mixing `value` and evaluation aligns their errors itself,
 e.g. `result.replace_error(MissingValue(key))`, rather than chaining one shared
 error type. Every evaluation pays for column discovery and sorting. How often
@@ -456,6 +468,11 @@ the lookup is called is unspecified, so lookups should be pure.
 - *`value_or` and `evaluate_or` with a default.* A default is a policy that
   makes substituted zeros look recommended and, for a whole expression, hides
   which key was missing.
+- *Slack with a sign per relation.* Non-negative means satisfied for
+  inequalities, but `Equal` has no slack, and sign conventions differ by source.
+- *A satisfied-or-violated result.* Needs a tolerance.
+- *`residual_solution` and `residual_dict`.* Not yet needed: `residual(c,
+  value(solution, _))` stays short.
 - *Evaluating many expressions in one call to get one `Result`.* `use`,
   `list.map` and `list.try_map` already combine one `Result` per expression;
   a batch call needs measured performance benefits.

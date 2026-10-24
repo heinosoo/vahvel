@@ -81,7 +81,8 @@ way, calls the caller's lookup once per distinct key in first-reference order
 and stops at the first missing value, then sends the indexed expression and
 values to `driver_evaluate`, which shares canonicalization with solving before
 multiplying by the values. `evaluate_solution` and `evaluate_dict` pass
-`value(solution, _)` and `dict.get(values, _)` as the lookup.
+`value(solution, _)` and `dict.get(values, _)` as the lookup, and `residual`
+evaluates `Difference(lhs, rhs)` of a constraint.
 
 ## Numeric driver contract
 
@@ -193,8 +194,8 @@ for the representative models in `test/examples/`.
 
 - `test/waffle_test.gleam`: gleeunit's entry point and the modeling API,
   grouped by concern: variables and keys, domains, constraints, expressions,
-  outcomes and errors, solutions, evaluation against supplied values, and
-  statistics.
+  outcomes and errors, solutions, evaluation against supplied values,
+  residuals, and statistics.
 - `test/examples/`: representative models. `readme_test` is the README's waffle
   stand in full, one test per step, ending with a hand-made plan;
   `production_network_test` is a multi-period network with mixed variable

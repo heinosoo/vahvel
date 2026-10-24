@@ -461,16 +461,11 @@ pub fn solution_values_test() {
   close_value(solution, Table, 2.0)
 }
 
-pub fn evaluate_reports_breakdowns_and_slack_test() {
+pub fn evaluate_reports_breakdowns_test() {
   let solution = solved_chairs_and_tables()
   // Chairs contribute 3 · 2.
   let assert Ok(chairs) = m.evaluate_solution(Linear(3.0, Chair), solution)
   close(chairs, 6.0)
-  // Slack of the hours constraint: rhs − lhs.
-  let hours = Sum([Variable(Chair), Variable(Table)])
-  let assert Ok(slack) =
-    m.evaluate_solution(Difference(Constant(4.0), hours), solution)
-  close(slack, 0.0)
   m.evaluate_solution(Sum([]), solution) |> should.equal(Ok(0.0))
 }
 
@@ -581,6 +576,50 @@ pub fn overrides_compose_with_solution_values_test() {
   |> should.equal(Ok(4.0))
   m.evaluate(Variable(Missing), lookup)
   |> should.equal(Error(m.MissingValue(Missing)))
+}
+
+// Residuals
+
+pub fn residual_is_lhs_minus_rhs_for_every_relation_test() {
+  let plan = dict.get(dict.from_list([#(Chair, 2.0), #(Table, 3.0)]), _)
+  let both = Sum([Variable(Chair), Variable(Table)])
+  m.residual(m.LessEqual(both, Constant(4.0)), plan) |> should.equal(Ok(1.0))
+  m.residual(m.GreaterEqual(both, Constant(4.0)), plan)
+  |> should.equal(Ok(1.0))
+  m.residual(m.Equal(Variable(Chair), Constant(2.0)), plan)
+  |> should.equal(Ok(0.0))
+  // Constants and variables on both sides: 2 + 1 − (3 + 5).
+  m.residual(
+    m.LessEqual(
+      Sum([Variable(Chair), Constant(1.0)]),
+      Sum([Variable(Table), Constant(5.0)]),
+    ),
+    plan,
+  )
+  |> should.equal(Ok(-5.0))
+}
+
+pub fn residual_errors_test() {
+  let plan = dict.get(dict.from_list([#(Chair, 1.0)]), _)
+  m.residual(m.LessEqual(Variable(Chair), Variable(Table)), plan)
+  |> should.equal(Error(m.MissingValue(Table)))
+  // Cancelling sides still reference their variables.
+  m.residual(m.Equal(Variable(Missing), Variable(Missing)), plan)
+  |> should.equal(Error(m.MissingValue(Missing)))
+  // Moving `-max·chair` across sides makes it `+max·chair`.
+  let overflowing = m.LessEqual(Linear(max, Chair), Linear(0.0 -. max, Chair))
+  m.residual(overflowing, plan) |> should.equal(Error(m.NonFiniteValue))
+  m.evaluate(Difference(overflowing.lhs, overflowing.rhs), plan)
+  |> should.equal(Error(m.NonFiniteValue))
+}
+
+pub fn residual_at_a_solution_test() {
+  let solution = solved_chairs_and_tables()
+  // The hours constraint binds at the optimum.
+  let hours =
+    m.LessEqual(Sum([Variable(Chair), Variable(Table)]), Constant(4.0))
+  let assert Ok(residual) = m.residual(hours, m.value(solution, _))
+  close(residual, 0.0)
 }
 
 // Statistics

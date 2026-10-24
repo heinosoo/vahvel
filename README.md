@@ -108,7 +108,9 @@ waffle.stats(solution).nodes  // branch-and-bound nodes
 ```
 
 `evaluate(expression, lookup)` takes any `fn(key) -> Result(Float, Nil)`, for
-example solution values with some overridden.
+example solution values with some overridden. `residual(constraint, lookup)`
+gives a constraint's `lhs − rhs`, so a `LessEqual` holds when it is at most
+zero.
 
 **Numerics in Rust.** Gleam only describes the model; Rust sums, scales,
 validates and solves it in one native call. Overflow and non-finite numbers are
