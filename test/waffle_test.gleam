@@ -6,7 +6,7 @@ import gleam/option.{None, Some}
 import gleam/time/duration
 import gleeunit
 import gleeunit/should
-import waffle.{Constant, Linear, Scaled, Sum} as m
+import waffle.{Constant, Difference, Linear, Scaled, Sum, Variable} as m
 
 pub fn main() {
   gleeunit.main()
@@ -40,10 +40,10 @@ const max = 1.7976931348623157e308
 // Variables and keys
 
 pub fn unreferenced_key_is_not_a_variable_test() {
-  let model = m.Model(..base(), objective: m.Minimize(Linear(1.0, Chair)))
+  let model = m.Model(..base(), objective: m.Minimize(Variable(Chair)))
   let assert Ok(m.Optimal(solution)) = m.solve(model)
   m.value(solution, Chair) |> should.equal(Ok(0.0))
-  m.value(solution, Missing) |> should.equal(Error(m.NotInSolution(Missing)))
+  m.value(solution, Missing) |> should.equal(Error(Nil))
 }
 
 pub fn zero_coefficient_reference_creates_variable_test() {
@@ -58,7 +58,7 @@ pub fn keys_can_be_any_value_test() {
       m.Model(
         domain: fn(_) { m.Real(Some(0.0), Some(1.0)) },
         objective: m.Maximize(
-          Sum([Linear(1.0, #("north", 1)), Linear(2.0, #("south", 2))]),
+          Sum([Variable(#("north", 1)), Linear(2.0, #("south", 2))]),
         ),
         constraints: [],
       ),
@@ -69,9 +69,9 @@ pub fn keys_can_be_any_value_test() {
     m.solve(
       m.Model(
         domain: fn(_) { m.Binary },
-        objective: m.Maximize(Sum([Linear(1.0, "a"), Linear(2.0, "b")])),
+        objective: m.Maximize(Sum([Variable("a"), Linear(2.0, "b")])),
         constraints: [
-          m.LessEqual(Sum([Linear(1.0, "a"), Linear(1.0, "b")]), Constant(1.0)),
+          m.LessEqual(Sum([Variable("a"), Variable("b")]), Constant(1.0)),
         ],
       ),
     )
@@ -85,7 +85,7 @@ pub fn int_keys_are_names_not_columns_test() {
   let model =
     m.Model(
       domain: fn(k) { m.Real(Some(0.0), Some(int.to_float(k))) },
-      objective: m.Maximize(Sum([Linear(1.0, 7), Linear(1.0, 3)])),
+      objective: m.Maximize(Sum([Variable(7), Variable(3)])),
       constraints: [],
     )
   let assert Ok(m.Optimal(solution)) = m.solve(model)
@@ -110,12 +110,9 @@ pub fn domains_apply_to_their_keys_test() {
   let model =
     m.Model(
       domain:,
-      objective: m.Maximize(Sum([Linear(3.0, Table), Linear(1.0, Chair)])),
+      objective: m.Maximize(Sum([Linear(3.0, Table), Variable(Chair)])),
       constraints: [
-        m.LessEqual(
-          Sum([Linear(1.0, Chair), Linear(1.0, Table)]),
-          Constant(7.5),
-        ),
+        m.LessEqual(Sum([Variable(Chair), Variable(Table)]), Constant(7.5)),
       ],
     )
   let assert Ok(m.Optimal(solution)) = m.solve(model)
@@ -136,7 +133,7 @@ fn only_table(domain: m.Domain) -> fn(Product) -> m.Domain {
 fn chair_and_table() -> m.Model(Product) {
   m.Model(
     ..base(),
-    objective: m.Minimize(Sum([Linear(1.0, Chair), Linear(1.0, Table)])),
+    objective: m.Minimize(Sum([Variable(Chair), Variable(Table)])),
   )
 }
 
@@ -163,13 +160,13 @@ pub fn nonnegative_domains_preserve_bounds_and_integrality_test() {
     let model =
       m.Model(
         domain: fn(_) { domain },
-        objective: m.Maximize(m.Variable(Chair)),
-        constraints: [m.LessEqual(m.Variable(Chair), Constant(2.5))],
+        objective: m.Maximize(Variable(Chair)),
+        constraints: [m.LessEqual(Variable(Chair), Constant(2.5))],
       )
     let assert Ok(m.Optimal(solution)) = m.solve(model)
     close_value(solution, Chair, expected)
     let assert Ok(m.Optimal(minimum)) =
-      m.solve(m.Model(..model, objective: m.Minimize(m.Variable(Chair))))
+      m.solve(m.Model(..model, objective: m.Minimize(Variable(Chair))))
     close_value(minimum, Chair, 0.0)
     case domain {
       m.NonNegativeInteger -> {
@@ -189,7 +186,7 @@ pub fn real_domain_allows_negative_values_test() {
     m.solve(
       m.Model(
         domain: fn(_) { m.Real(Some(-2.5), Some(3.0)) },
-        objective: m.Minimize(m.Variable(Chair)),
+        objective: m.Minimize(Variable(Chair)),
         constraints: [],
       ),
     )
@@ -199,8 +196,8 @@ pub fn real_domain_allows_negative_values_test() {
 // Constraints
 
 pub fn constants_and_terms_on_both_sides_solve_test() {
-  let chair = Linear(1.0, Chair)
-  let table = Linear(1.0, Table)
+  let chair = Variable(Chair)
+  let table = Variable(Table)
   // min 2·chair + table + 4  s.t.  table + 3 ≥ chair + 5,  chair + 1 = 3
   // (duplicates and cancelling terms in the objective are summed)
   let model =
@@ -228,9 +225,9 @@ pub fn constants_and_terms_on_both_sides_solve_test() {
 }
 
 pub fn identical_constraints_are_allowed_test() {
-  let row = m.LessEqual(Linear(1.0, Chair), Constant(1.0))
+  let row = m.LessEqual(Variable(Chair), Constant(1.0))
   let model =
-    m.Model(..base(), objective: m.Maximize(Linear(1.0, Chair)), constraints: [
+    m.Model(..base(), objective: m.Maximize(Variable(Chair)), constraints: [
       row,
       row,
     ])
@@ -242,25 +239,28 @@ pub fn identical_constraints_are_allowed_test() {
 
 pub fn expressions_are_reusable_test() {
   let revenue = Sum([Linear(5.0, Chair), Linear(4.0, Table)])
-  let cost = Sum([Linear(1.0, Chair), Linear(2.0, Table), Constant(3.0)])
-  let profit = Sum([revenue, Scaled(-1.0, cost)])
-  let hours = Sum([Linear(1.0, Chair), Linear(1.0, Table)])
+  let cost = Sum([Variable(Chair), Linear(2.0, Table), Constant(3.0)])
+  let profit = Difference(revenue, cost)
+  let hours = Sum([Variable(Chair), Variable(Table)])
   let model =
     m.Model(
       domain: nonnegative,
       objective: m.Maximize(Scaled(0.5, Scaled(2.0, profit))),
       constraints: [
         m.LessEqual(Scaled(2.0, hours), Scaled(2.0, Constant(4.0))),
-        m.Equal(Linear(1.0, Table), Constant(1.0)),
+        m.Equal(Variable(Table), Constant(1.0)),
       ],
     )
   let assert Ok(m.Optimal(solution)) = m.solve(model)
   close_value(solution, Chair, 3.0)
   close_value(solution, Table, 1.0)
   close(m.objective(solution), 11.0)
-  m.evaluate(solution, profit) |> should.equal(Ok(11.0))
-  m.evaluate(solution, cost) |> should.equal(Ok(8.0))
-  m.evaluate(solution, Sum([Scaled(2.0, Scaled(-1.0, cost)), Constant(1.0)]))
+  m.evaluate_solution(profit, solution) |> should.equal(Ok(11.0))
+  m.evaluate_solution(cost, solution) |> should.equal(Ok(8.0))
+  m.evaluate_solution(
+    Sum([Scaled(2.0, Scaled(-1.0, cost)), Constant(1.0)]),
+    solution,
+  )
   |> should.equal(Ok(-15.0))
 }
 
@@ -269,9 +269,9 @@ pub fn zero_and_empty_scales_test() {
   let assert Ok(m.Optimal(solution)) =
     m.solve(m.Model(..base(), objective: m.Minimize(expression)))
   m.value(solution, Chair) |> should.equal(Ok(0.0))
-  m.evaluate(solution, expression) |> should.equal(Ok(0.0))
-  m.evaluate(solution, Scaled(0.0, Linear(1.0, Missing)))
-  |> should.equal(Error(m.NotInSolution(Missing)))
+  m.evaluate_solution(expression, solution) |> should.equal(Ok(0.0))
+  m.evaluate_solution(Scaled(0.0, Variable(Missing)), solution)
+  |> should.equal(Error(m.MissingValue(Missing)))
   m.solve(
     m.Model(
       ..base(),
@@ -298,18 +298,16 @@ pub fn constants_sum_in_depth_first_input_order_test() {
 pub fn deep_expressions_test() {
   // A sum accumulated in a fold nests once per step.
   let sum =
-    int.range(0, 100_000, Linear(1.0, Chair), fn(e, _) {
+    int.range(0, 100_000, Variable(Chair), fn(e, _) {
       Sum([e, Linear(0.0, Chair)])
     })
   let scaled =
-    int.range(0, 100_000, Linear(1.0, Chair), fn(e, _) { Scaled(1.0, e) })
+    int.range(0, 100_000, Variable(Chair), fn(e, _) { Scaled(1.0, e) })
   let difference_left =
-    int.range(0, 100_000, m.Variable(Chair), fn(e, _) {
-      m.Difference(e, Sum([]))
-    })
+    int.range(0, 100_000, Variable(Chair), fn(e, _) { Difference(e, Sum([])) })
   let difference_right =
-    int.range(0, 100_000, m.Variable(Chair), fn(e, _) {
-      m.Difference(Constant(2.0), e)
+    int.range(0, 100_000, Variable(Chair), fn(e, _) {
+      Difference(Constant(2.0), e)
     })
   list.each([sum, scaled, difference_left, difference_right], fn(expression) {
     let assert Ok(m.Optimal(solution)) =
@@ -321,37 +319,41 @@ pub fn deep_expressions_test() {
         ),
       )
     m.objective(solution) |> should.equal(1.0)
-    m.evaluate(solution, expression) |> should.equal(Ok(1.0))
+    m.evaluate_solution(expression, solution) |> should.equal(Ok(1.0))
   })
 }
 
 pub fn difference_composes_on_both_sides_test() {
   let expression =
-    m.Difference(
-      Sum([m.Variable(Chair), Constant(7.0)]),
-      m.Difference(m.Variable(Table), Constant(2.0)),
+    Difference(
+      Sum([Variable(Chair), Constant(7.0)]),
+      Difference(Variable(Table), Constant(2.0)),
     )
   let assert Ok(m.Optimal(solution)) =
     m.solve(
       m.Model(..base(), objective: m.Maximize(expression), constraints: [
-        m.Equal(m.Variable(Table), Constant(3.0)),
+        m.Equal(Variable(Table), Constant(3.0)),
         m.LessEqual(
-          m.Difference(m.Variable(Chair), Constant(1.0)),
-          m.Difference(Constant(5.0), m.Variable(Table)),
+          Difference(Variable(Chair), Constant(1.0)),
+          Difference(Constant(5.0), Variable(Table)),
         ),
       ]),
     )
   close_value(solution, Chair, 3.0)
   close_value(solution, Table, 3.0)
   close(m.objective(solution), 9.0)
-  m.evaluate(solution, expression) |> should.equal(Ok(9.0))
-  m.evaluate(solution, Scaled(2.0, expression)) |> should.equal(Ok(18.0))
-  m.evaluate(solution, m.Difference(m.Variable(Missing), m.Variable(Missing)))
-  |> should.equal(Error(m.NotInSolution(Missing)))
+  m.evaluate_solution(expression, solution) |> should.equal(Ok(9.0))
+  m.evaluate_solution(Scaled(2.0, expression), solution)
+  |> should.equal(Ok(18.0))
+  m.evaluate_solution(
+    Difference(Variable(Missing), Variable(Missing)),
+    solution,
+  )
+  |> should.equal(Error(m.MissingValue(Missing)))
 }
 
 pub fn difference_preserves_cancelled_and_zero_scaled_references_test() {
-  let expression = m.Difference(m.Variable(Table), m.Variable(Table))
+  let expression = Difference(Variable(Table), Variable(Table))
   let model = m.Model(..base(), objective: m.Minimize(expression))
   let assert Ok(m.Optimal(solution)) = m.solve(model)
   m.value(solution, Table) |> should.equal(Ok(0.0))
@@ -369,15 +371,15 @@ pub fn difference_preserves_cancelled_and_zero_scaled_references_test() {
 
 pub fn difference_overflow_preserves_location_and_order_test() {
   let expression =
-    m.Difference(Sum([Constant(max), Constant(max)]), Constant(max))
+    Difference(Sum([Constant(max), Constant(max)]), Constant(max))
   m.solve(m.Model(..base(), objective: m.Minimize(expression)))
   |> should.equal(Error(m.NonFinite(m.InObjective)))
   let row = m.Equal(expression, Constant(0.0))
   m.solve(m.Model(..base(), constraints: [row]))
   |> should.equal(Error(m.NonFinite(m.InConstraint(0, row))))
-  let assert Ok(m.Optimal(solution)) = m.solve(base())
-  m.evaluate(solution, expression) |> should.equal(Error(m.NonFiniteValue))
-  m.evaluate(solution, m.Difference(Constant(max), Constant(max)))
+  m.evaluate_dict(expression, dict.new())
+  |> should.equal(Error(m.NonFiniteValue))
+  m.evaluate_dict(Difference(Constant(max), Constant(max)), dict.new())
   |> should.equal(Ok(0.0))
 }
 
@@ -389,7 +391,7 @@ pub fn explicit_outcomes_test() {
   m.objective(solution) |> should.equal(0.0)
   m.solve(m.Model(..empty, constraints: [m.Equal(Sum([]), Constant(1.0))]))
   |> should.equal(Ok(m.Infeasible))
-  m.solve(m.Model(..empty, objective: m.Maximize(Linear(1.0, Chair))))
+  m.solve(m.Model(..empty, objective: m.Maximize(Variable(Chair))))
   |> should.equal(Ok(m.Unbounded))
 }
 
@@ -399,7 +401,7 @@ pub fn non_finite_sums_report_location_test() {
     m.Model(..model, objective: m.Minimize(Sum([Constant(max), Constant(max)]))),
   )
   |> should.equal(Error(m.NonFinite(m.InObjective)))
-  let fine = m.LessEqual(Linear(1.0, Chair), Constant(1.0))
+  let fine = m.LessEqual(Variable(Chair), Constant(1.0))
   // Moving `-max·chair` across sides makes it `+max·chair`.
   let overflowing = m.LessEqual(Linear(max, Chair), Linear(0.0 -. max, Chair))
   // The error names the constraint as well as its position.
@@ -413,15 +415,15 @@ pub fn scaled_overflow_reports_location_test() {
     Scaled(2.0, Constant(max)),
     Scaled(max, Scaled(2.0, Sum([]))),
   ]
-  let assert Ok(m.Optimal(solution)) =
-    m.solve(m.Model(..base(), objective: m.Minimize(Linear(0.0, Chair))))
+  let values = dict.from_list([#(Chair, 0.0)])
   list.each(expressions, fn(expression) {
     m.solve(m.Model(..base(), objective: m.Minimize(expression)))
     |> should.equal(Error(m.NonFinite(m.InObjective)))
     let row = m.Equal(Sum([]), expression)
     m.solve(m.Model(..base(), constraints: [row]))
     |> should.equal(Error(m.NonFinite(m.InConstraint(0, row))))
-    m.evaluate(solution, expression) |> should.equal(Error(m.NonFiniteValue))
+    m.evaluate_dict(expression, values)
+    |> should.equal(Error(m.NonFiniteValue))
   })
 }
 
@@ -443,10 +445,7 @@ fn solved_chairs_and_tables() -> m.Solution(Product) {
           Sum([Linear(3.0, Chair), Linear(2.0, Table), Constant(7.0)]),
         ),
         constraints: [
-          m.LessEqual(
-            Sum([Linear(1.0, Chair), Linear(1.0, Table)]),
-            Constant(4.0),
-          ),
+          m.LessEqual(Sum([Variable(Chair), Variable(Table)]), Constant(4.0)),
         ],
       ),
     )
@@ -465,21 +464,21 @@ pub fn solution_values_test() {
 pub fn evaluate_reports_breakdowns_and_slack_test() {
   let solution = solved_chairs_and_tables()
   // Chairs contribute 3 · 2.
-  let assert Ok(chairs) = m.evaluate(solution, Linear(3.0, Chair))
+  let assert Ok(chairs) = m.evaluate_solution(Linear(3.0, Chair), solution)
   close(chairs, 6.0)
   // Slack of the hours constraint: rhs − lhs.
-  let hours = Sum([Linear(1.0, Chair), Linear(1.0, Table)])
+  let hours = Sum([Variable(Chair), Variable(Table)])
   let assert Ok(slack) =
-    m.evaluate(solution, Sum([Constant(4.0), Scaled(-1.0, hours)]))
+    m.evaluate_solution(Difference(Constant(4.0), hours), solution)
   close(slack, 0.0)
-  m.evaluate(solution, Sum([])) |> should.equal(Ok(0.0))
+  m.evaluate_solution(Sum([]), solution) |> should.equal(Ok(0.0))
 }
 
 pub fn evaluate_errors_test() {
   let solution = solved_chairs_and_tables()
-  m.evaluate(solution, Sum([Linear(1.0, Chair), Linear(1.0, Missing)]))
-  |> should.equal(Error(m.NotInSolution(Missing)))
-  m.evaluate(solution, Linear(max, Chair))
+  m.evaluate_solution(Sum([Variable(Chair), Variable(Missing)]), solution)
+  |> should.equal(Error(m.MissingValue(Missing)))
+  m.evaluate_solution(Linear(max, Chair), solution)
   |> should.equal(Error(m.NonFiniteValue))
 }
 
@@ -494,8 +493,94 @@ pub fn evaluation_combines_coefficients_before_multiplying_test() {
       ),
     )
   m.objective(solution) |> should.equal(0.0)
-  m.evaluate(solution, expression) |> should.equal(Ok(0.0))
-  m.evaluate(solution, Scaled(1.0, expression)) |> should.equal(Ok(0.0))
+  m.evaluate_solution(expression, solution) |> should.equal(Ok(0.0))
+  m.evaluate_solution(Scaled(1.0, expression), solution)
+  |> should.equal(Ok(0.0))
+}
+
+// Evaluation against supplied values
+
+pub fn evaluate_with_a_function_test() {
+  // Values need not respect any domain: fractional chairs are fine.
+  let lookup = fn(product) {
+    case product {
+      Chair -> Ok(1.5)
+      Table -> Ok(2.0)
+      Missing -> Error(Nil)
+    }
+  }
+  m.evaluate(
+    Sum([Linear(3.0, Chair), Linear(2.0, Table), Constant(1.0)]),
+    lookup,
+  )
+  |> should.equal(Ok(9.5))
+  m.evaluate(Variable(Missing), lookup)
+  |> should.equal(Error(m.MissingValue(Missing)))
+}
+
+pub fn evaluate_dict_ignores_unreferenced_entries_test() {
+  let plan = dict.from_list([#(Chair, 2.0), #(Table, 3.0), #(Missing, 9.0)])
+  m.evaluate_dict(Difference(Linear(4.0, Table), Variable(Chair)), plan)
+  |> should.equal(Ok(10.0))
+  m.evaluate_dict(Variable(Table), dict.new())
+  |> should.equal(Error(m.MissingValue(Table)))
+}
+
+pub fn evaluate_reports_the_first_missing_reference_test() {
+  let plan = dict.from_list([#(Chair, 1.0)])
+  // Depth-first: the nested Table comes before Missing.
+  m.evaluate_dict(
+    Sum([Variable(Chair), Sum([Variable(Table)]), Variable(Missing)]),
+    plan,
+  )
+  |> should.equal(Error(m.MissingValue(Table)))
+  // A difference visits its left side first.
+  m.evaluate_dict(Difference(Variable(Missing), Variable(Table)), plan)
+  |> should.equal(Error(m.MissingValue(Missing)))
+  // Cancelled and zero-scaled references still need values.
+  m.evaluate_dict(Difference(Variable(Table), Variable(Table)), plan)
+  |> should.equal(Error(m.MissingValue(Table)))
+  m.evaluate_dict(Scaled(0.0, Variable(Table)), plan)
+  |> should.equal(Error(m.MissingValue(Table)))
+}
+
+pub fn constants_need_no_values_test() {
+  let nothing = fn(_) { Error(Nil) }
+  m.evaluate(Sum([Constant(2.0), Scaled(3.0, Sum([]))]), nothing)
+  |> should.equal(Ok(2.0))
+  m.evaluate(Sum([]), nothing) |> should.equal(Ok(0.0))
+}
+
+pub fn missing_values_take_precedence_over_overflow_test() {
+  let overflowing = Sum([Constant(max), Constant(max), Variable(Missing)])
+  m.evaluate_dict(overflowing, dict.new())
+  |> should.equal(Error(m.MissingValue(Missing)))
+  m.evaluate_dict(overflowing, dict.from_list([#(Missing, 0.0)]))
+  |> should.equal(Error(m.NonFiniteValue))
+}
+
+pub fn supplied_values_can_overflow_test() {
+  let plan = dict.from_list([#(Chair, max)])
+  m.evaluate_dict(Linear(2.0, Chair), plan)
+  |> should.equal(Error(m.NonFiniteValue))
+  m.evaluate_dict(Sum([Linear(2.0, Chair), Linear(-1.0, Chair)]), plan)
+  |> should.equal(Ok(max))
+}
+
+pub fn overrides_compose_with_solution_values_test() {
+  let solution = solved_chairs_and_tables()
+  let overrides = dict.from_list([#(Chair, 0.0)])
+  let lookup = fn(product) {
+    case dict.get(overrides, product) {
+      Ok(value) -> Ok(value)
+      Error(Nil) -> m.value(solution, product)
+    }
+  }
+  // Table keeps its solved value of 2; Chair is overridden to 0.
+  m.evaluate(Sum([Linear(3.0, Chair), Linear(2.0, Table)]), lookup)
+  |> should.equal(Ok(4.0))
+  m.evaluate(Variable(Missing), lookup)
+  |> should.equal(Error(m.MissingValue(Missing)))
 }
 
 // Statistics
@@ -504,16 +589,10 @@ pub fn continuous_stats_test() {
   let model =
     m.Model(
       domain: nonnegative,
-      objective: m.Maximize(Sum([Linear(1.0, Chair), Linear(1.0, Table)])),
+      objective: m.Maximize(Sum([Variable(Chair), Variable(Table)])),
       constraints: [
-        m.LessEqual(
-          Sum([Linear(1.0, Chair), Linear(2.0, Table)]),
-          Constant(4.0),
-        ),
-        m.LessEqual(
-          Sum([Linear(3.0, Chair), Linear(1.0, Table)]),
-          Constant(6.0),
-        ),
+        m.LessEqual(Sum([Variable(Chair), Linear(2.0, Table)]), Constant(4.0)),
+        m.LessEqual(Sum([Linear(3.0, Chair), Variable(Table)]), Constant(6.0)),
       ],
     )
   let assert Ok(m.Optimal(solution)) = m.solve(model)
@@ -527,7 +606,7 @@ pub fn integer_stats_count_branching_test() {
   let model =
     m.Model(
       domain: fn(_) { m.Integer(Some(0), Some(1)) },
-      objective: m.Maximize(Sum([Linear(1.0, Chair), Linear(1.0, Table)])),
+      objective: m.Maximize(Sum([Variable(Chair), Variable(Table)])),
       constraints: [
         m.LessEqual(
           Sum([Linear(2.0, Chair), Linear(2.0, Table)]),

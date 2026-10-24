@@ -7,13 +7,13 @@ work is removed from this file; git log keeps it. Design decisions are in
 
 ## Next
 
-- **Reporting and evaluation.** One design for reading a model back: a
-  constraint's slack or residual at a solution, and expressions and
-  constraints evaluated against caller-supplied values (`Dict(v, Float)`), to
-  check a hand-made plan or a heuristic's result and report what-if costs.
-  Decide how missing variables and violations are reported, and use the
-  examples to define reporting conventions, including a complete plan (the
-  production network per period, not just its costs). Reuses the driver's
+- **Constraint reporting.** A constraint's slack or residual, at a solution or
+  at caller-supplied values, to check a hand-made plan or a heuristic's result.
+  Build on `evaluate`: take the same lookup and report missing values and
+  overflow with `EvaluationError`. A violated constraint is a result of
+  checking, not an evaluation error. Decide how violations are reported, and
+  use the examples to define reporting conventions, including a complete plan
+  (the production network per period, not just its costs). Reuses the driver's
   evaluation path.
 - **Solve limits.** Time and iteration limits with an outcome that separates
   optimal, feasible-but-unproven and stopped results (DESIGN.md: "Solve
@@ -32,7 +32,7 @@ work is removed from this file; git log keeps it. Design decisions are in
 
 ### API
 
-Investigate these alongside the reporting and evaluation work above. Judge
+Investigate these alongside the constraint reporting work above. Judge
 additions by semantic clarity, composability, predictable validation and public
 surface cost; examples provide ergonomic evidence, not the sole acceptance
 criterion.

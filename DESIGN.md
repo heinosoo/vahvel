@@ -83,9 +83,9 @@ solution. Unsatisfiable constant rows and empty domains are infeasibility.
 `SolveError` separates user-data problems (`InvalidDomain(key)`,
 `NonFinite(location)`) from failures the caller can't act on
 (`SolverFailure(message)`, including internal bugs and caught panics). A
-location is `InObjective` or `InConstraint(index, constraint)`. Querying a
-solution has its own error, `QueryError` (see "Solutions"). Lowering a model
-cannot fail; the first error found is reported.
+location is `InObjective` or `InConstraint(index, constraint)`. Evaluation has
+its own error, `EvaluationError` (see "Solutions and evaluation"). Lowering a
+model cannot fail; the first error found is reported.
 
 **Why.** Infeasibility is a mathematical answer, not a failure. Tying the
 solution to its variant makes reading values from a non-optimal result
@@ -104,7 +104,7 @@ distinction a use.
   availability checks that Gleam variants encode directly.
 - *`Result` on every expression operation.* Would make model code unreadable.
 - *Collecting all errors.* More machinery; revisit when diagnostics need it.
-- *One error type for solving and querying.* Every caller would handle
+- *One error type for solving and evaluation.* Every caller would handle
   failures its operation can't produce.
 - *Only the constraint's position.* Meaningless for constraints mapped from
   data; the caller would index back into their list.
@@ -118,6 +118,15 @@ validation, and the cost of learning and maintaining the public interface.
 Conveniences should express common modeling intent and have precise meanings
 in terms of the core operations. Test correctness independently of examples,
 including invalid inputs, numerical edge cases and deeply nested expressions.
+
+Follow the standard library's conventions where an operation matches one, as
+`value` follows `dict.get`: familiar shapes surprise less, and an
+implementation that reduces to a standard function is a good sign, not a
+shallow layer. A convenience function earns its place when it names a
+recommended pattern for a common value source, is exactly equivalent to a core
+call, and adds no policy: no defaults, validation or error translation. Such
+functions make recommended patterns discoverable and cost little to maintain;
+the criterion keeps them from becoming an unorganized heap.
 
 The representative models in `test/examples/` check ergonomics: the README's
 waffle stand, a multi-period production network, and N-queens. Grow the set when
@@ -270,7 +279,7 @@ dual(solution, capacity(m2))  // future
 ```
 
 **Why.** Compilation and solving never used keys; slack needs none
-(`evaluate(solution, lhs)`). Identity by value removes a type parameter, a field
+(`evaluate_solution(Difference(rhs, lhs), solution)`). Identity by value removes a type parameter, a field
 on every row, and the zipping that positional results would need.
 
 **Costs.**
@@ -301,8 +310,8 @@ an exhaustive `case` over the key type.
 **Why.** No declaration list to keep in sync with the expressions, no
 unknown/duplicate variable errors, and type inference fills in the key type.
 
-**Costs.** A variable never referenced doesn't exist; querying it is
-`NotInSolution(key)`. Reports that iterate the data rather than the model meet
+**Costs.** A variable never referenced doesn't exist; looking it up is
+`Error(Nil)`. Reports that iterate the data rather than the model meet
 such keys, like the production network's unavailable lanes, and handle them
 through `value`'s `Result`; the examples have not needed a way to retain
 unreferenced variables. A model holding a closure can't be compared or
@@ -397,29 +406,59 @@ sets, the role Pyomo's `Set` plays.
 
 **Why.** One concept, one value: direction and expression can't drift apart.
 
-### Solutions
+### Solutions and evaluation
 
-**Decision.** `value(solution, key)` returns a `Result`, never a substituted
-zero: an unreferenced key is `NotInSolution(key)`. `evaluate(solution,
-expression)` computes costs, breakdowns and slacks with the same
-canonicalization as solving. `value` and `evaluate` share `QueryError(v)`. All
-values are `Float`; integer and binary values are exact whole numbers (microlp
-rounds them), so callers convert with `float.round`. The objective is
-microlp's own value, not recomputed from the rounded values.
+**Decision.** `value(solution, key)` returns `Result(Float, Nil)` like
+`dict.get`, never a substituted zero. `evaluate(expression, lookup)` computes
+an expression at the values a `fn(v) -> Result(Float, Nil)` supplies, with the
+same canonicalization as solving: costs, breakdowns and slacks at a solution,
+or the cost of a hand-made plan or a what-if. `evaluate_solution(expression,
+solution)` and `evaluate_dict(expression, values)` are exactly
+`evaluate(expression, value(solution, _))` and
+`evaluate(expression, dict.get(values, _))`. Evaluation fails with
+`EvaluationError(v)`: `MissingValue(key)` for the first referenced key without
+a value, in depth-first order, or `NonFiniteValue` for overflow. All values are
+`Float`; integer and binary values are exact whole numbers (microlp rounds
+them), so callers convert with `float.round`. The objective is microlp's own
+value, not recomputed from the rounded values.
 
-**Why.** Silent zeros hide typos. A shared error type lets a report chain both
-with `use … <- result.try`, and the error names the missing key. Exact integer
-values make `float.round` lossless rather than a tolerance guess. Shared
-canonicalization combines duplicates before multiplying, avoiding spurious
-overflow for cancelling terms. The cost is column discovery and sorting on
-every evaluation.
+**Why.** Silent zeros hide typos. Evaluation needs a lookup, not a storage
+representation: assignments may be partial, and a dictionary, a `case` over
+the key type, or solution values with overrides all fit. Evaluation computes a
+value; it needs neither a model nor domains, and doesn't make an assignment
+feasible. A lookup has one failure, absence, and its caller knows the key, so
+`Nil` is exact and `value` and `dict.get` are interchangeable as lookups. The
+evaluator finds keys inside the expression, so its error names the missing
+one; overflow is a failure only evaluation has. On the BEAM floats are always
+finite, so `NonFiniteValue` means overflow and names no key. Missing values
+are found before the native call, so they take precedence over overflow. The
+two convenience functions meet "API criteria". Expression-first argument order
+lets expressions pipe into evaluation and capture bind a value source once per
+report. Exact integer values make `float.round` lossless rather than a
+tolerance guess. Shared canonicalization combines duplicates before
+multiplying, avoiding spurious overflow for cancelling terms.
+
+**Costs.** A report mixing `value` and evaluation aligns their errors itself,
+e.g. `result.replace_error(MissingValue(key))`, rather than chaining one shared
+error type. Every evaluation pays for column discovery and sorting. How often
+the lookup is called is unspecified, so lookups should be pure.
 
 **Rejected.**
-- *`value_or` and `evaluate_or` with a default.* Forwarding wrappers around
-  `result.unwrap` that make substituted zeros look recommended; a default for a
-  whole expression also hides which key was missing.
-- *Evaluating many expressions in one call to get one `Result`.* `use` already
-  chains one `Result` per expression.
+- *One error type for `value` and `evaluate`.* Chains directly, but `value`
+  would list an overflow it can't produce and differ from `dict.get`.
+- *A dictionary-only evaluator.* Materializes a collection for values that
+  already have a functional form.
+- *A total `fn(v) -> Float` lookup.* Can't say a value is missing.
+- *An `Option(Float)` lookup.* Needs adapters for `Result`-based lookups.
+- *A lookup with its own error type* (`EvaluationError(v, e)`). Another type
+  parameter for failures, like loading data, that belong before evaluation;
+  mapping them to `MissingValue` would hide them instead.
+- *`value_or` and `evaluate_or` with a default.* A default is a policy that
+  makes substituted zeros look recommended and, for a whole expression, hides
+  which key was missing.
+- *Evaluating many expressions in one call to get one `Result`.* `use`,
+  `list.map` and `list.try_map` already combine one `Result` per expression;
+  a batch call needs measured performance benefits.
 - *Integer results (`value_int`, `evaluate_int`).* Converting by value depends
   on float noise, and classifying expressions by domain does too, through their
   coefficients. A domain-based `value_int` needs a driver contract change and

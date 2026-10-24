@@ -37,7 +37,8 @@ waffle.objective(solution)  // 21.0: 3 chocolate and 2 classic
 
 [test/examples/readme_test.gleam](test/examples/readme_test.gleam) grows this
 into a full story, step by step with explanations: a menu from data, topping
-stations as yes-or-no decisions, and a report. The snippets below come from it.
+stations as yes-or-no decisions, a report, and a hand-made plan. The snippets
+below come from it.
 
 ## Features
 
@@ -94,15 +95,20 @@ list.map(toppings, fn(topping) {
 or solver failures. Only an optimum carries a solution.
 
 **Reporting reuses the model.** Look up values by key and evaluate the
-expressions that built the model. A key no expression referenced is an error,
-never a silent zero:
+expressions that built the model, at a solution or at any values you supply,
+such as a hand-made plan. A key no expression referenced is an error, never a
+silent zero:
 
 ```gleam
-waffle.evaluate(solution, sales)  // Ok(22.5)
+waffle.evaluate_solution(sales, solution)  // Ok(22.5)
 waffle.value(solution, Bake(Berry))  // Ok(3.0)
-waffle.value(solution, Station(Classic))  // Error(NotInSolution(..))
+waffle.value(solution, Station(Classic))  // Error(Nil)
+waffle.evaluate_dict(profit, plan)  // Ok(19.5)
 waffle.stats(solution).nodes  // branch-and-bound nodes
 ```
+
+`evaluate(expression, lookup)` takes any `fn(key) -> Result(Float, Nil)`, for
+example solution values with some overridden.
 
 **Numerics in Rust.** Gleam only describes the model; Rust sums, scales,
 validates and solves it in one native call. Overflow and non-finite numbers are

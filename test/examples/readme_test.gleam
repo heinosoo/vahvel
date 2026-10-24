@@ -4,6 +4,7 @@
 //// A stand sells waffles during a rush. Which waffles should it bake to earn
 //// the most? Each step adds one idea, and each answer is a little surprising.
 
+import gleam/dict
 import gleam/list
 import gleeunit/should
 import waffle.{Constant, Difference, Linear, Sum, Variable}
@@ -186,16 +187,39 @@ pub fn yes_or_no_decisions_test() {
 // result.
 pub fn reporting_test() {
   let assert Ok(waffle.Optimal(solution)) = waffle.solve(with_stations())
-  waffle.evaluate(solution, sales()) |> should.equal(Ok(22.5))
-  waffle.evaluate(solution, station_costs()) |> should.equal(Ok(1.5))
+  waffle.evaluate_solution(sales(), solution) |> should.equal(Ok(22.5))
+  waffle.evaluate_solution(station_costs(), solution) |> should.equal(Ok(1.5))
   // Revenue per waffle, from the same menu.
   list.map(menu, fn(recipe) {
-    waffle.evaluate(solution, Linear(recipe.price, Bake(recipe.waffle)))
+    waffle.evaluate_solution(
+      Linear(recipe.price, Bake(recipe.waffle)),
+      solution,
+    )
   })
   |> should.equal([Ok(9.0), Ok(0.0), Ok(13.5)])
   // A variable exists only once an expression references it. Classic
   // waffles need no station, so `Station(Classic)` was never referenced and
   // asking for it is an error rather than a silent zero.
   waffle.value(solution, Station(Classic))
-  |> should.equal(Error(waffle.NotInSolution(Station(Classic))))
+  |> should.equal(Error(Nil))
+}
+
+// Step 5: checking a plan. Evaluation takes values from anywhere, such as a
+// plan written by hand. 4 classic and 2 berry waffles use 12 minutes and 8
+// scoops.
+pub fn checking_a_plan_test() {
+  let profit = Difference(sales(), station_costs())
+  let plan =
+    dict.from_list([
+      #(Bake(Classic), 4.0),
+      #(Bake(Chocolate), 0.0),
+      #(Bake(Berry), 2.0),
+      #(Station(Berry), 1.0),
+    ])
+  // Profit references both stations, and the plan forgot one.
+  waffle.evaluate_dict(profit, plan)
+  |> should.equal(Error(waffle.MissingValue(Station(Chocolate))))
+  // With it, the plan earns 21.00 − 1.50: less than the solver's 21.
+  let plan = dict.insert(plan, Station(Chocolate), 0.0)
+  waffle.evaluate_dict(profit, plan) |> should.equal(Ok(19.5))
 }

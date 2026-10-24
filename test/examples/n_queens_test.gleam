@@ -41,13 +41,8 @@ fn model(n: Int) -> waffle.Model(Square) {
 fn queens(n: Int) -> List(Square) {
   let assert Ok(waffle.Optimal(solution)) = waffle.solve(model(n))
   waffle.values(solution)
-  |> dict.to_list
-  |> list.filter_map(fn(entry) {
-    case entry {
-      #(square, 1.0) -> Ok(square)
-      _ -> Error(Nil)
-    }
-  })
+  |> dict.filter(fn(_, placed) { placed == 1.0 })
+  |> dict.keys
 }
 
 fn attack(a: Square, b: Square) -> Bool {

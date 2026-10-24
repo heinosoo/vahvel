@@ -212,11 +212,6 @@ fn model(data: Instance) -> waffle.Model(Var) {
 
 // Tests
 
-fn evaluate(solution: waffle.Solution(Var), expression) -> Float {
-  let assert Ok(value) = waffle.evaluate(solution, expression)
-  value
-}
-
 pub fn smallest_network_test() {
   let data = instance(1)
   let assert Ok(waffle.Optimal(solution)) = waffle.solve(model(data))
@@ -224,10 +219,9 @@ pub fn smallest_network_test() {
   // Opening is forced; 12 units at 2 each; two trucks per lane; the isolated
   // warehouse holds 4, 3 and 2 units of its initial stock.
   let costs = costs(data)
-  evaluate(solution, costs.fixed) |> should.equal(20.0)
-  evaluate(solution, costs.production) |> should.equal(24.0)
-  evaluate(solution, costs.transport) |> should.equal(16.0)
-  evaluate(solution, costs.holding) |> should.equal(9.0)
+  [costs.fixed, costs.production, costs.transport, costs.holding]
+  |> list.map(waffle.evaluate_solution(_, solution))
+  |> should.equal([Ok(20.0), Ok(24.0), Ok(16.0), Ok(9.0)])
 }
 
 pub fn unavailable_lanes_have_no_variables_test() {
@@ -236,13 +230,58 @@ pub fn unavailable_lanes_have_no_variables_test() {
   // Reporting over every lane in the data must handle lanes the model never
   // referenced: their keys are not variables.
   list.each(data.lanes, fn(lane) {
-    let key = Ship(lane.route, 1)
-    case lane.available, waffle.value(solution, key) {
-      True, shipped -> shipped |> result.is_ok |> should.be_true
-      False, shipped ->
-        shipped |> should.equal(Error(waffle.NotInSolution(key)))
-    }
+    waffle.value(solution, Ship(lane.route, 1))
+    |> result.is_ok
+    |> should.equal(lane.available)
   })
+}
+
+// A factory's line in a plan report: a value read directly and an evaluated
+// total. Their errors differ, so the direct lookup names its key.
+type FactoryReport {
+  FactoryReport(factory: Int, open: Bool, made: Float)
+}
+
+fn factory_report(
+  data: Instance,
+  solution: waffle.Solution(Var),
+  factory: Factory,
+) -> Result(FactoryReport, waffle.EvaluationError(Var)) {
+  let key = Open(factory.id)
+  use open <- result.try(
+    waffle.value(solution, key)
+    |> result.replace_error(waffle.MissingValue(key)),
+  )
+  use made <- result.try(
+    list.map(data.periods, fn(t) { Variable(Make(factory.id, t)) })
+    |> Sum
+    |> waffle.evaluate_solution(solution),
+  )
+  Ok(FactoryReport(factory.id, open: open == 1.0, made:))
+}
+
+pub fn plan_report_test() {
+  let data = instance(1)
+  let assert Ok(waffle.Optimal(solution)) = waffle.solve(model(data))
+  list.try_map(data.factories, factory_report(data, solution, _))
+  |> should.equal(Ok([FactoryReport(1, open: True, made: 12.0)]))
+}
+
+pub fn what_if_trucks_test() {
+  let data = instance(1)
+  let assert Ok(waffle.Optimal(solution)) = waffle.solve(model(data))
+  // What would the plan cost with one truck on every lane in every period?
+  // Overriding values ignores feasibility; evaluation only prices them.
+  let one_truck_each = fn(key) {
+    case key {
+      Trucks(..) -> Ok(1.0)
+      _ -> waffle.value(solution, key)
+    }
+  }
+  let costs = costs(data)
+  // Two lanes costing 3 and 5, over three periods.
+  waffle.evaluate(costs.transport, one_truck_each) |> should.equal(Ok(24.0))
+  waffle.evaluate(total(costs), one_truck_each) |> should.equal(Ok(77.0))
 }
 
 pub fn higher_demand_scenario_test() {
@@ -271,14 +310,15 @@ pub fn larger_network_test() {
   let assert Ok(waffle.Optimal(solution)) = waffle.solve(model(data))
   let costs = costs(data)
   let parts = [costs.fixed, costs.production, costs.transport, costs.holding]
-  list.fold(parts, 0.0, fn(sum, part) { sum +. evaluate(solution, part) })
+  let assert Ok(values) =
+    list.try_map(parts, waffle.evaluate_solution(_, solution))
+  float.sum(values)
   |> float.loosely_equals(waffle.objective(solution), 0.000001)
   |> should.be_true
   waffle.values(solution)
-  |> dict.to_list
-  |> list.each(fn(entry) {
-    case entry {
-      #(Trucks(..), trucks) -> trucks |> should.equal(float.floor(trucks))
+  |> dict.each(fn(key, value) {
+    case key {
+      Trucks(..) -> value |> should.equal(float.floor(value))
       _ -> Nil
     }
   })

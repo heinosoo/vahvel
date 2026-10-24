@@ -128,11 +128,11 @@ pub type Outcome(v) {
   Unbounded
 }
 
-/// Why a solution could not answer a query. `value` and `evaluate` share it,
-/// so reports can chain both with `result.try`.
-pub type QueryError(v) {
-  /// The solved model never referenced this variable, so it has no value.
-  NotInSolution(v)
+/// Why an expression could not be evaluated.
+pub type EvaluationError(v) {
+  /// The lookup supplied no value for this variable, which the expression
+  /// references.
+  MissingValue(v)
   /// The result is not finite: a product or sum overflowed.
   NonFiniteValue
 }
@@ -302,7 +302,7 @@ fn native_error(
 
 /// Objective value including its constant terms, as reported by the solver. It
 /// is not recomputed from the rounded integer values, so it can differ from
-/// `evaluate` of the objective expression in the last digits.
+/// `evaluate_solution` of the objective expression in the last digits.
 pub fn objective(solution: Solution(v)) -> Float {
   solution.objective
 }
@@ -312,11 +312,12 @@ pub fn stats(solution: Solution(v)) -> Stats {
   solution.stats
 }
 
-/// Look up a primal value by variable key. A key that no expression references
-/// is `NotInSolution(key)`, never zero. Integer and binary variables have exact
-/// whole values, so `float.round` converts them without loss.
-pub fn value(solution: Solution(v), key: v) -> Result(Float, QueryError(v)) {
-  dict.get(solution.values, key) |> result.replace_error(NotInSolution(key))
+/// Look up a primal value by variable key, like `dict.get`. A key that no
+/// expression references is `Error(Nil)`, never zero. Integer and binary
+/// variables have exact whole values, so `float.round` converts them without
+/// loss.
+pub fn value(solution: Solution(v), key: v) -> Result(Float, Nil) {
+  dict.get(solution.values, key)
 }
 
 /// All primal values, keyed by every variable the model referenced. Integer and
@@ -325,17 +326,51 @@ pub fn values(solution: Solution(v)) -> Dict(v, Float) {
   solution.values
 }
 
-/// Evaluate an expression using the solution's variable values, e.g. a cost
-/// breakdown, or a constraint's slack as `Difference(rhs, lhs)`.
-/// Returns an error for missing variables or non-finite arithmetic.
+/// Evaluate an expression with the values `lookup` gives its variables, e.g. a
+/// cost breakdown, a constraint's slack as `Difference(rhs, lhs)`, or the cost
+/// of a hand-made plan. Values need not satisfy any model.
+///
+/// Every referenced variable needs a value, even one that cancels or is scaled
+/// by zero. The first variable without one, in depth-first order, is
+/// `MissingValue(key)`; unreferenced keys are never looked up.
+///
+/// ```gleam
+/// waffle.evaluate(profit, dict.get(plan, _))
+/// waffle.evaluate(profit, fn(key) {
+///   case dict.get(overrides, key) {
+///     Ok(value) -> Ok(value)
+///     Error(Nil) -> waffle.value(solution, key)
+///   }
+/// })
+/// ```
 pub fn evaluate(
-  solution: Solution(v),
   expression: Expression(v),
-) -> Result(Float, QueryError(v)) {
+  lookup: fn(v) -> Result(Float, Nil),
+) -> Result(Float, EvaluationError(v)) {
   let #(columns, expression) = lower(Columns(dict.new(), []), expression)
   use values <- result.try(
-    list.try_map(list.reverse(columns.keys), value(solution, _)),
+    list.try_map(list.reverse(columns.keys), fn(key) {
+      lookup(key) |> result.replace_error(MissingValue(key))
+    }),
   )
   driver.evaluate(expression, values)
   |> result.replace_error(NonFiniteValue)
+}
+
+/// Evaluate an expression at a solution's values:
+/// `evaluate(expression, value(solution, _))`.
+pub fn evaluate_solution(
+  expression: Expression(v),
+  solution: Solution(v),
+) -> Result(Float, EvaluationError(v)) {
+  evaluate(expression, value(solution, _))
+}
+
+/// Evaluate an expression at the values in a dictionary:
+/// `evaluate(expression, dict.get(values, _))`.
+pub fn evaluate_dict(
+  expression: Expression(v),
+  values: Dict(v, Float),
+) -> Result(Float, EvaluationError(v)) {
+  evaluate(expression, dict.get(values, _))
 }
