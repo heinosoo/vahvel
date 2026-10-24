@@ -157,6 +157,12 @@ fn shipped(routes: List(Route), t: Int) -> waffle.Expression(Var) {
   list.map(routes, fn(route) { Variable(Ship(route, t)) }) |> Sum
 }
 
+// A constraint's builder is also its lookup: reports rebuild the row to read
+// its residual.
+fn capacity(f: Factory, t: Int) -> waffle.Constraint(Var) {
+  waffle.LessEqual(Variable(Make(f.id, t)), Linear(f.capacity, Open(f.id)))
+}
+
 fn constraints(data: Instance) -> List(waffle.Constraint(Var)) {
   let routes = available_routes(data)
   let outgoing = list.group(routes, fn(route) { route.factory })
@@ -165,10 +171,7 @@ fn constraints(data: Instance) -> List(waffle.Constraint(Var)) {
     list.flat_map(data.factories, fn(f) {
       list.flat_map(data.periods, fn(t) {
         [
-          waffle.LessEqual(
-            Variable(Make(f.id, t)),
-            Linear(f.capacity, Open(f.id)),
-          ),
+          capacity(f, t),
           waffle.Equal(
             Variable(Make(f.id, t)),
             shipped(routes_at(outgoing, f.id), t),
@@ -236,35 +239,97 @@ pub fn unavailable_lanes_have_no_variables_test() {
   })
 }
 
-// A factory's line in a plan report: a value read directly and an evaluated
-// total. Their errors differ, so the direct lookup names its key.
-type FactoryReport {
-  FactoryReport(factory: Int, open: Bool, made: Float)
+// Reporting
+
+type PeriodPlan {
+  PeriodPlan(
+    period: Int,
+    factories: List(FactoryPlan),
+    lanes: List(LanePlan),
+    stock: List(#(Int, Float)),
+  )
 }
 
-fn factory_report(
+type FactoryPlan {
+  FactoryPlan(factory: Int, made: Float, spare: Float)
+}
+
+type LanePlan {
+  Shipping(route: Route, units: Float, trucks: Int)
+  /// In the data but not in the model, so it has no variables.
+  Unavailable(route: Route)
+}
+
+/// The complete plan, period by period. It walks the same data that built the
+/// model, so absent decisions come from the data and every key it reads is a
+/// variable: a failed lookup is a bug, reported rather than read as zero.
+fn plan(
   data: Instance,
   solution: waffle.Solution(Var),
-  factory: Factory,
-) -> Result(FactoryReport, waffle.EvaluationError(Var)) {
-  let key = Open(factory.id)
-  use open <- result.try(
-    waffle.value(solution, key)
-    |> result.replace_error(waffle.MissingValue(key)),
+) -> Result(List(PeriodPlan), waffle.EvaluationError(Var)) {
+  let lookup = waffle.value(solution, _)
+  let read = fn(key) {
+    lookup(key) |> result.replace_error(waffle.MissingValue(key))
+  }
+  use t <- list.try_map(data.periods)
+  use factories <- result.try(
+    list.try_map(data.factories, fn(f) {
+      use made <- result.try(read(Make(f.id, t)))
+      // made − capacity · open: at most zero, and minus the spare capacity.
+      use residual <- result.try(waffle.residual(capacity(f, t), lookup))
+      Ok(FactoryPlan(f.id, made:, spare: float.negate(residual)))
+    }),
   )
-  use made <- result.try(
-    list.map(data.periods, fn(t) { Variable(Make(factory.id, t)) })
-    |> Sum
-    |> waffle.evaluate_solution(solution),
+  use lanes <- result.try(
+    list.try_map(data.lanes, fn(lane) {
+      case lane.available {
+        False -> Ok(Unavailable(lane.route))
+        True -> {
+          use units <- result.try(read(Ship(lane.route, t)))
+          use trucks <- result.try(read(Trucks(lane.route, t)))
+          Ok(Shipping(lane.route, units:, trucks: float.round(trucks)))
+        }
+      }
+    }),
   )
-  Ok(FactoryReport(factory.id, open: open == 1.0, made:))
+  use stock <- result.try(
+    list.try_map(data.warehouses, fn(w) {
+      read(Stock(w.id, t)) |> result.map(fn(units) { #(w.id, units) })
+    }),
+  )
+  Ok(PeriodPlan(t, factories:, lanes:, stock:))
 }
 
-pub fn plan_report_test() {
+pub fn complete_plan_test() {
   let data = instance(1)
   let assert Ok(waffle.Optimal(solution)) = waffle.solve(model(data))
-  list.try_map(data.factories, factory_report(data, solution, _))
-  |> should.equal(Ok([FactoryReport(1, open: True, made: 12.0)]))
+  // Holding costs make the network ship each period's demand just in time;
+  // only the isolated warehouse draws down its initial stock.
+  let lanes = fn(near, far, trucks) {
+    [
+      Shipping(Route(1, 1), near, trucks),
+      Shipping(Route(1, 2), far, trucks),
+      Unavailable(Route(1, 3)),
+    ]
+  }
+  let stock = fn(isolated) { [#(1, 0.0), #(2, 0.0), #(3, isolated)] }
+  plan(data, solution)
+  |> should.equal(
+    Ok([
+      PeriodPlan(1, [FactoryPlan(1, 5.0, 5.0)], lanes(3.0, 2.0, 1), stock(4.0)),
+      PeriodPlan(2, [FactoryPlan(1, 0.0, 10.0)], lanes(0.0, 0.0, 0), stock(3.0)),
+      PeriodPlan(3, [FactoryPlan(1, 7.0, 3.0)], lanes(3.0, 4.0, 1), stock(2.0)),
+    ]),
+  )
+}
+
+pub fn plan_reports_wrong_keys_test() {
+  let data = instance(1)
+  let assert Ok(waffle.Optimal(solution)) = waffle.solve(model(data))
+  // A factory the model never saw: the report fails instead of showing zeros.
+  let wrong = Instance(..data, factories: [Factory(9, 10.0, 20.0, 2.0)])
+  plan(wrong, solution)
+  |> should.equal(Error(waffle.MissingValue(Make(9, 1))))
 }
 
 pub fn what_if_trucks_test() {

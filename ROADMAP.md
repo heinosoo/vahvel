@@ -7,11 +7,6 @@ work is removed from this file; git log keeps it. Design decisions are in
 
 ## Next
 
-- **Complete plan reporting.** A report for the production network:
-  production, shipping and inventory by period, not just costs, using `value`,
-  `evaluate` and `residual`. Use it to establish how reports tell absent
-  decisions (unavailable lanes) from incorrect keys without substituting zero,
-  and whether documentation suffices or variable discovery needs API support.
 - **Solve limits.** Time and iteration limits with an outcome that separates
   optimal, feasible-but-unproven and stopped results (DESIGN.md: "Solve
   limits"). microlp already supports this; the driver contract changes with it.
@@ -29,10 +24,9 @@ work is removed from this file; git log keeps it. Design decisions are in
 
 ### API
 
-Investigate these alongside the constraint reporting work above. Judge
-additions by semantic clarity, composability, predictable validation and public
-surface cost; examples provide ergonomic evidence, not the sole acceptance
-criterion.
+Judge additions by semantic clarity, composability, predictable validation and
+public surface cost; examples provide ergonomic evidence, not the sole
+acceptance criterion.
 
 - **Checking a supplied plan.** Go beyond residuals to verdicts: check
   variable bounds, integrality and constraints. Define tolerances (solver

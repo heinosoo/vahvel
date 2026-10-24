@@ -311,11 +311,13 @@ an exhaustive `case` over the key type.
 unknown/duplicate variable errors, and type inference fills in the key type.
 
 **Costs.** A variable never referenced doesn't exist; looking it up is
-`Error(Nil)`. Reports that iterate the data rather than the model meet
-such keys, like the production network's unavailable lanes, and handle them
-through `value`'s `Result`; the examples have not needed a way to retain
-unreferenced variables. A model holding a closure can't be compared or
-printed. Key discovery stays in Gleam because a NIF can't call the closure.
+`Error(Nil)`, the same as a wrong key. Reports therefore walk the data that
+built the model and take absent decisions, like the production network's
+unavailable lanes, from that data. Every key a report reads is then a
+variable, and a failed lookup is a bug to report, never a zero. The examples
+need no API to retain or discover variables; `values(solution)` lists the
+referenced ones. A model holding a closure can't be compared or printed. Key
+discovery stays in Gleam because a NIF can't call the closure.
 
 **Rejected.**
 - *An explicit declaration list.* Inspectable, but duplicates the index set and
