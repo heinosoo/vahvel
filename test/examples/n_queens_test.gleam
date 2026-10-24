@@ -6,7 +6,7 @@ import gleam/dict
 import gleam/int
 import gleam/list
 import gleeunit/should
-import waffle.{Constant, Linear, Sum}
+import waffle.{Constant, Sum, Variable}
 
 type Square {
   Queen(row: Int, column: Int)
@@ -23,12 +23,12 @@ fn model(n: Int) -> waffle.Model(Square) {
     list.group(squares, line)
     |> dict.values
     |> list.map(fn(group) {
-      waffle.LessEqual(Sum(list.map(group, Linear(1.0, _))), Constant(1.0))
+      waffle.LessEqual(Sum(list.map(group, Variable)), Constant(1.0))
     })
   }
   waffle.Model(
     domain: fn(_) { waffle.Binary },
-    objective: waffle.Maximize(Sum(list.map(squares, Linear(1.0, _)))),
+    objective: waffle.Maximize(Sum(list.map(squares, Variable))),
     constraints: list.flatten([
       at_most_one(fn(q) { q.row }),
       at_most_one(fn(q) { q.column }),

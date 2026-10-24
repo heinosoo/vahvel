@@ -38,26 +38,20 @@ fn row(terms: List(d.Expression), relation: d.Relation, rhs: Float) -> d.Row {
 const max = 1.7976931348623157e308
 
 fn bounded_model() -> d.Model {
-  numeric(
-    d.Minimize,
-    [d.Continuous(d.Finite(0.0), d.Finite(10.0))],
-    [1.0],
-    0.0,
-    [],
-  )
+  numeric(d.Minimize, [d.Real(d.Finite(0.0), d.Finite(10.0))], [1.0], 0.0, [])
 }
 
 fn assert_invalid(model: d.Model, reason: d.InvalidReason) {
   d.solve(model) |> should.equal(Error(d.InvalidModel(reason)))
 }
 
-pub fn continuous_maximize_with_offset_test() {
+pub fn real_maximize_with_offset_test() {
   assert_assignment(
     numeric(
       d.Maximize,
       [
-        d.Continuous(d.Finite(0.0), d.Finite(2.0)),
-        d.Continuous(d.Finite(0.0), d.Unbounded),
+        d.Real(d.Finite(0.0), d.Finite(2.0)),
+        d.Real(d.Finite(0.0), d.Unbounded),
       ],
       [3.0, 2.0],
       7.0,
@@ -73,8 +67,8 @@ pub fn minimize_equal_and_greater_equal_with_offset_test() {
     numeric(
       d.Minimize,
       [
-        d.Continuous(d.Unbounded, d.Unbounded),
-        d.Continuous(d.Unbounded, d.Unbounded),
+        d.Real(d.Unbounded, d.Unbounded),
+        d.Real(d.Unbounded, d.Unbounded),
       ],
       [1.0, 2.0],
       -5.0,
@@ -112,7 +106,7 @@ pub fn mixed_integer_model_test() {
   assert_assignment(
     numeric(
       d.Maximize,
-      [d.Continuous(d.Finite(0.0), d.Unbounded), integer(0, 3)],
+      [d.Real(d.Finite(0.0), d.Unbounded), integer(0, 3)],
       [1.0, 2.0],
       0.0,
       [
@@ -144,13 +138,7 @@ pub fn integer_infeasible_test() {
 
 pub fn unbounded_model_test() {
   d.solve(
-    numeric(
-      d.Maximize,
-      [d.Continuous(d.Finite(0.0), d.Unbounded)],
-      [1.0],
-      0.0,
-      [],
-    ),
+    numeric(d.Maximize, [d.Real(d.Finite(0.0), d.Unbounded)], [1.0], 0.0, []),
   )
   |> should.equal(Ok(d.UnboundedProblem))
 }
@@ -159,15 +147,9 @@ pub fn unconstrained_bounded_model_test() {
   assert_assignment(bounded_model(), [0.0], 0.0)
 }
 
-pub fn negative_continuous_domain_test() {
+pub fn negative_real_domain_test() {
   assert_assignment(
-    numeric(
-      d.Maximize,
-      [d.Continuous(d.Unbounded, d.Finite(-2.0))],
-      [1.0],
-      0.0,
-      [],
-    ),
+    numeric(d.Maximize, [d.Real(d.Unbounded, d.Finite(-2.0))], [1.0], 0.0, []),
     [-2.0],
     -2.0,
   )
@@ -249,8 +231,8 @@ pub fn invalid_indices_test() {
   })
 }
 
-fn continuous(lower: Float, upper: Float) -> d.Domain {
-  d.Continuous(d.Finite(lower), d.Finite(upper))
+fn real(lower: Float, upper: Float) -> d.Domain {
+  d.Real(d.Finite(lower), d.Finite(upper))
 }
 
 pub fn rows_are_canonicalized_test() {
@@ -259,7 +241,7 @@ pub fn rows_are_canonicalized_test() {
   let maximize_x = fn(rows) {
     numeric(
       d.Maximize,
-      [continuous(0.0, 10.0), continuous(0.0, 10.0)],
+      [real(0.0, 10.0), real(0.0, 10.0)],
       [1.0, 0.0],
       0.0,
       rows,
@@ -312,7 +294,7 @@ pub fn objective_is_canonicalized_test() {
   let model =
     d.Model(
       d.Maximize,
-      [continuous(0.0, 2.0), continuous(0.0, 2.0)],
+      [real(0.0, 2.0), real(0.0, 2.0)],
       d.Sum([
         d.Linear(1.0, 1),
         d.Linear(2.0, 0),
@@ -385,7 +367,7 @@ pub fn empty_domains_are_infeasible_test() {
   let model = bounded_model()
   list.each(
     [
-      d.Continuous(d.Finite(2.0), d.Finite(1.0)),
+      d.Real(d.Finite(2.0), d.Finite(1.0)),
       integer(2, 1),
     ],
     fn(domain) {
@@ -395,7 +377,7 @@ pub fn empty_domains_are_infeasible_test() {
   )
   // Equal bounds are a single point, not empty.
   assert_assignment(
-    d.Model(..model, variables: [d.Continuous(d.Finite(3.0), d.Finite(3.0))]),
+    d.Model(..model, variables: [d.Real(d.Finite(3.0), d.Finite(3.0))]),
     [3.0],
     3.0,
   )
@@ -441,7 +423,7 @@ pub fn objective_overflow_is_a_solver_error_test() {
   let model =
     numeric(
       d.Minimize,
-      [d.Continuous(d.Finite(1.0), d.Finite(1.0))],
+      [d.Real(d.Finite(1.0), d.Finite(1.0))],
       [1.0e308],
       1.0e308,
       [],

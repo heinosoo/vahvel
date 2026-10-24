@@ -43,14 +43,14 @@ impl IntegerBound {
 
 #[derive(NifTaggedEnum)]
 enum Domain {
-    Continuous(Bound, Bound),
+    Real(Bound, Bound),
     Integer(IntegerBound, IntegerBound),
 }
 
 impl Domain {
     fn is_valid(&self) -> bool {
         match self {
-            Self::Continuous(lower, upper) => {
+            Self::Real(lower, upper) => {
                 lower.value(0.0).is_finite() && upper.value(0.0).is_finite()
             }
             Self::Integer(_, _) => true,
@@ -59,9 +59,7 @@ impl Domain {
 
     fn is_empty(&self) -> bool {
         match self {
-            Self::Continuous(lower, upper) => {
-                lower.value(f64::NEG_INFINITY) > upper.value(f64::INFINITY)
-            }
+            Self::Real(lower, upper) => lower.value(f64::NEG_INFINITY) > upper.value(f64::INFINITY),
             Self::Integer(lower, upper) => lower.value(i32::MIN) > upper.value(i32::MAX),
         }
     }
@@ -324,7 +322,7 @@ fn solve(model: Model) -> Result<Outcome, DriverError> {
         .iter()
         .zip(&model.objective)
         .map(|(domain, &c)| match domain {
-            Domain::Continuous(lower, upper) => problem.add_var(
+            Domain::Real(lower, upper) => problem.add_var(
                 c,
                 (lower.value(f64::NEG_INFINITY), upper.value(f64::INFINITY)),
             ),

@@ -7,12 +7,6 @@ work is removed from this file; git log keeps it. Design decisions are in
 
 ## Next
 
-- **Modeling conveniences.** Plain variables are written `Linear(1.0, key)`
-  throughout linking, flow and balance constraints, and subtraction is
-  `Scaled(-1.0, e)`. Candidates are a `Variable(key)` leaf or helper, a
-  `negate`/`Difference` form, and domain shorthands such as `NonNegative`.
-  Weigh each against second spellings, constructor count and driver changes,
-  judged on the examples (DESIGN.md: "Convenience forms").
 - **Reporting and evaluation.** One design for reading a model back: a
   constraint's slack or residual at a solution, and expressions and
   constraints evaluated against caller-supplied values (`Dict(v, Float)`), to

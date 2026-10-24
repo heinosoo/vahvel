@@ -11,7 +11,6 @@ A waffle stand has 13 minutes of iron time. Classic waffles earn 3.00 and take
 2 minutes; chocolate waffles earn 5.00 and take 3. How many of each?
 
 ```gleam
-import gleam/option.{None, Some}
 import waffle.{Constant, Linear, Sum}
 
 type Waffle {
@@ -21,7 +20,7 @@ type Waffle {
 
 let model =
   waffle.Model(
-    domain: fn(_) { waffle.Integer(Some(0), None) },
+    domain: fn(_) { waffle.NonNegativeInteger },
     objective: waffle.Maximize(
       Sum([Linear(3.0, Classic), Linear(5.0, Chocolate)]),
     ),
@@ -54,23 +53,27 @@ type Decision {
 
 fn domain(decision: Decision) -> waffle.Domain {
   case decision {
-    Bake(_) -> waffle.Integer(Some(0), None)
+    Bake(_) -> waffle.NonNegativeInteger
     Station(_) -> waffle.Binary
   }
 }
 ```
 
-Domains are `Continuous` or `Integer` with optional bounds, or `Binary`.
+Domains are `Real` or `Integer` with optional inclusive bounds, or `Binary`.
+`NonNegativeReal` and `NonNegativeInteger` specify a zero lower bound and no
+explicit upper bound. For example, `Real(Some(-2.5), Some(3.0))` allows real
+values from −2.5 to 3; `None` leaves that side unbounded. Integer domains are
+currently limited to the backend's signed 32-bit range.
 
-**Expressions are data.** An expression is a small affine tree: `Linear`,
-`Constant`, `Sum` and `Scaled`. Build it with the standard library, name it,
-and reuse it anywhere:
+**Expressions are data.** An expression is a small affine tree: `Variable`,
+`Linear`, `Constant`, `Sum`, `Difference` and `Scaled`. Build it with the
+standard library, name it, and reuse it anywhere:
 
 ```gleam
 let sales =
   list.map(menu, fn(recipe) { Linear(recipe.price, Bake(recipe.waffle)) })
   |> Sum
-let profit = Sum([sales, Scaled(-1.0, station_costs)])
+let profit = Difference(sales, station_costs)
 ```
 
 **Constraints relate two expressions** with `LessEqual`, `Equal` or
@@ -80,7 +83,7 @@ over data:
 ```gleam
 list.map(toppings, fn(topping) {
   waffle.LessEqual(
-    Linear(1.0, Bake(topping.waffle)),
+    Variable(Bake(topping.waffle)),
     Linear(topping.serves, Station(topping.waffle)),
   )
 })

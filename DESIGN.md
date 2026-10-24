@@ -111,63 +111,80 @@ distinction a use.
 - *A structured `SolverFailure` reason.* The caller can't act on any of them
   differently; stopped solves become outcomes (see "Solve limits").
 
-### Representative models drive the API
+### API criteria and representative models
 
-**Decision.** API and design changes are judged by how the representative
-models in `test/examples/` read: the README's waffle stand, a multi-period
-production network, and N-queens. The set grows when a model with new structure
-(time-indexed scheduling, say) tests the API differently. JuMP, Pyomo and
-MathOpt are influences, not syntax to copy.
+**Decision.** Judge API changes by semantic clarity, composability, predictable
+validation, and the cost of learning and maintaining the public interface.
+Conveniences should express common modeling intent and have precise meanings
+in terms of the core operations. Test correctness independently of examples,
+including invalid inputs, numerical edge cases and deeply nested expressions.
 
-**Why.** Concrete models expose ergonomic costs that abstract design hides, and
-they double as regression tests. They only reveal what they exercise: a set
-without expression reuse hides the value of composition. They're small, so they
-support no performance claims; other libraries rely on macros, operator
-overloading or mutation that Gleam lacks.
+The representative models in `test/examples/` check ergonomics: the README's
+waffle stand, a multi-period production network, and N-queens. Grow the set when
+a model with new structure tests the API differently. JuMP, Pyomo and MathOpt
+are influences, not syntax to copy.
+
+**Why.** Concrete models expose ergonomic costs but only reveal what they
+exercise. They provide evidence for design decisions, not the sole acceptance
+criterion. Their small size supports no performance claims; other libraries
+rely on macros, operator overloading or mutation that Gleam lacks.
 
 ## Modeling API
 
 ### Expressions are an affine tree
 
-**Decision.** An expression is a small tree: two leaves, `Linear` and
-`Constant`, and two affine combinators, `Sum` and `Scaled`. `Sum([])` is zero.
+**Decision.** An expression is a small affine tree: `Variable`, `Linear` and
+`Constant` leaves, with `Sum`, `Difference` and `Scaled` combinators.
+`Sum([])` is zero.
 Duplicate keys and zero coefficients are allowed: Rust canonicalizes anyway.
 There is no `multiply`, so every expression is affine by construction.
 
 ```gleam
 pub type Expression(v) {
+  Variable(variable: v)
   Linear(coefficient: Float, variable: v)
   Constant(value: Float)
   Sum(expressions: List(Expression(v)))
+  Difference(lhs: Expression(v), rhs: Expression(v))
   Scaled(coefficient: Float, expression: Expression(v))
 }
 
 Sum([Linear(3.0, X), Linear(2.0, Y), Constant(7.0)])          // 3x + 2y + 7
 list.map(items, fn(i) { Linear(i.weight, Pick(i.id)) }) |> Sum  // Σ wᵢ pickᵢ
-Sum([revenue, Scaled(-1.0, cost)])                            // revenue − cost
+Difference(revenue, cost)                                    // revenue − cost
 ```
 
 **Why.** Every operation takes and returns an expression, so reuse is ordinary
 nesting: a named expression goes anywhere an expression does, without
-flattening or copying. Every representative model is "coefficient × key, mapped
-over data"; the mapped list becomes one `Sum`, which ends a pipeline. Sides with
-a single term need no wrapper (`LessEqual(x, Constant(4.0))`), which offsets
+flattening or copying. Weighted variables mapped over data become one `Sum`,
+which ends a pipeline; unweighted sums use `list.map(keys, Variable) |> Sum`.
+Sides with a single term need no wrapper (`LessEqual(x, Constant(4.0))`), which offsets
 the `Sum` on sides with several. It is still plain Gleam data: immutable,
 pattern-matchable, built with the standard library, and composed without float
 arithmetic in Gleam.
 
 **Naming.** In math an affine expression is a sum of linear terms and a constant
 term, and JuMP (`terms`, `constant`), Pyomo and MathOpt (`terms`, `offset`)
-split it the same way. Leaves are named by degree, so a future quadratic term
-would be `Quadratic`, in its own type; `Sum` and `Scaled` name the two affine
-combinators. `Linear` stays a leaf rather than `Scaled(c, Variable(key))`:
+split it the same way. `Linear` names a weighted variable by degree, so a
+future quadratic term would be `Quadratic`, in its own type. `Variable` names
+an unweighted reference; `Sum`, `Difference` and `Scaled` name operations.
+`Linear` stays a leaf rather than `Scaled(c, Variable(key))`:
 weighted variables are the dominant construction, and two constructors per term
 would hurt readability. Coefficients come first, as in `3x`. Callers can rename
 at the import (`import waffle.{Linear as L, Constant as C}`), which the
 `Expression` docs mention.
 
+**Convenience forms.** `Variable(key)` lowers to `Linear(1.0, key)`;
+`Difference(lhs, rhs)` lowers to `Sum([lhs, Scaled(-1.0, rhs)])`. These are
+structural expansions, not arithmetic or simplification. Both sides are visited
+left-to-right, even if they cancel or are scaled by zero; all numeric checks
+remain in Rust. Solving and evaluation share this lowering. The constructors
+are pattern-matchable like the rest of the API and add no native expression
+variants. Unary negation remains `Scaled(-1.0, expression)`.
+
 **Costs.** Summation needs an explicit `Sum`. Equal math has more spellings
-(`x`, `Sum([x])`, `Scaled(1.0, x)`); see "A constraint is its own identity".
+(`x`, `Sum([x])`, `Scaled(1.0, x)`); conveniences and their expansions also
+remain structurally distinct. See "A constraint is its own identity".
 Trees can be as deep as the data; see "The driver contract".
 
 **Affine only.** A general tree with `multiply` was implemented and compared: it
@@ -184,8 +201,10 @@ a backend supports it.
   expected. Flat lists alone can't scale a reused expression without float
   arithmetic in Gleam.
 - *Operator-style functions* (`constant`, `variable`, `add`, `scale`, `sum`).
-  Imitate operator overloading Gleam lacks and hide the structure; the tree
-  composes the same way with pattern-matchable constructors.
+  Add a second construction style; public constructors expose the same structure
+  for construction and pattern matching.
+- *A separate negation constructor alongside `Difference`.* Subtraction states
+  the two operands directly; standalone negation already uses `Scaled(-1.0, e)`.
 - *A record of terms plus one constant.* Composition then needs a helper.
 - *An opaque canonical expression with smart constructors.* Brings back the
   function-call noise and hides the structure.
@@ -302,13 +321,15 @@ printed. Key discovery stays in Gleam because a NIF can't call the closure.
 ```gleam
 pub type Domain {
   Binary
-  Continuous(lower: Option(Float), upper: Option(Float))
+  Real(lower: Option(Float), upper: Option(Float))
   Integer(lower: Option(Int), upper: Option(Int))
+  NonNegativeReal
+  NonNegativeInteger
 }
 ```
 
 `None` means no bound; `Binary` lowers to `Integer(Some(0), Some(1))`.
-Continuous and integer bounds behave the same for the user. microlp limits
+Real and integer bounds behave the same for the user. microlp limits
 integer variables to signed 32 bits, so a `None` integer bound means "no bound
 beyond that range": Rust fills in `i32::MIN`/`i32::MAX`, microlp's documented
 convention. A truly unbounded integer direction therefore reports `Optimal` at
@@ -317,13 +338,24 @@ convention. A truly unbounded integer direction therefore reports `Optimal` at
 **Why.** Users shouldn't have to guess a "large enough" integer bound, and the
 backend limit belongs in one place, in Rust.
 
-**Convenience forms.** `Binary` states modeling intent and shares the integer
-implementation. Further shorthands, such as `NonNegative`, are judged by caller
-readability, not rejected for being a second spelling.
+**Naming and conveniences.** `Real` and `Integer` name the values a variable
+may take; both accept optional inclusive bounds. The driver uses the same names.
+`NonNegativeReal` means `Real(Some(0.0), None)`; `NonNegativeInteger` means
+`Integer(Some(0), None)` and retains the backend's integer limit. Like `Binary`,
+they state common modeling intent and lower to the existing bounded domains.
+Their names explicitly distinguish real and integer values.
+
+Pyomo's `NonNegativeReals` and `NonNegativeIntegers` inform this distinction;
+JuMP's variable bounds and MathOpt's explicit bounds inform keeping arbitrary
+bounds available. These conveniences share the general domains' validation.
 
 **Rejected.**
 - *Required integer bounds.* Honest about the backend, but asymmetric with
-  continuous bounds.
+  real bounds.
+- *A bare `Real` plus `BoundedReal`.* Splits one domain family and would require
+  the same split for integers.
+- *`NonNegative` without a numeric kind.* Does not say whether values are real
+  or integer.
 - *Filling in `None` integer bounds in Gleam.* A backend limit in the modeling
   layer.
 - *Reporting an integer at the range edge as `Unbounded`.* Wrong when a
@@ -433,9 +465,10 @@ the internal contract.
 ### The driver contract
 
 **Decision.** Rust receives indices only: domains in column order, an objective
-expression, and rows as `lhs relation rhs`. Expressions mirror the public tree
-with keys replaced by indices. Rows correspond one-to-one to constraints, so
-every solver position maps back to a key or constraint. Keys and names never
+expression, and rows as `lhs relation rhs`. Expressions use `Linear`,
+`Constant`, `Sum` and `Scaled`, with keys replaced by indices and the public
+`Variable` and `Difference` conveniences expanded during lowering. Rows
+correspond one-to-one to constraints, so every solver position maps back to a key or constraint. Keys and names never
 cross the boundary. The contract changes only deliberately, in Rust and Gleam
 together.
 
@@ -574,6 +607,11 @@ Reviewed 2026-10-23. Design influences, not interfaces to copy.
   rather than rejecting them.
 - [Pyomo sets](https://pyomo.readthedocs.io/en/stable/explanation/modeling/math_programming/sets.html):
   indexed and sparse sets; Gleam's standard library covers the same ground.
+- [JuMP variable bounds](https://jump.dev/JuMP.jl/stable/manual/variables/)
+  and [MathOpt modeling](https://developers.google.com/optimization/math_opt/basic_example):
+  explicit arbitrary bounds alongside readable mathematical expressions.
+- [Pyomo domains](https://www.pyomo.org/s/3_PyomoFundamentals.pdf):
+  distinct nonnegative real and integer domains.
 - [MathOpt](https://developers.google.com/optimization/math_opt): separates
   modeling from solving and supports solver-independent models.
 - [MathOpt result contract](https://developers.google.com/optimization/service/reference/rest/v1/mathopt/solveMathOptModel):

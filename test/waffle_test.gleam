@@ -19,7 +19,7 @@ type Product {
 }
 
 fn nonnegative(_: v) -> m.Domain {
-  m.Continuous(Some(0.0), None)
+  m.Real(Some(0.0), None)
 }
 
 fn close(actual: Float, expected: Float) {
@@ -56,7 +56,7 @@ pub fn keys_can_be_any_value_test() {
   let assert Ok(m.Optimal(solution)) =
     m.solve(
       m.Model(
-        domain: fn(_) { m.Continuous(Some(0.0), Some(1.0)) },
+        domain: fn(_) { m.Real(Some(0.0), Some(1.0)) },
         objective: m.Maximize(
           Sum([Linear(1.0, #("north", 1)), Linear(2.0, #("south", 2))]),
         ),
@@ -84,7 +84,7 @@ pub fn int_keys_are_names_not_columns_test() {
   // first, so it is column 0, yet each key still gets its own bound.
   let model =
     m.Model(
-      domain: fn(k) { m.Continuous(Some(0.0), Some(int.to_float(k))) },
+      domain: fn(k) { m.Real(Some(0.0), Some(int.to_float(k))) },
       objective: m.Maximize(Sum([Linear(1.0, 7), Linear(1.0, 3)])),
       constraints: [],
     )
@@ -100,7 +100,7 @@ pub fn domains_apply_to_their_keys_test() {
   let domain = fn(product) {
     case product {
       Chair -> m.Integer(Some(0), None)
-      Table -> m.Continuous(None, Some(5.0))
+      Table -> m.Real(None, Some(5.0))
       Missing -> m.Integer(Some(0), Some(9))
     }
   }
@@ -128,7 +128,7 @@ fn only_table(domain: m.Domain) -> fn(Product) -> m.Domain {
   fn(product) {
     case product {
       Table -> domain
-      Chair | Missing -> m.Continuous(Some(0.0), None)
+      Chair | Missing -> m.Real(Some(0.0), None)
     }
   }
 }
@@ -149,12 +149,51 @@ pub fn invalid_integer_domain_names_its_key_test() {
 
 pub fn empty_domains_are_infeasible_test() {
   list.each(
-    [m.Integer(Some(2), Some(1)), m.Continuous(Some(2.0), Some(1.0))],
+    [m.Integer(Some(2), Some(1)), m.Real(Some(2.0), Some(1.0))],
     fn(domain) {
       m.solve(m.Model(..chair_and_table(), domain: only_table(domain)))
       |> should.equal(Ok(m.Infeasible))
     },
   )
+}
+
+pub fn nonnegative_domains_preserve_bounds_and_integrality_test() {
+  list.each([#(m.NonNegativeReal, 2.5), #(m.NonNegativeInteger, 2.0)], fn(pair) {
+    let #(domain, expected) = pair
+    let model =
+      m.Model(
+        domain: fn(_) { domain },
+        objective: m.Maximize(m.Variable(Chair)),
+        constraints: [m.LessEqual(m.Variable(Chair), Constant(2.5))],
+      )
+    let assert Ok(m.Optimal(solution)) = m.solve(model)
+    close_value(solution, Chair, expected)
+    let assert Ok(m.Optimal(minimum)) =
+      m.solve(m.Model(..model, objective: m.Minimize(m.Variable(Chair))))
+    close_value(minimum, Chair, 0.0)
+    case domain {
+      m.NonNegativeInteger -> {
+        let assert Ok(m.Optimal(unbounded)) =
+          m.solve(m.Model(..model, constraints: []))
+        close_value(unbounded, Chair, 2_147_483_647.0)
+      }
+      _ ->
+        m.solve(m.Model(..model, constraints: []))
+        |> should.equal(Ok(m.Unbounded))
+    }
+  })
+}
+
+pub fn real_domain_allows_negative_values_test() {
+  let assert Ok(m.Optimal(solution)) =
+    m.solve(
+      m.Model(
+        domain: fn(_) { m.Real(Some(-2.5), Some(3.0)) },
+        objective: m.Minimize(m.Variable(Chair)),
+        constraints: [],
+      ),
+    )
+  close_value(solution, Chair, -2.5)
 }
 
 // Constraints
@@ -264,7 +303,15 @@ pub fn deep_expressions_test() {
     })
   let scaled =
     int.range(0, 100_000, Linear(1.0, Chair), fn(e, _) { Scaled(1.0, e) })
-  list.each([sum, scaled], fn(expression) {
+  let difference_left =
+    int.range(0, 100_000, m.Variable(Chair), fn(e, _) {
+      m.Difference(e, Sum([]))
+    })
+  let difference_right =
+    int.range(0, 100_000, m.Variable(Chair), fn(e, _) {
+      m.Difference(Constant(2.0), e)
+    })
+  list.each([sum, scaled, difference_left, difference_right], fn(expression) {
     let assert Ok(m.Optimal(solution)) =
       m.solve(
         m.Model(
@@ -276,6 +323,62 @@ pub fn deep_expressions_test() {
     m.objective(solution) |> should.equal(1.0)
     m.evaluate(solution, expression) |> should.equal(Ok(1.0))
   })
+}
+
+pub fn difference_composes_on_both_sides_test() {
+  let expression =
+    m.Difference(
+      Sum([m.Variable(Chair), Constant(7.0)]),
+      m.Difference(m.Variable(Table), Constant(2.0)),
+    )
+  let assert Ok(m.Optimal(solution)) =
+    m.solve(
+      m.Model(..base(), objective: m.Maximize(expression), constraints: [
+        m.Equal(m.Variable(Table), Constant(3.0)),
+        m.LessEqual(
+          m.Difference(m.Variable(Chair), Constant(1.0)),
+          m.Difference(Constant(5.0), m.Variable(Table)),
+        ),
+      ]),
+    )
+  close_value(solution, Chair, 3.0)
+  close_value(solution, Table, 3.0)
+  close(m.objective(solution), 9.0)
+  m.evaluate(solution, expression) |> should.equal(Ok(9.0))
+  m.evaluate(solution, Scaled(2.0, expression)) |> should.equal(Ok(18.0))
+  m.evaluate(solution, m.Difference(m.Variable(Missing), m.Variable(Missing)))
+  |> should.equal(Error(m.NotInSolution(Missing)))
+}
+
+pub fn difference_preserves_cancelled_and_zero_scaled_references_test() {
+  let expression = m.Difference(m.Variable(Table), m.Variable(Table))
+  let model = m.Model(..base(), objective: m.Minimize(expression))
+  let assert Ok(m.Optimal(solution)) = m.solve(model)
+  m.value(solution, Table) |> should.equal(Ok(0.0))
+  list.each([expression, Scaled(0.0, expression)], fn(expression) {
+    m.solve(
+      m.Model(
+        ..model,
+        domain: only_table(m.Integer(Some(0), Some(2_147_483_648))),
+        objective: m.Minimize(expression),
+      ),
+    )
+    |> should.equal(Error(m.InvalidDomain(Table)))
+  })
+}
+
+pub fn difference_overflow_preserves_location_and_order_test() {
+  let expression =
+    m.Difference(Sum([Constant(max), Constant(max)]), Constant(max))
+  m.solve(m.Model(..base(), objective: m.Minimize(expression)))
+  |> should.equal(Error(m.NonFinite(m.InObjective)))
+  let row = m.Equal(expression, Constant(0.0))
+  m.solve(m.Model(..base(), constraints: [row]))
+  |> should.equal(Error(m.NonFinite(m.InConstraint(0, row))))
+  let assert Ok(m.Optimal(solution)) = m.solve(base())
+  m.evaluate(solution, expression) |> should.equal(Error(m.NonFiniteValue))
+  m.evaluate(solution, m.Difference(Constant(max), Constant(max)))
+  |> should.equal(Ok(0.0))
 }
 
 // Outcomes and errors
@@ -328,8 +431,8 @@ fn solved_chairs_and_tables() -> m.Solution(Product) {
   // max 3·chair + 2·table + 7  s.t.  chair + table ≤ 4,  chair ≤ 2
   let domain = fn(product) {
     case product {
-      Chair -> m.Continuous(Some(0.0), Some(2.0))
-      Table | Missing -> m.Continuous(Some(0.0), None)
+      Chair -> m.Real(Some(0.0), Some(2.0))
+      Table | Missing -> m.Real(Some(0.0), None)
     }
   }
   let assert Ok(m.Optimal(solution)) =
@@ -385,7 +488,7 @@ pub fn evaluation_combines_coefficients_before_multiplying_test() {
   let assert Ok(m.Optimal(solution)) =
     m.solve(
       m.Model(
-        domain: fn(_) { m.Continuous(Some(2.0), Some(2.0)) },
+        domain: fn(_) { m.Real(Some(2.0), Some(2.0)) },
         objective: m.Minimize(expression),
         constraints: [],
       ),

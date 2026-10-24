@@ -15,17 +15,22 @@ import waffle/internal/driver
 ///
 /// ```gleam
 /// Sum([Linear(3.0, X), Linear(2.0, Y), Constant(7.0)])  // 3x + 2y + 7
-/// Sum([revenue, Scaled(-1.0, cost)])                    // revenue − cost
+/// Difference(revenue, cost)                         // revenue − cost
 /// list.map(items, fn(i) { Linear(i.weight, Pick(i.id)) }) |> Sum
 /// ```
 ///
 /// For shorter literals, rename the constructors at the import:
 /// `import waffle.{Linear as L, Constant as C}`.
 pub type Expression(v) {
+  /// A variable with coefficient one, equivalent to `Linear(1.0, variable)`.
+  Variable(variable: v)
   Linear(coefficient: Float, variable: v)
   Constant(value: Float)
   /// The sum of the expressions; the empty sum is zero.
   Sum(expressions: List(Expression(v)))
+  /// Subtract rhs from lhs, equivalent to `Sum([lhs, Scaled(-1.0, rhs)])`.
+  /// Both sides still reference their variables even when they cancel.
+  Difference(lhs: Expression(v), rhs: Expression(v))
   /// Scale an expression, including its constants. Scaling by zero still
   /// references the expression's variables.
   Scaled(coefficient: Float, expression: Expression(v))
@@ -56,8 +61,15 @@ pub type Objective(v) {
 pub type Domain {
   /// An integer variable restricted to zero or one.
   Binary
-  Continuous(lower: Option(Float), upper: Option(Float))
+  /// A real-valued variable with optional inclusive bounds.
+  Real(lower: Option(Float), upper: Option(Float))
+  /// An integer-valued variable with optional inclusive bounds.
   Integer(lower: Option(Int), upper: Option(Int))
+  /// A real-valued variable at least zero: `Real(Some(0.0), None)`.
+  NonNegativeReal
+  /// An integer-valued variable at least zero: `Integer(Some(0), None)`.
+  /// The backend's signed 32-bit limit still applies.
+  NonNegativeInteger
 }
 
 /// A model to solve. A variable exists once an expression references it, and
@@ -170,6 +182,10 @@ fn lower_loop(
   frames: List(Frame(v)),
 ) -> #(Columns(v), driver.Expression) {
   case step, frames {
+    Descend(Variable(key)), _ ->
+      lower_loop(columns, Descend(Linear(1.0, key)), frames)
+    Descend(Difference(lhs, rhs)), _ ->
+      lower_loop(columns, Descend(Sum([lhs, Scaled(-1.0, rhs)])), frames)
     Descend(Linear(coefficient, key)), _ -> {
       let #(columns, index) = column(columns, key)
       lower_loop(columns, Ascend(driver.Linear(coefficient, index)), frames)
@@ -220,7 +236,9 @@ fn bound(bound: Option(Float)) -> driver.Bound {
 fn driver_domain(domain: Domain) -> driver.Domain {
   case domain {
     Binary -> driver.Integer(Some(0), Some(1))
-    Continuous(lower, upper) -> driver.Continuous(bound(lower), bound(upper))
+    NonNegativeReal -> driver.Real(driver.Finite(0.0), driver.Unbounded)
+    NonNegativeInteger -> driver.Integer(Some(0), None)
+    Real(lower, upper) -> driver.Real(bound(lower), bound(upper))
     Integer(lower, upper) -> driver.Integer(lower, upper)
   }
 }
@@ -308,7 +326,7 @@ pub fn values(solution: Solution(v)) -> Dict(v, Float) {
 }
 
 /// Evaluate an expression using the solution's variable values, e.g. a cost
-/// breakdown, or a constraint's slack as `Sum([rhs, Scaled(-1.0, lhs)])`.
+/// breakdown, or a constraint's slack as `Difference(rhs, lhs)`.
 /// Returns an error for missing variables or non-finite arithmetic.
 pub fn evaluate(
   solution: Solution(v),

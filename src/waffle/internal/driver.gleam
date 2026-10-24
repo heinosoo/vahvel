@@ -13,7 +13,7 @@ pub type Direction {
   Maximize
 }
 
-/// A continuous bound; `Unbounded` means no bound on that side.
+/// A real-valued bound; `Unbounded` means no bound on that side.
 pub type Bound {
   Unbounded
   Finite(Float)
@@ -24,7 +24,7 @@ pub type Bound {
 /// backend's integer limit. A domain whose lower bound exceeds its upper bound
 /// is valid but empty, which makes the model infeasible.
 pub type Domain {
-  Continuous(lower: Bound, upper: Bound)
+  Real(lower: Bound, upper: Bound)
   Integer(lower: Option(Int), upper: Option(Int))
 }
 

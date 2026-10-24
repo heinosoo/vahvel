@@ -8,10 +8,9 @@ import gleam/dict.{type Dict}
 import gleam/float
 import gleam/int
 import gleam/list
-import gleam/option.{None, Some}
 import gleam/result
 import gleeunit/should
-import waffle.{Constant, Linear, Sum}
+import waffle.{Constant, Linear, Sum, Variable}
 
 // Data
 
@@ -100,8 +99,8 @@ type Var {
 fn domain(var: Var) -> waffle.Domain {
   case var {
     Open(_) -> waffle.Binary
-    Trucks(..) -> waffle.Integer(Some(0), None)
-    Make(..) | Ship(..) | Stock(..) -> waffle.Continuous(Some(0.0), None)
+    Trucks(..) -> waffle.NonNegativeInteger
+    Make(..) | Ship(..) | Stock(..) -> waffle.NonNegativeReal
   }
 }
 
@@ -155,7 +154,7 @@ fn routes_at(adjacency: Dict(Int, List(Route)), node: Int) -> List(Route) {
 }
 
 fn shipped(routes: List(Route), t: Int) -> waffle.Expression(Var) {
-  list.map(routes, fn(route) { Linear(1.0, Ship(route, t)) }) |> Sum
+  list.map(routes, fn(route) { Variable(Ship(route, t)) }) |> Sum
 }
 
 fn constraints(data: Instance) -> List(waffle.Constraint(Var)) {
@@ -167,11 +166,11 @@ fn constraints(data: Instance) -> List(waffle.Constraint(Var)) {
       list.flat_map(data.periods, fn(t) {
         [
           waffle.LessEqual(
-            Linear(1.0, Make(f.id, t)),
+            Variable(Make(f.id, t)),
             Linear(f.capacity, Open(f.id)),
           ),
           waffle.Equal(
-            Linear(1.0, Make(f.id, t)),
+            Variable(Make(f.id, t)),
             shipped(routes_at(outgoing, f.id), t),
           ),
         ]
@@ -181,7 +180,7 @@ fn constraints(data: Instance) -> List(waffle.Constraint(Var)) {
     list.flat_map(routes, fn(route) {
       list.map(data.periods, fn(t) {
         waffle.LessEqual(
-          Linear(1.0, Ship(route, t)),
+          Variable(Ship(route, t)),
           Linear(data.truck_capacity, Trucks(route, t)),
         )
       })
@@ -192,11 +191,11 @@ fn constraints(data: Instance) -> List(waffle.Constraint(Var)) {
         let t = i + 1
         let previous = case t {
           1 -> Constant(w.initial_stock)
-          _ -> Linear(1.0, Stock(w.id, t - 1))
+          _ -> Variable(Stock(w.id, t - 1))
         }
         waffle.Equal(
           Sum([previous, shipped(routes_at(incoming, w.id), t)]),
-          Sum([Constant(demand), Linear(1.0, Stock(w.id, t))]),
+          Sum([Constant(demand), Variable(Stock(w.id, t))]),
         )
       })
     })

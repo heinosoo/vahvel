@@ -5,9 +5,8 @@
 //// the most? Each step adds one idea, and each answer is a little surprising.
 
 import gleam/list
-import gleam/option.{None, Some}
 import gleeunit/should
-import waffle.{Constant, Linear, Scaled, Sum}
+import waffle.{Constant, Difference, Linear, Sum, Variable}
 
 // Variables are named by your own values. A custom type makes the names
 // self-describing, and the compiler checks every `case` over them.
@@ -24,8 +23,8 @@ pub fn first_model_test() {
   let model =
     waffle.Model(
       // Every variable needs a domain. Half a waffle doesn't sell, so both
-      // counts are nonnegative integers; `None` means no upper bound.
-      domain: fn(_) { waffle.Integer(Some(0), None) },
+      // counts are nonnegative integers.
+      domain: fn(_) { waffle.NonNegativeInteger },
       // `Linear(coefficient, key)` is one weighted variable, and `Sum` adds
       // expressions: 3·classic + 5·chocolate.
       objective: waffle.Maximize(
@@ -87,7 +86,7 @@ type Decision {
 
 fn domain(decision: Decision) -> waffle.Domain {
   case decision {
-    Bake(_) -> waffle.Integer(Some(0), None)
+    Bake(_) -> waffle.NonNegativeInteger
     Station(_) -> waffle.Binary
   }
 }
@@ -159,7 +158,7 @@ fn with_stations() -> waffle.Model(Decision) {
   let station_limits =
     list.map(toppings, fn(topping) {
       waffle.LessEqual(
-        Linear(1.0, Bake(topping.waffle)),
+        Variable(Bake(topping.waffle)),
         Linear(topping.serves, Station(topping.waffle)),
       )
     })
@@ -167,7 +166,7 @@ fn with_stations() -> waffle.Model(Decision) {
   // costs, and `..rush()` keeps the domain.
   waffle.Model(
     ..rush(),
-    objective: waffle.Maximize(Sum([sales(), Scaled(-1.0, station_costs())])),
+    objective: waffle.Maximize(Difference(sales(), station_costs())),
     constraints: list.append(supply_limits(), station_limits),
   )
 }
