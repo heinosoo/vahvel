@@ -7,14 +7,6 @@ work is removed from this file; git log keeps it. Design decisions are in
 
 ## Next
 
-- **Integer results (needs a design session).** Integer and binary values are
-  already exact whole numbers (microlp rounds them), but they come back as
-  `Float`, so callers convert with `float.round`. Find out whether the Gleam
-  API can return an integer type for integer variables, given that keys of
-  one type can name both continuous and integer variables, and what that
-  means for `values`, `evaluate`, `objective` and the driver contract. The
-  objective is microlp's own value, not recomputed from the rounded values,
-  so it is not guaranteed whole or equal to `evaluate`.
 - **Modeling conveniences.** Plain variables are written `Linear(1.0, key)`
   throughout linking, flow and balance constraints, and subtraction is
   `Scaled(-1.0, e)`. Candidates are a `Variable(key)` leaf or helper, a

@@ -229,7 +229,7 @@ The cost: a ranged row is two constraints.
 - *An interval whose bounds are expressions* (`AtMost(y)`). Reads like the
   chosen form plus a nesting level.
 - *Rows and bounds as separate, key-driven parts* (`bound: fn(row) -> Interval`).
-  Exhaustive, but splits each constraint in two; see ROADMAP.md open questions.
+  Exhaustive, but splits each constraint in two.
 - *Comparison against zero.* The solver's normal form; every row rearranged by
   hand.
 - *Smart constructors over an opaque type.* The chosen form behind functions,
@@ -319,8 +319,7 @@ backend limit belongs in one place, in Rust.
 
 **Convenience forms.** `Binary` states modeling intent and shares the integer
 implementation. Further shorthands, such as `NonNegative`, are judged by caller
-readability, not rejected for being a second spelling (see ROADMAP.md:
-"Modeling conveniences").
+readability, not rejected for being a second spelling.
 
 **Rejected.**
 - *Required integer bounds.* Honest about the backend, but asymmetric with
@@ -346,8 +345,8 @@ give fresh per-model identities.
 
 **Rejected.**
 - *Solver column numbers.* Expose ordering to application code.
-- *Runtime-identified handles that detect cross-model use.* An open question for
-  models assembled from independent components; see ROADMAP.md.
+- *Runtime-identified handles that detect cross-model use.* Mix-ups matter
+  mainly for models assembled from independent components.
 
 ### Index sets are plain collections
 
@@ -369,25 +368,19 @@ sets, the role Pyomo's `Set` plays.
 ### Solutions
 
 **Decision.** `value(solution, key)` returns a `Result`, never a substituted
-zero: an unreferenced key is `NotInSolution(key)`. `values(solution)` returns
-all values keyed by variable. `evaluate(solution, expression)` computes costs,
-breakdowns and slacks: Gleam lowers the expression and looks up its keys with
-`value`. Rust receives the indexed expression and values, canonicalizes with
-the same rules as solving, and evaluates it, reporting `NonFiniteValue`.
-`value` and `evaluate` share `QueryError(v)`. Integer and binary values are
-exact whole numbers, rounded by microlp's `var_value`, which rejects values
-outside its integrality tolerance. The objective is microlp's own value, not
-recomputed from the rounded values. Solutions are immutable snapshots.
+zero: an unreferenced key is `NotInSolution(key)`. `evaluate(solution,
+expression)` computes costs, breakdowns and slacks with the same
+canonicalization as solving. `value` and `evaluate` share `QueryError(v)`. All
+values are `Float`; integer and binary values are exact whole numbers (microlp
+rounds them), so callers convert with `float.round`. The objective is
+microlp's own value, not recomputed from the rounded values.
 
-**Why.** Silent zeros hide typos. Evaluating expressions is more useful for
-reporting than single lookups. A shared error type lets a report chain both
+**Why.** Silent zeros hide typos. A shared error type lets a report chain both
 with `use … <- result.try`, and the error names the missing key. Exact integer
-values make `float.round` a lossless conversion rather than a tolerance guess;
-whether results should carry an integer type is open (ROADMAP.md: "Integer
-results"). Sharing canonicalization ensures duplicates are combined before
-multiplication in both paths, avoiding spurious product overflow for
-cancelling terms. The cost is column discovery and sorting on every
-evaluation; see ROADMAP.md ("Performance").
+values make `float.round` lossless rather than a tolerance guess. Shared
+canonicalization combines duplicates before multiplying, avoiding spurious
+overflow for cancelling terms. The cost is column discovery and sorting on
+every evaluation.
 
 **Rejected.**
 - *`value_or` and `evaluate_or` with a default.* Forwarding wrappers around
@@ -395,6 +388,10 @@ evaluation; see ROADMAP.md ("Performance").
   whole expression also hides which key was missing.
 - *Evaluating many expressions in one call to get one `Result`.* `use` already
   chains one `Result` per expression.
+- *Integer results (`value_int`, `evaluate_int`).* Converting by value depends
+  on float noise, and classifying expressions by domain does too, through their
+  coefficients. A domain-based `value_int` needs a driver contract change and
+  duplicated storage to save a lossless `float.round`.
 
 ### Solve statistics
 
@@ -565,7 +562,7 @@ any unexpected non-optimal return as a `SolverFailure`. microlp 0.6.0 already su
 ### Out of scope for now
 
 Nonlinear expressions, automatic solver selection, persistent native models and
-performance promises. Each is a separate ROADMAP.md item.
+performance promises.
 
 ## References
 
