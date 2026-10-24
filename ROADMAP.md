@@ -30,6 +30,36 @@ work is removed from this file; git log keeps it. Design decisions are in
 
 ## Later
 
+### API
+
+Investigate these alongside the reporting and evaluation work above. Judge
+additions by semantic clarity, composability, predictable validation and public
+surface cost; examples provide ergonomic evidence, not the sole acceptance
+criterion.
+
+- **Checking a supplied plan.** Go beyond expression evaluation to check
+  variable bounds, integrality and constraints. Define tolerances and distinguish
+  missing assignments, domain violations, constraint violations and numeric
+  failures. A plan can satisfy every row while assigning fractional trucks.
+- **Complete and sparse reporting.** Use a full production, shipping and
+  inventory report by period to investigate how callers distinguish absent
+  decisions from incorrect query keys. Establish reporting patterns without
+  silently substituting zero for missing values; determine whether documentation
+  suffices or variable discovery needs API support.
+- **Model inspection.** Inspect generated constraints, referenced variables and
+  their domains before solving. Determine what helps diagnose incorrectly
+  assembled models, and how it relates to expression printing under Diagnostics.
+- **Constraint identity and metadata.** Investigate locating a generated row by
+  application meaning, such as warehouse and period. Assess whether metadata
+  maintained alongside constraints is sufficient before adding names or keys to
+  the model; account for duplicate rows and changes across scenarios.
+- **Indexed construction.** Investigate repeated mapping, grouping and filtering
+  in sparse scheduling, assignment and network models. Add helpers only for
+  recurring concepts with clear composition or error-prevention benefits over
+  ordinary collections. Any paired-data operation must address mismatched
+  lengths and duplicate keys explicitly; measure construction costs where
+  performance motivates an abstraction.
+
 ### Backends
 
 - **Dual values.** Needs a dual-capable backend and the requirements in
