@@ -1,8 +1,8 @@
 //// A multi-period production and distribution network. Factories open at a
 //// fixed cost and produce up to a capacity; trucks carry goods along sparse
 //// routes to warehouses, which hold stock between periods to meet demand.
-//// `instance(size)` generates data deterministically, so larger sizes can
-//// serve as benchmark inputs.
+//// `instance(size)` generates data deterministically, so larger sizes serve
+//// as benchmark inputs (`test/bench.gleam`).
 
 import gleam/dict.{type Dict}
 import gleam/float
@@ -37,7 +37,7 @@ type Lane {
   Lane(route: Route, truck_cost: Float, available: Bool)
 }
 
-type Instance {
+pub opaque type Instance {
   Instance(
     factories: List(Factory),
     warehouses: List(Warehouse),
@@ -54,7 +54,7 @@ fn ids(count: Int) -> List(Int) {
 /// Factory `f` serves warehouses `2f − 1` and `2f`, and also the next
 /// factory's first warehouse. The last warehouse's only lane is unavailable,
 /// so it lives on its initial stock.
-fn instance(size: Int) -> Instance {
+pub fn instance(size: Int) -> Instance {
   let factory_ids = ids(size)
   let isolated = 2 * size + 1
   let warehouses =
@@ -88,7 +88,7 @@ fn instance(size: Int) -> Instance {
 
 // Model
 
-type Var {
+pub opaque type Var {
   Open(factory: Int)
   Make(factory: Int, period: Int)
   Ship(route: Route, period: Int)
@@ -205,7 +205,7 @@ fn constraints(data: Instance) -> List(waffle.Constraint(Var)) {
   list.flatten([production, trucks, balance])
 }
 
-fn model(data: Instance) -> waffle.Model(Var) {
+pub fn model(data: Instance) -> waffle.Model(Var) {
   waffle.Model(
     domain:,
     objective: waffle.Minimize(total(costs(data))),

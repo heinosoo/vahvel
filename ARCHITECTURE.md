@@ -230,6 +230,11 @@ for the representative models in `test/examples/`.
   unbounded outcomes, constant models, positioned errors, non-finite sums,
   malformed terms and expressions, and `evaluate`.
 - `test/waffle/internal/version_test.gleam`: NIF and package versions match.
+- `test/bench.gleam`: not a test; `just bench` runs it. It solves the
+  production network's LP relaxation at growing sizes and reports wall time,
+  solver time and their difference (waffle's overhead) per term, plus the cost
+  of one `residual` call, as median and range over repeated runs after
+  warm-up. Timings are too noisy for CI, so nothing asserts on them.
 
 ## Tooling and CI
 

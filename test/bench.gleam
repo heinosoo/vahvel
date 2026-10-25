@@ -1,0 +1,182 @@
+//// Measures what waffle adds around the solver: lowering keys to columns, the
+//// NIF call and decoding, canonicalization, validation and keyed results.
+//// Overhead is wall time minus the solver's own `solve_time`. If overhead per
+//// term stays flat as models grow, nothing scales superlinearly.
+////
+//// Models are the production network relaxed to an LP, so branch-and-bound
+//// doesn't dominate the run time. Each measurement is repeated after warm-up
+//// runs and reported as median and range. Run with `just bench`.
+
+import examples/production_network_test as network
+import gleam/dict
+import gleam/int
+import gleam/io
+import gleam/list
+import gleam/string
+import gleam/time/duration
+import waffle
+
+const sizes = [1, 10, 100, 1000]
+
+const warmup_runs = 3
+
+const runs = 15
+
+pub fn main() -> Nil {
+  io.println(
+    "Solve overhead, LP relaxation ("
+    <> int.to_string(runs)
+    <> " runs; times in µs, median [min–max])",
+  )
+  print_row([
+    "size",
+    "vars",
+    "rows",
+    "terms",
+    "build",
+    "wall",
+    "solver",
+    "overhead",
+    "ns/term",
+  ])
+  list.each(sizes, solve_overhead)
+  io.println("")
+  io.println(
+    "Residual of every row, size 100 (" <> int.to_string(runs) <> " runs)",
+  )
+  print_row(["rows", "total µs", "ns/call"])
+  residual_calls(100)
+}
+
+fn relaxed(size: Int) -> waffle.Model(network.Var) {
+  waffle.Model(..network.model(network.instance(size)), domain: fn(_) {
+    waffle.NonNegativeReal
+  })
+}
+
+fn solve_overhead(size: Int) -> Nil {
+  let model = relaxed(size)
+  let samples =
+    repeat(fn() {
+      let #(build, _) = time(fn() { relaxed(size) })
+      let #(wall, outcome) = time(fn() { waffle.solve(model) })
+      let assert Ok(waffle.Optimal(solution, stats)) = outcome
+      let #(seconds, nanoseconds) =
+        duration.to_seconds_and_nanoseconds(stats.solve_time)
+      let solver = seconds * 1_000_000_000 + nanoseconds
+      #(build, wall, solver, dict.size(waffle.values(solution)))
+    })
+  let assert [#(_, _, _, vars), ..] = samples
+  let terms = model_terms(model)
+  let overhead = summary(list.map(samples, fn(s) { s.1 - s.2 }))
+  print_row([
+    int.to_string(size),
+    int.to_string(vars),
+    int.to_string(list.length(model.constraints)),
+    int.to_string(terms),
+    format(summary(list.map(samples, fn(s) { s.0 }))),
+    format(summary(list.map(samples, fn(s) { s.1 }))),
+    format(summary(list.map(samples, fn(s) { s.2 }))),
+    format(overhead),
+    int.to_string(overhead.median / terms),
+  ])
+}
+
+fn residual_calls(size: Int) -> Nil {
+  let model = relaxed(size)
+  let assert Ok(waffle.Optimal(solution, _)) = waffle.solve(model)
+  let lookup = waffle.value(solution, _)
+  let rows = list.length(model.constraints)
+  let total =
+    summary(
+      repeat(fn() {
+        let #(elapsed, _) =
+          time(fn() {
+            list.each(model.constraints, fn(c) {
+              let assert Ok(_) = waffle.residual(c, lookup)
+            })
+          })
+        elapsed
+      }),
+    )
+  print_row([
+    int.to_string(rows),
+    format(total),
+    int.to_string(total.median / rows),
+  ])
+}
+
+// Measurement
+
+type Summary {
+  Summary(median: Int, min: Int, max: Int)
+}
+
+/// Run `measure` for the warm-up runs, discarding them, then collect `runs`
+/// samples.
+fn repeat(measure: fn() -> a) -> List(a) {
+  int.range(from: 0, to: warmup_runs, with: Nil, run: fn(_, _) {
+    measure()
+    Nil
+  })
+  int.range(from: 0, to: runs, with: [], run: fn(samples, _) {
+    [measure(), ..samples]
+  })
+}
+
+fn summary(nanoseconds: List(Int)) -> Summary {
+  let sorted = list.sort(nanoseconds, int.compare)
+  let assert [min, ..] = sorted
+  let assert [max, ..] = list.reverse(sorted)
+  let assert Ok(median) =
+    list.drop(sorted, list.length(sorted) / 2) |> list.first
+  Summary(median:, min:, max:)
+}
+
+type TimeUnit {
+  Nanosecond
+}
+
+@external(erlang, "timer", "tc")
+fn timer_tc(run: fn() -> a, unit: TimeUnit) -> #(Int, a)
+
+/// Elapsed nanoseconds and the result.
+fn time(run: fn() -> a) -> #(Int, a) {
+  timer_tc(run, Nanosecond)
+}
+
+// Model size: variable references, counted with duplicates as they reach the
+// driver.
+
+fn model_terms(model: waffle.Model(v)) -> Int {
+  let objective = case model.objective {
+    waffle.Minimize(e) | waffle.Maximize(e) -> e
+  }
+  list.fold(model.constraints, terms(objective), fn(count, c) {
+    count + terms(c.lhs) + terms(c.rhs)
+  })
+}
+
+fn terms(expression: waffle.Expression(v)) -> Int {
+  case expression {
+    waffle.Variable(_) | waffle.Linear(..) -> 1
+    waffle.Constant(_) -> 0
+    waffle.Sum(expressions) -> int.sum(list.map(expressions, terms))
+    waffle.Difference(lhs, rhs) -> terms(lhs) + terms(rhs)
+    waffle.Scaled(_, e) -> terms(e)
+  }
+}
+
+// Output
+
+fn format(summary: Summary) -> String {
+  let us = fn(ns) { int.to_string(ns / 1000) }
+  us(summary.median) <> " [" <> us(summary.min) <> "–" <> us(summary.max) <> "]"
+}
+
+fn print_row(cells: List(String)) -> Nil {
+  cells
+  |> list.map(string.pad_start(_, 25, " "))
+  |> string.join(" ")
+  |> io.println
+}

@@ -5,17 +5,6 @@ These are rough priorities; API shapes and backend choices remain open. Finished
 work is removed from this file; git log keeps it. Design decisions are in
 [DESIGN.md](DESIGN.md).
 
-## Next
-
-- **Performance.** Benchmark construction on larger sparse models, starting
-  with the production network's `instance(size)`;
-  the outcome's `stats.solve_time` separates solving from construction and NIF
-  overhead. Measure the per-term key lookup that stays in Gleam against the work
-  done in Rust (DESIGN.md: "Describe in Gleam, compute in Rust"). Benchmark
-  nested expression construction and evaluation, including column discovery,
-  canonicalization, NIF decoding and dirty-scheduler overhead. Use results to
-  decide whether a bounded fast path for small evaluations is worthwhile.
-
 ## Later
 
 ### API

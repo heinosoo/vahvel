@@ -5,6 +5,10 @@ check: lint test
 test: build
     gleam test
 
+# Measure overhead around the solver (test/bench.gleam)
+bench: build
+    gleam run -m bench
+
 # Auto-format both Gleam and Rust
 fmt:
     gleam format src test

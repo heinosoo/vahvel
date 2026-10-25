@@ -40,7 +40,9 @@ Gleam: values → keyed Solution; positions → keys and locations
 **What stays in Gleam.** Key discovery and column assignment: `domain` is a
 Gleam closure a NIF can't call, and keys are arbitrary Gleam values while Rust
 only sees indices. This costs one dictionary lookup per variable reference in
-Gleam.
+Gleam. Measured (`just bench`), lowering and keyed results take about 0.3 µs
+per term, as much as Rust's work outside the solver; on a 21,000-row LP the
+two together are about 2% of wall time, so the solver dominates.
 
 **Adaptability.** Moving work to Rust means changing the one contract. Presolve,
 scaling, or building CSC for Clarabel stay inside Rust. Persistent native models
@@ -489,7 +491,8 @@ the lookup is called is unspecified, so lookups should be pure.
   value(solution, _))` stays short.
 - *Evaluating many expressions in one call to get one `Result`.* `use`,
   `list.map` and `list.try_map` already combine one `Result` per expression;
-  a batch call needs measured performance benefits.
+  a single call costs about 2 µs including the NIF round-trip, too little to
+  justify a batch call or a Gleam fast path.
 - *Integer results (`value_int`, `evaluate_int`).* Converting by value depends
   on float noise, and classifying expressions by domain does too, through their
   coefficients. A domain-based `value_int` needs a driver contract change and
