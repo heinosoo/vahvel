@@ -39,7 +39,7 @@ fn model(n: Int) -> waffle.Model(Square) {
 }
 
 fn queens(n: Int) -> List(Square) {
-  let assert Ok(waffle.Optimal(solution)) = waffle.solve(model(n))
+  let assert Ok(waffle.Optimal(solution, _)) = waffle.solve(model(n))
   waffle.values(solution)
   |> dict.filter(fn(_, placed) { placed == 1.0 })
   |> dict.keys

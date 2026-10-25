@@ -83,12 +83,29 @@ pub type Model(v) {
   )
 }
 
+/// Per-call solver budgets. None means unlimited; zero is valid.
+/// Time covers only the backend solve and may be exceeded between checks.
+/// Nodes exclude the root relaxation and do not limit continuous LP work.
+pub type Limits {
+  Limits(time: Option(Duration), nodes: Option(Int))
+}
+
+/// The budget that stopped search before a proof was obtained.
+pub type StopReason {
+  TimeLimit
+  NodeLimit
+}
+
 /// Why a model could not be solved. Infeasibility and unboundedness are
 /// answers, not errors; see `Outcome`.
 pub type SolveError(v) {
   /// This variable's domain can't be solved here: its integer bounds do not
   /// fit the backend's signed 32 bits, or a bound is not finite.
   InvalidDomain(v)
+  /// The duration is negative or longer than 100 years.
+  InvalidTimeLimit
+  /// The count is negative or does not fit an unsigned 64-bit integer.
+  InvalidNodeLimit
   /// An input or intermediate calculation is infinite or NaN.
   NonFinite(Location(v))
   /// The solver failed numerically or internally. The message is for
@@ -103,12 +120,15 @@ pub type Location(v) {
   InConstraint(index: Int, constraint: Constraint(v))
 }
 
-/// A solution carries only values belonging to this solved snapshot.
+/// A usable assignment belonging to this solved snapshot. The enclosing
+/// outcome carries proof status and statistics; a solution alone is not a
+/// claim of optimality.
 pub opaque type Solution(v) {
-  Solution(objective: Float, values: Dict(v, Float), stats: Stats)
+  Solution(objective: Float, values: Dict(v, Float))
 }
 
-/// How much work the solver did. Models requiring no solver work report zeros.
+/// How much work the solver did and how far from proven its answer is. Models
+/// requiring no solver work report zero work and a zero gap.
 pub type Stats {
   Stats(
     /// Branch-and-bound nodes solved; zero for a purely continuous model.
@@ -118,12 +138,18 @@ pub type Stats {
     /// Time spent inside the solver, excluding model construction and the
     /// native call.
     solve_time: Duration,
+    /// Relative objective gap: abs(objective - bound) / max(abs(objective), 1).
+    /// Some(0.0) for an optimum; None without an incumbent or a finite gap.
+    /// A zero gap alone does not prove optimality.
+    gap: Option(Float),
   )
 }
 
-/// Only an optimum carries a queryable solution.
+/// A proof or a budget stop. Limited may carry a feasible, unproven assignment;
+/// None means no usable assignment was returned, not infeasibility.
 pub type Outcome(v) {
-  Optimal(Solution(v))
+  Optimal(solution: Solution(v), stats: Stats)
+  Limited(reason: StopReason, solution: Option(Solution(v)), stats: Stats)
   Infeasible
   Unbounded
 }
@@ -256,25 +282,60 @@ fn compile(model: Model(v)) -> #(driver.Model, List(v)) {
   #(driver.Model(direction, domains, objective, rows), keys)
 }
 
-/// Solve a model, returning its optimum, infeasibility or unboundedness.
+/// Solve without time or node limits.
 pub fn solve(model: Model(v)) -> Result(Outcome(v), SolveError(v)) {
+  solve_with(model, Limits(None, None))
+}
+
+/// Solve with per-call budgets. Limits are validated before the model;
+/// validation and trivial proofs still run with zero budgets. Model lowering,
+/// validation, construction and NIF overhead are outside the time budget.
+pub fn solve_with(
+  model: Model(v),
+  limits: Limits,
+) -> Result(Outcome(v), SolveError(v)) {
   let #(numeric, keys) = compile(model)
+  let budgets =
+    driver.Limits(
+      option.map(limits.time, duration.to_seconds_and_nanoseconds),
+      limits.nodes,
+    )
   use outcome <- result.try(
-    driver.solve(numeric)
+    driver.solve(numeric, budgets)
     |> result.map_error(native_error(_, keys, model.constraints)),
   )
   case outcome {
     driver.Infeasible -> Ok(Infeasible)
     driver.UnboundedProblem -> Ok(Unbounded)
-    driver.Optimal(objective, values, driver.Stats(nodes, iterations, time)) ->
-      Ok(
-        Optimal(Solution(
-          objective,
-          dict.from_list(list.zip(keys, values)),
-          Stats(nodes, iterations, duration.nanoseconds(time)),
-        )),
-      )
+    driver.Optimal(objective, values, stats) ->
+      Ok(Optimal(keyed_solution(objective, values, keys), public_stats(stats)))
+    driver.Limited(reason, primal, stats) -> {
+      let reason = case reason {
+        driver.TimeLimit -> TimeLimit
+        driver.NodeLimit -> NodeLimit
+      }
+      let solution =
+        option.map(primal, fn(pair) { keyed_solution(pair.0, pair.1, keys) })
+      Ok(Limited(reason, solution, public_stats(stats)))
+    }
   }
+}
+
+fn keyed_solution(
+  objective: Float,
+  values: List(Float),
+  keys: List(v),
+) -> Solution(v) {
+  Solution(objective, dict.from_list(list.zip(keys, values)))
+}
+
+fn public_stats(stats: driver.Stats) -> Stats {
+  Stats(
+    stats.nodes,
+    stats.iterations,
+    duration.nanoseconds(stats.nanoseconds),
+    stats.gap,
+  )
 }
 
 // Other model rejections indicate a bug in lowering, not invalid user input.
@@ -295,6 +356,8 @@ fn native_error(
         [constraint, ..] -> NonFinite(InConstraint(index, constraint))
         [] -> SolverFailure("Driver reported an unknown constraint position")
       }
+    driver.InvalidTimeLimit -> InvalidTimeLimit
+    driver.InvalidNodeLimit -> InvalidNodeLimit
     driver.InvalidModel(_) -> SolverFailure("Compiled model was rejected")
     driver.SolverFailure(message) -> SolverFailure(message)
   }
@@ -307,9 +370,13 @@ pub fn objective(solution: Solution(v)) -> Float {
   solution.objective
 }
 
-/// Statistics of the solve that produced this solution.
-pub fn stats(solution: Solution(v)) -> Stats {
-  solution.stats
+/// Statistics of this solve. Infeasible and unbounded answers have none
+/// because the backend does not return statistics for those proofs.
+pub fn stats(outcome: Outcome(v)) -> Option(Stats) {
+  case outcome {
+    Optimal(_, stats) | Limited(_, _, stats) -> Some(stats)
+    Infeasible | Unbounded -> None
+  }
 }
 
 /// Look up a primal value by variable key, like `dict.get`. A key that no

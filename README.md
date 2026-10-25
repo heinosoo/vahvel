@@ -31,7 +31,7 @@ let model =
       ),
     ],
   )
-let assert Ok(waffle.Optimal(solution)) = waffle.solve(model)
+let assert Ok(waffle.Optimal(solution, _)) = waffle.solve(model)
 waffle.objective(solution)  // 21.0: 3 chocolate and 2 classic
 ```
 
@@ -90,9 +90,35 @@ list.map(toppings, fn(topping) {
 })
 ```
 
-**Answers are values.** `solve` returns `Ok(Optimal(solution))`,
+**Answers are values.** Unlimited `solve` returns `Ok(Optimal(solution, stats))`,
 `Ok(Infeasible)` or `Ok(Unbounded)`; `Error(_)` is reserved for invalid input
-or solver failures. Only an optimum carries a solution.
+or solver failures. `solve_with` also supports budget stops with an optional
+feasible assignment:
+
+```gleam
+let assert Ok(outcome) = waffle.solve_with(
+  model,
+  waffle.Limits(time: Some(duration.seconds(2)), nodes: Some(1000)),
+)
+let plan = case outcome {
+  waffle.Optimal(solution, _) | waffle.Limited(_, Some(solution), _) ->
+    Some(solution)
+  waffle.Limited(_, None, _) | waffle.Infeasible | waffle.Unbounded -> None
+}
+let statistics = waffle.stats(outcome)  // Some(stats), or None for infeasible/unbounded
+```
+
+Import `gleam/option.{None, Some}` and `gleam/time/duration` for this example.
+`Limited(TimeLimit | NodeLimit, Some(solution), stats)` is feasible but unproven;
+with `None`, no usable assignment was found. A time budget covers the backend
+solve and may overshoot between checks. Node limits exclude the root relaxation
+and do not limit continuous LPs. `None` means unlimited; zero is valid; negative
+budgets, times over 100 years and node counts beyond 64 bits return
+`InvalidTimeLimit` / `InvalidNodeLimit`.
+
+Stats include nodes, simplex iterations, solver time and an optional relative
+gap. An optimum's gap is zero; a limited result's gap may be unavailable.
+Statistics belong to the outcome; `Solution` contains objective and values.
 
 **Reporting reuses the model.** Look up values by key and evaluate the
 expressions that built the model, at a solution or at any values you supply,
@@ -104,7 +130,6 @@ waffle.evaluate_solution(sales, solution)  // Ok(22.5)
 waffle.value(solution, Bake(Berry))  // Ok(3.0)
 waffle.value(solution, Station(Classic))  // Error(Nil)
 waffle.evaluate_dict(profit, plan)  // Ok(19.5)
-waffle.stats(solution).nodes  // branch-and-bound nodes
 ```
 
 `evaluate(expression, lookup)` takes any `fn(key) -> Result(Float, Nil)`, for

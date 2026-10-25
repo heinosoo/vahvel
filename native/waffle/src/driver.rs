@@ -1,6 +1,10 @@
-use microlp::{ComparisonOp, OptimizationDirection, Problem, SolutionStatus, SolveOutcome};
+use microlp::{
+    ComparisonOp, OptimizationDirection, Problem, SolutionStatus, SolveOptions, SolveOutcome,
+    TerminationReason,
+};
 use rustler::types::atom as atoms;
 use rustler::{Atom, NifRecord, NifTaggedEnum, NifUnitEnum, Term};
+use std::time::Duration;
 
 #[derive(NifUnitEnum)]
 enum Direction {
@@ -182,37 +186,115 @@ struct Model {
     rows: Vec<Row>,
 }
 
-/// microlp's solve statistics. Counts and time saturate at `u64::MAX`.
+/// Gleam options use tagged Some values, unlike Rustler's built-in Option.
+#[derive(NifTaggedEnum)]
+enum Optional<T> {
+    None,
+    Some(T),
+}
+
+impl<T> From<Option<T>> for Optional<T> {
+    fn from(value: Option<T>) -> Self {
+        match value {
+            None => Self::None,
+            Some(value) => Self::Some(value),
+        }
+    }
+}
+
+#[derive(NifRecord)]
+#[tag = "limits"]
+struct RawLimits<'a> {
+    time: Optional<Term<'a>>,
+    nodes: Optional<Term<'a>>,
+}
+
+fn malformed_limits() -> DriverError {
+    DriverError::SolverFailure("Malformed solve limits".into())
+}
+
+fn limit_integer(term: Term<'_>, invalid: DriverError) -> Result<u64, DriverError> {
+    if !term.is_integer() {
+        return Err(malformed_limits());
+    }
+    term.decode().map_err(|_| invalid)
+}
+
+/// Far beyond any useful budget, yet well inside every platform's monotonic
+/// clock, so microlp's unchecked `Instant::now() + limit` cannot overflow.
+const MAX_TIME_LIMIT: Duration = Duration::from_secs(100 * 365 * 24 * 60 * 60);
+
+fn decode_limits(term: Term<'_>) -> Result<SolveOptions, DriverError> {
+    let raw: RawLimits = term.decode().map_err(|_| malformed_limits())?;
+    let mut options = SolveOptions::default();
+    if let Optional::Some(time) = raw.time {
+        let (seconds, nanos): (Term, Term) = time.decode().map_err(|_| malformed_limits())?;
+        let seconds = limit_integer(seconds, DriverError::InvalidTimeLimit)?;
+        let nanos = limit_integer(nanos, DriverError::InvalidTimeLimit)?;
+        if nanos >= 1_000_000_000 {
+            return Err(malformed_limits());
+        }
+        let time = Duration::new(seconds, nanos as u32);
+        if time > MAX_TIME_LIMIT {
+            return Err(DriverError::InvalidTimeLimit);
+        }
+        options.time_limit = Some(time);
+    }
+    if let Optional::Some(nodes) = raw.nodes {
+        options.node_limit = Some(limit_integer(nodes, DriverError::InvalidNodeLimit)?);
+    }
+    Ok(options)
+}
+
+/// Solve work and an optional finite gap. Elapsed nanoseconds saturate at u64::MAX.
 #[derive(NifRecord)]
 #[tag = "stats"]
 struct Stats {
     nodes: u64,
     iterations: u64,
     nanoseconds: u64,
+    gap: Optional<f64>,
 }
 
 impl Stats {
-    /// No solver call: the driver answered a trivial model itself.
-    const NONE: Self = Self {
+    /// No solver call: the driver proved a trivial optimum itself.
+    const OPTIMAL: Self = Self {
         nodes: 0,
         iterations: 0,
         nanoseconds: 0,
+        gap: Optional::Some(0.0),
     };
-}
 
-impl From<microlp::Stats> for Stats {
-    fn from(stats: microlp::Stats) -> Self {
+    fn new(stats: microlp::Stats, gap: Option<f64>) -> Self {
         Self {
             nodes: stats.nodes_solved,
             iterations: stats.lp_iterations,
             nanoseconds: u64::try_from(stats.elapsed.as_nanos()).unwrap_or(u64::MAX),
+            gap: gap.into(),
         }
+    }
+}
+
+#[derive(NifUnitEnum)]
+enum StopReason {
+    TimeLimit,
+    NodeLimit,
+}
+
+fn stop_reason(reason: TerminationReason) -> Result<StopReason, DriverError> {
+    match reason {
+        TerminationReason::TimeLimit => Ok(StopReason::TimeLimit),
+        TerminationReason::NodeLimit => Ok(StopReason::NodeLimit),
+        _ => Err(DriverError::SolverFailure(
+            "Unexpected solver termination".into(),
+        )),
     }
 }
 
 #[derive(NifTaggedEnum)]
 enum Outcome {
     Optimal(f64, Vec<f64>, Stats),
+    Limited(StopReason, Optional<(f64, Vec<f64>)>, Stats),
     Infeasible,
     UnboundedProblem,
 }
@@ -230,15 +312,20 @@ enum InvalidReason {
 #[derive(NifTaggedEnum)]
 enum DriverError {
     InvalidModel(InvalidReason),
+    InvalidTimeLimit,
+    InvalidNodeLimit,
     SolverFailure(String),
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
-fn driver_solve(term: Term<'_>) -> Result<Outcome, DriverError> {
-    let model = decode(term).map_err(DriverError::InvalidModel)?;
-    // Keep solver panics inside the tagged error contract.
-    std::panic::catch_unwind(|| solve(model))
-        .unwrap_or_else(|_| Err(DriverError::SolverFailure("Native solver panicked".into())))
+fn driver_solve(term: Term<'_>, limits: Term<'_>) -> Result<Outcome, DriverError> {
+    // Keep all native work inside the tagged error contract.
+    std::panic::catch_unwind(|| {
+        let options = decode_limits(limits)?;
+        let model = decode(term).map_err(DriverError::InvalidModel)?;
+        solve(model, options)
+    })
+    .unwrap_or_else(|_| Err(DriverError::SolverFailure("Native solver panicked".into())))
 }
 
 /// Decode, canonicalize and validate the whole model before any infeasibility
@@ -295,7 +382,7 @@ fn decode(term: Term<'_>) -> Result<Model, InvalidReason> {
     })
 }
 
-fn solve(model: Model) -> Result<Outcome, DriverError> {
+fn solve(model: Model, options: SolveOptions) -> Result<Outcome, DriverError> {
     if model.variables.iter().any(Domain::is_empty) {
         return Ok(Outcome::Infeasible);
     }
@@ -310,7 +397,7 @@ fn solve(model: Model) -> Result<Outcome, DriverError> {
         }
     }
     if model.variables.is_empty() {
-        return Ok(Outcome::Optimal(model.offset, vec![], Stats::NONE));
+        return Ok(Outcome::Optimal(model.offset, vec![], Stats::OPTIMAL));
     }
 
     let mut problem = Problem::new(match model.direction {
@@ -344,12 +431,14 @@ fn solve(model: Model) -> Result<Outcome, DriverError> {
         );
     }
 
-    let solution = match problem.solve() {
-        Ok(SolveOutcome::Solution(s)) if s.status() == SolutionStatus::Optimal => s,
-        Ok(_) => {
-            return Err(DriverError::SolverFailure(
-                "Solver stopped without an optimum".into(),
-            ))
+    let solution = match problem.solve_with(options) {
+        Ok(SolveOutcome::Solution(solution)) => solution,
+        Ok(SolveOutcome::Interrupted(stopped)) => {
+            return Ok(Outcome::Limited(
+                stop_reason(stopped.termination_reason())?,
+                Optional::None,
+                Stats::new(stopped.stats(), None),
+            ));
         }
         Err(microlp::Error::Infeasible) => return Ok(Outcome::Infeasible),
         Err(microlp::Error::Unbounded) => return Ok(Outcome::UnboundedProblem),
@@ -362,7 +451,29 @@ fn solve(model: Model) -> Result<Outcome, DriverError> {
             "Nonfinite solution or objective".into(),
         ));
     }
-    Ok(Outcome::Optimal(objective, values, solution.stats().into()))
+    let stats = solution.stats();
+    match (solution.status(), solution.termination_reason()) {
+        (SolutionStatus::Optimal, TerminationReason::ProvenOptimal) => Ok(Outcome::Optimal(
+            objective,
+            values,
+            Stats::new(stats, Some(0.0)),
+        )),
+        (SolutionStatus::Feasible, reason) => {
+            let gap = stats.best_bound.and_then(|bound| {
+                let bound = bound + model.offset;
+                let gap = (objective - bound).abs() / objective.abs().max(1.0);
+                (bound.is_finite() && gap.is_finite()).then_some(gap)
+            });
+            Ok(Outcome::Limited(
+                stop_reason(reason)?,
+                Optional::Some((objective, values)),
+                Stats::new(stats, gap),
+            ))
+        }
+        _ => Err(DriverError::SolverFailure(
+            "Inconsistent solver status".into(),
+        )),
+    }
 }
 
 /// Shares solve canonicalization, including scaling and duplicate merging.

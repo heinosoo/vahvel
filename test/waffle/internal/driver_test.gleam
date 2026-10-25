@@ -5,7 +5,7 @@ import gleeunit/should
 import waffle/internal/driver as d
 
 fn assert_assignment(model: d.Model, values: List(Float), objective: Float) {
-  let assert Ok(d.Optimal(actual_objective, actual_values, _)) = d.solve(model)
+  let assert Ok(d.Optimal(actual_objective, actual_values, _)) = solve(model)
   should.equal(list.length(actual_values), list.length(values))
   list.zip(actual_values, values)
   |> list.each(fn(pair) {
@@ -42,7 +42,7 @@ fn bounded_model() -> d.Model {
 }
 
 fn assert_invalid(model: d.Model, reason: d.InvalidReason) {
-  d.solve(model) |> should.equal(Error(d.InvalidModel(reason)))
+  solve(model) |> should.equal(Error(d.InvalidModel(reason)))
 }
 
 pub fn real_maximize_with_offset_test() {
@@ -121,14 +121,12 @@ pub fn mixed_integer_model_test() {
 
 pub fn infeasible_model_test() {
   let model = bounded_model()
-  d.solve(
-    d.Model(..model, rows: [row([d.Linear(1.0, 0)], d.GreaterEqual, 20.0)]),
-  )
+  solve(d.Model(..model, rows: [row([d.Linear(1.0, 0)], d.GreaterEqual, 20.0)]))
   |> should.equal(Ok(d.Infeasible))
 }
 
 pub fn integer_infeasible_test() {
-  d.solve(
+  solve(
     numeric(d.Minimize, [integer(0, 2)], [1.0], 0.0, [
       row([d.Linear(1.0, 0)], d.Equal, 0.5),
     ]),
@@ -137,7 +135,7 @@ pub fn integer_infeasible_test() {
 }
 
 pub fn unbounded_model_test() {
-  d.solve(
+  solve(
     numeric(d.Maximize, [d.Real(d.Finite(0.0), d.Unbounded)], [1.0], 0.0, []),
   )
   |> should.equal(Ok(d.UnboundedProblem))
@@ -202,9 +200,9 @@ pub fn constant_rows_test() {
       row([], d.GreaterEqual, 1.0),
     ],
     fn(row) {
-      d.solve(numeric(d.Minimize, [], [], 0.0, [row]))
+      solve(numeric(d.Minimize, [], [], 0.0, [row]))
       |> should.equal(Ok(d.Infeasible))
-      d.solve(d.Model(..model, rows: [row]))
+      solve(d.Model(..model, rows: [row]))
       |> should.equal(Ok(d.Infeasible))
     },
   )
@@ -277,7 +275,7 @@ pub fn rows_are_canonicalized_test() {
   )
   // Zero and cancelling coefficients leave a constant row: 0 ≤ -1.
   list.each([[x(0.0)], [x(-0.0)], [x(2.0), x(-2.0)]], fn(terms) {
-    d.solve(maximize_x([row(terms, d.LessEqual, -1.0)]))
+    solve(maximize_x([row(terms, d.LessEqual, -1.0)]))
     |> should.equal(Ok(d.Infeasible))
   })
   // Terms cancelling across sides: x ≤ x.
@@ -371,7 +369,7 @@ pub fn empty_domains_are_infeasible_test() {
       integer(2, 1),
     ],
     fn(domain) {
-      d.solve(d.Model(..model, variables: [domain]))
+      solve(d.Model(..model, variables: [domain]))
       |> should.equal(Ok(d.Infeasible))
     },
   )
@@ -428,11 +426,19 @@ pub fn objective_overflow_is_a_solver_error_test() {
       1.0e308,
       [],
     )
-  let assert Error(d.SolverFailure(_)) = d.solve(model)
+  let assert Error(d.SolverFailure(_)) = solve(model)
 }
 
 @external(erlang, "waffle_nif", "driver_solve")
-fn solve_raw(model: a) -> Result(d.Outcome, d.DriverError)
+fn solve_raw_with(model: a, limits: b) -> Result(d.Outcome, d.DriverError)
+
+fn solve_raw(model: a) -> Result(d.Outcome, d.DriverError) {
+  solve_raw_with(model, d.Limits(None, None))
+}
+
+fn solve(model: d.Model) -> Result(d.Outcome, d.DriverError) {
+  d.solve(model, d.Limits(None, None))
+}
 
 pub fn malformed_term_is_a_model_error_test() {
   solve_raw("not a model")
@@ -457,14 +463,14 @@ pub fn integer_without_bounds_test() {
     7.0,
   )
   let assert Ok(d.Optimal(3.0, [3.0], _)) =
-    d.solve(numeric(d.Minimize, [d.Integer(Some(3), None)], [1.0], 0.0, []))
+    solve(numeric(d.Minimize, [d.Integer(Some(3), None)], [1.0], 0.0, []))
 }
 
 // Documents the backend limit: a missing integer bound is the edge of the
 // signed 32-bit range, so an unbounded direction reports that edge as optimal.
 pub fn missing_integer_bound_is_the_32_bit_range_test() {
   let assert Ok(d.Optimal(2_147_483_647.0, [2_147_483_647.0], _)) =
-    d.solve(numeric(d.Maximize, [d.Integer(Some(0), None)], [1.0], 0.0, []))
+    solve(numeric(d.Maximize, [d.Integer(Some(0), None)], [1.0], 0.0, []))
 }
 
 pub fn evaluate_test() {
@@ -531,4 +537,59 @@ pub fn evaluation_rejects_undecodable_indices_test() {
     d.evaluate(d.Sum([d.Linear(1.0, index)]), [1.0])
     |> should.equal(Error(Nil))
   })
+}
+
+pub fn malformed_limits_are_contract_errors_test() {
+  let assert Error(d.SolverFailure(_)) =
+    solve_raw_with(bounded_model(), "limits")
+  let assert Error(d.SolverFailure(_)) =
+    solve_raw_with(bounded_model(), #(1, None, None))
+  let assert Error(d.SolverFailure(_)) =
+    solve_raw_with(bounded_model(), d.Limits(Some(#(0, 1_000_000_000)), None))
+}
+
+// Raw constructors let these tests violate the numeric contract's field types.
+type RawLimits(a, b) {
+  Limits(time: a, nodes: b)
+}
+
+pub fn malformed_limit_fields_do_not_raise_badarg_test() {
+  let assert Error(d.SolverFailure(_)) =
+    solve_raw_with(bounded_model(), Limits(Some("time"), None))
+  let assert Error(d.SolverFailure(_)) =
+    solve_raw_with(bounded_model(), Limits(Some(#(1.0, 0)), None))
+  let assert Error(d.SolverFailure(_)) =
+    solve_raw_with(bounded_model(), Limits(None, Some("nodes")))
+  let assert Error(d.SolverFailure(_)) =
+    solve_raw_with(bounded_model(), Limits(None, 2))
+}
+
+pub fn oversized_limits_are_typed_errors_test() {
+  let huge = 18_446_744_073_709_551_616
+  d.solve(bounded_model(), d.Limits(None, Some(huge)))
+  |> should.equal(Error(d.InvalidNodeLimit))
+  d.solve(bounded_model(), d.Limits(Some(#(huge, 0)), None))
+  |> should.equal(Error(d.InvalidTimeLimit))
+  d.solve(
+    bounded_model(),
+    d.Limits(Some(#(9_223_372_036_854_775_807, 0)), None),
+  )
+  |> should.equal(Error(d.InvalidTimeLimit))
+  // The 100-year cap is inclusive and solves without overflowing a deadline.
+  let assert Ok(d.Optimal(_, _, _)) =
+    d.solve(bounded_model(), d.Limits(Some(#(3_153_600_000, 0)), None))
+  d.solve(bounded_model(), d.Limits(Some(#(3_153_600_000, 1)), None))
+  |> should.equal(Error(d.InvalidTimeLimit))
+  // u64::MAX is valid for a node budget even though it exceeds signed i64.
+  let assert Ok(d.Optimal(_, _, _)) =
+    d.solve(bounded_model(), d.Limits(None, Some(18_446_744_073_709_551_615)))
+}
+
+pub fn limits_validate_before_the_model_test() {
+  solve_raw_with("invalid model", d.Limits(Some(#(-1, 0)), Some(-1)))
+  |> should.equal(Error(d.InvalidTimeLimit))
+  solve_raw_with("invalid model", d.Limits(None, Some(-1)))
+  |> should.equal(Error(d.InvalidNodeLimit))
+  solve_raw_with("invalid model", d.Limits(Some(#(0, 0)), Some(0)))
+  |> should.equal(Error(d.InvalidModel(d.MalformedModel)))
 }

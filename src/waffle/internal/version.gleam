@@ -4,7 +4,7 @@
 //// The NIF must be loaded before `check_nif_version()` can be called.
 
 /// The version of the Gleam package (from gleam.toml).
-pub const package_version = "0.2.3"
+pub const package_version = "0.3.0"
 
 /// Check if the NIF version matches the package version.
 /// Returns Ok(True) if versions match, Ok(False) if they don't,

@@ -217,7 +217,7 @@ fn model(data: Instance) -> waffle.Model(Var) {
 
 pub fn smallest_network_test() {
   let data = instance(1)
-  let assert Ok(waffle.Optimal(solution)) = waffle.solve(model(data))
+  let assert Ok(waffle.Optimal(solution, _)) = waffle.solve(model(data))
   waffle.objective(solution) |> should.equal(69.0)
   // Opening is forced; 12 units at 2 each; two trucks per lane; the isolated
   // warehouse holds 4, 3 and 2 units of its initial stock.
@@ -229,7 +229,7 @@ pub fn smallest_network_test() {
 
 pub fn unavailable_lanes_have_no_variables_test() {
   let data = instance(1)
-  let assert Ok(waffle.Optimal(solution)) = waffle.solve(model(data))
+  let assert Ok(waffle.Optimal(solution, _)) = waffle.solve(model(data))
   // Reporting over every lane in the data must handle lanes the model never
   // referenced: their keys are not variables.
   list.each(data.lanes, fn(lane) {
@@ -302,7 +302,7 @@ fn plan(
 
 pub fn complete_plan_test() {
   let data = instance(1)
-  let assert Ok(waffle.Optimal(solution)) = waffle.solve(model(data))
+  let assert Ok(waffle.Optimal(solution, _)) = waffle.solve(model(data))
   // Holding costs make the network ship each period's demand just in time;
   // only the isolated warehouse draws down its initial stock.
   let lanes = fn(near, far, trucks) {
@@ -325,7 +325,7 @@ pub fn complete_plan_test() {
 
 pub fn plan_reports_wrong_keys_test() {
   let data = instance(1)
-  let assert Ok(waffle.Optimal(solution)) = waffle.solve(model(data))
+  let assert Ok(waffle.Optimal(solution, _)) = waffle.solve(model(data))
   // A factory the model never saw: the report fails instead of showing zeros.
   let wrong = Instance(..data, factories: [Factory(9, 10.0, 20.0, 2.0)])
   plan(wrong, solution)
@@ -334,7 +334,7 @@ pub fn plan_reports_wrong_keys_test() {
 
 pub fn what_if_trucks_test() {
   let data = instance(1)
-  let assert Ok(waffle.Optimal(solution)) = waffle.solve(model(data))
+  let assert Ok(waffle.Optimal(solution, _)) = waffle.solve(model(data))
   // What would the plan cost with one truck on every lane in every period?
   // Overriding values ignores feasibility; evaluation only prices them.
   let one_truck_each = fn(key) {
@@ -365,14 +365,14 @@ pub fn higher_demand_scenario_test() {
     )
   // Costs depend only on prices, so the objective is reused.
   let scenario = waffle.Model(..base, constraints: constraints(busier))
-  let assert Ok(waffle.Optimal(solution)) = waffle.solve(scenario)
+  let assert Ok(waffle.Optimal(solution, _)) = waffle.solve(scenario)
   // Three more units at 2 each and one more truck on the lane costing 5.
   waffle.objective(solution) |> should.equal(80.0)
 }
 
 pub fn larger_network_test() {
   let data = instance(3)
-  let assert Ok(waffle.Optimal(solution)) = waffle.solve(model(data))
+  let assert Ok(waffle.Optimal(solution, _)) = waffle.solve(model(data))
   let costs = costs(data)
   let parts = [costs.fixed, costs.production, costs.transport, costs.holding]
   let assert Ok(values) =

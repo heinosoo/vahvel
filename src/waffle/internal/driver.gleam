@@ -60,23 +60,42 @@ pub type Model {
   )
 }
 
-/// An optimal result includes the objective offset, values in variable order
-/// and solve statistics.
+/// Per-call budgets, with time represented as normalized seconds/nanoseconds.
+pub type Limits {
+  Limits(time: Option(#(Int, Int)), nodes: Option(Int))
+}
+
+/// The budget that stopped the solver.
+pub type StopReason {
+  TimeLimit
+  NodeLimit
+}
+
+/// A proof or a budget stop. Objectives include the offset and values are in
+/// variable order; a budget stop carries them only with a feasible incumbent.
 pub type Outcome {
   Optimal(objective: Float, values: List(Float), stats: Stats)
+  Limited(
+    reason: StopReason,
+    primal: Option(#(Float, List(Float))),
+    stats: Stats,
+  )
   Infeasible
   UnboundedProblem
 }
 
-/// Branch-and-bound nodes, simplex iterations and time spent in the solver.
-/// All zero when the driver answers a model without calling the solver.
+/// Branch-and-bound nodes, simplex iterations, time spent in the solver and the
+/// offset-aware relative gap. Counters and time are zero, and the gap is
+/// `Some(0.0)`, when the driver proves an optimum without calling the solver.
 pub type Stats {
-  Stats(nodes: Int, iterations: Int, nanoseconds: Int)
+  Stats(nodes: Int, iterations: Int, nanoseconds: Int, gap: Option(Float))
 }
 
 /// Invalid IR is distinct from a numerical or internal solver failure.
 pub type DriverError {
   InvalidModel(reason: InvalidReason)
+  InvalidTimeLimit
+  InvalidNodeLimit
   SolverFailure(String)
 }
 
@@ -98,12 +117,13 @@ pub type InvalidReason {
   NonFiniteRow(row: Int)
 }
 
-/// Canonicalize, validate and solve a model with microlp's default settings.
+/// Validate limits, then canonicalize, validate and solve the model.
+/// Out-of-range budgets are errors; malformed limits are failures.
 /// The whole model is validated before any outcome is reported. Constant models
 /// are valid; infeasibility (including empty domains) and unboundedness are
 /// outcomes. Binary variables are represented as `Integer(Some(0), Some(1))`.
 @external(erlang, "waffle_nif", "driver_solve")
-pub fn solve(model: Model) -> Result(Outcome, DriverError)
+pub fn solve(model: Model, limits: Limits) -> Result(Outcome, DriverError)
 
 /// Canonicalize with the same rules as solve, then evaluate at indexed values.
 /// Invalid expressions or non-finite intermediate products/sums are errors.

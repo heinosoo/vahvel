@@ -78,18 +78,24 @@ stays small, and what the types allow is what the solver accepts.
 ### Outcomes are values, errors are failures
 
 **Decision.** `solve` returns `Result(Outcome(v), SolveError(v))`. `Outcome`
-is `Optimal(solution) | Infeasible | Unbounded`, and only `Optimal` carries a
-solution. Unsatisfiable constant rows and empty domains are infeasibility.
+is `Optimal(solution, stats) | Limited(reason, Option(solution), stats) |
+Infeasible | Unbounded`. A solution is a usable assignment; only `Optimal`
+claims a proof. `Limited` reports `TimeLimit` or `NodeLimit` and may carry an
+incumbent; no incumbent does not mean infeasible. Unsatisfiable constant rows
+and empty domains are infeasibility.
 `SolveError` separates user-data problems (`InvalidDomain(key)`,
-`NonFinite(location)`) from failures the caller can't act on
+`NonFinite(location)`, `InvalidTimeLimit`, `InvalidNodeLimit`) from failures
+the caller can't act on
 (`SolverFailure(message)`, including internal bugs and caught panics). A
 location is `InObjective` or `InConstraint(index, constraint)`. Evaluation has
 its own error, `EvaluationError` (see "Solutions and evaluation"). Lowering a
 model cannot fail; the first error found is reported.
 
 **Why.** Infeasibility is a mathematical answer, not a failure. Tying the
-solution to its variant makes reading values from a non-optimal result
-impossible. Errors name what the caller wrote: a key, or the constraint
+assignment to its variant makes reading unavailable values impossible.
+Either limit can expire with or without an incumbent: `Limited` factors these
+four valid cases into reason and availability without four constructors.
+Errors name what the caller wrote: a key, or the constraint
 itself, following "A constraint is its own identity", with its position for
 locating it in the list. One error type per operation lists only failures that
 operation can produce. The names avoid shadowing `Result`'s `Error`.
@@ -100,8 +106,14 @@ the domain can't be solved here. It splits when a second backend gives the
 distinction a use.
 
 **Rejected.**
-- *A status enum plus optional values* (MathOpt/JuMP style). Needs separate
-  availability checks that Gleam variants encode directly.
+- *Independent status and optional values on every outcome.* Allows an optimum
+  without values or an infeasible answer with them. `Option` belongs only in
+  `Limited`, where both availability states are meaningful.
+- *Separate `Feasible` and `Stopped` variants.* Valid, but splits handling of
+  budget stops across two variants; `Limited(_, Some(solution), _)` remains a
+  direct pattern for accepting an incumbent.
+- *A nested invalid-limit error type.* Two flat cases identify the invalid
+  budget without another public type.
 - *`Result` on every expression operation.* Would make model code unreadable.
 - *Collecting all errors.* More machinery; revisit when diagnostics need it.
 - *One error type for solving and evaluation.* Every caller would handle
@@ -483,28 +495,71 @@ the lookup is called is unspecified, so lookups should be pure.
   coefficients. A domain-based `value_int` needs a driver contract change and
   duplicated storage to save a lossless `float.round`.
 
+### Solve limits
+
+**Decision.** `solve(model)` is unlimited; `solve_with(model, Limits(time,
+nodes))` takes optional `Duration` and `Int` budgets. Limits belong to a call,
+not the mathematical model. Support microlp's time and node limits; it exposes
+no simplex iteration limit. Nodes exclude the root relaxation and do not
+bound continuous LP work. No resume, cancellation or gap-based stopping API.
+
+Rust validates time, then nodes, then the model's numeric data. Out-of-range
+budgets return flat `InvalidTimeLimit` / `InvalidNodeLimit` errors. Zero is
+valid and still permits validation and trivial proofs. Node counts fit `u64`;
+durations are at most 100 years. Gleam passes integer seconds/nanoseconds
+without floating-point conversion.
+
+The fixed cap keeps one deterministic, platform-independent check. microlp
+adds the budget to the current `Instant` without checking, and the clock's
+range varies by platform; checking that sum ourselves would duplicate it and
+race the backend's own addition. No useful budget comes near the cap.
+
+Time covers the backend solve, excluding lowering, decoding, canonicalization
+and problem construction. Checks are cooperative, so a call may exceed its
+budget. Follow the backend's reported stop reason; never infer one from
+counters. A proof completed at a budget boundary remains a proof.
+
+**Why.** Callers can trade search effort for a usable incumbent without
+changing the model. The unlimited entry point keeps ordinary model code
+concise. A node budget gives deterministic work control, while a time budget
+also covers root LP work. Neither budget is a promise to cancel the whole NIF
+call by a deadline.
+
+**Rejected.** *Emulating iteration limits with node limits or an external
+worker timeout.* Neither bounds simplex pivots; a worker timeout does not
+recover the native incumbent or necessarily stop native computation.
+
 ### Solve statistics
 
-**Decision.** `stats(solution)` returns a public `Stats` record: branch-and-bound
-nodes (zero for pure LP), simplex iterations including the root LP, and solver
-time as a `gleam/time/duration.Duration`. There is one `solve`; statistics
-travel inside the opaque `Solution`. `Infeasible` and `Unbounded` carry none.
+**Decision.** Stats belong to the solve outcome, not its assignment:
+`Optimal(solution, stats)` and `Limited(reason, optional_solution, stats)`.
+`stats(outcome)` returns `Some(stats)` for either and `None` for `Infeasible`
+or `Unbounded`, whose backend error paths supply no statistics. An opaque
+`Solution` contains only the objective and keyed values.
 
-**Why.** microlp collects statistics on every solve, so a second solve function
-without them would save nothing and double the surface for later options.
-Inside `Solution` they leave `solve` and `Outcome` unchanged for callers who
-ignore them. microlp 0.6.0 reports infeasibility and unboundedness as errors
-without statistics, and empty domains and constant rows never reach it, so
-stats on those variants would be invented or partial. Solver time lets
-benchmarks separate solving from construction and NIF overhead.
+`Stats` reports branch-and-bound nodes, simplex iterations including the root
+LP, solver time as `Duration`, and `gap: Option(Float)`. An optimum has zero
+gap. Without an incumbent or a finite computable bound/gap, the gap is absent.
+A rounded zero gap alone never upgrades `Limited` to `Optimal`.
+
+Rust computes the gap from the full objective and bound, both shifted by the
+objective constant: `abs(objective - bound) / max(abs(objective), 1.0)`.
+This is a ratio, not a percentage. The denominator floor avoids huge ratios
+near zero and deliberately differs from microlp's `1e-10` floor. Non-finite
+optional diagnostics become `None`; non-finite primal values remain failures.
+
+**Why.** Solve effort and proof quality describe a run, not an assignment.
+Both primal availability states need the same statistics. Keeping them in the
+outcome avoids asymmetric ownership or duplicate storage. The native solver
+does not see Waffle's objective constant, so copying its relative gap would
+misreport shifted objectives. Computation stays in Rust.
 
 **Rejected.**
-- *`solve_with_stats` alongside `solve`.* Two entry points for the same work.
-- *Stats on every `Outcome` variant, or `#(Outcome, Stats)`.* Forces every
-  caller to handle data most ignore, with nothing real to put in `Infeasible`.
-- *Best bound and gap.* For an optimum they are the objective and zero; the gap
-  returns with `Feasible` (see "Solve limits").
-- *Time as `Int` microseconds.* `Duration` states the unit in the type.
+- *An outer report with optional stats.* Adds a wrapper and makes stats
+  optional even where the variants guarantee them.
+- *Zero stats for infeasible/unbounded.* Would invent data about backend work.
+- *`solve_with_stats`.* Both solve entry points already collect the same data.
+- *A public best bound.* Not needed for the current interface.
 
 ### The API owns its types
 
@@ -527,8 +582,9 @@ expression, and rows as `lhs relation rhs`. Expressions use `Linear`,
 `Constant`, `Sum` and `Scaled`, with keys replaced by indices and the public
 `Variable` and `Difference` conveniences expanded during lowering. Rows
 correspond one-to-one to constraints, so every solver position maps back to a key or constraint. Keys and names never
-cross the boundary. The contract changes only deliberately, in Rust and Gleam
-together.
+cross the boundary. Numeric limits travel separately from the model; the
+result carries optional primal data only for a budget stop. The contract
+changes only deliberately, in Rust and Gleam together.
 
 Nesting depth is bounded by memory, never by a stack. Gleam lowers the tree in
 one tail-recursive loop over an explicit stack of frames. Rust decodes one node
@@ -639,17 +695,6 @@ its own identity"). Before shipping:
 
 An explicit "unavailable" result always beats zero, NaN or invented prices.
 
-### Solve limits
-
-No time or iteration limits yet. When added, the outcome separates why solving
-stopped from what data is available: optimal, feasible but unproven
-(`Feasible(solution)`), and stopped without a primal value
-(`Stopped(reason, stats)`, from microlp's `InterruptedSolve`). The gap of a
-feasible result belongs in its `Stats`, not in the variant. A time limit is not
-infeasibility, and a feasible incumbent is not optimal. Today the driver treats
-any unexpected non-optimal return as a `SolverFailure`. microlp 0.6.0 already supports `set_time_limit`, `solve_with`,
-`TerminationReason`, `InterruptedSolve` and `resume`.
-
 ### Out of scope for now
 
 Nonlinear expressions, automatic solver selection, persistent native models and
@@ -657,7 +702,7 @@ performance promises.
 
 ## References
 
-Reviewed 2026-10-23. Design influences, not interfaces to copy.
+Reviewed 2026-10-25. Design influences, not interfaces to copy.
 
 - [JuMP expressions](https://jump.dev/JuMP.jl/stable/manual/expressions/):
   specialized affine and quadratic expression types motivate capability-specific

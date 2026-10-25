@@ -72,14 +72,19 @@ frames. Cancellation never removes a reference during lowering. Scaling and
 summing happen in Rust. `Binary` lowers to the same integer
 domain as `Integer(Some(0), Some(1))`; `NonNegativeReal` lowers to
 `Real(Some(0.0), None)` and `NonNegativeInteger` to `Integer(Some(0), None)`.
-The column keys stay in Gleam and are never passed to the NIF; they turn solver values into a keyed solution and
-driver error positions into keys. Row positions map back to the constraints
-themselves, so a `SolveError` names what the caller wrote. Solutions are
-immutable snapshots indexed by the same keys, and carry the driver's statistics
-with the solver time as a `Duration`. `evaluate` lowers an expression the same
-way, calls the caller's lookup once per distinct key in first-reference order
-and stops at the first missing value, then sends the indexed expression and
-values to `driver_evaluate`, which shares canonicalization with solving before
+The column keys stay in Gleam and are never passed to the NIF; they turn
+solver values into a keyed solution and driver error positions into keys. Row
+positions map back to the constraints themselves, so a `SolveError` names what
+the caller wrote. Solutions are immutable assignments indexed by the same keys.
+Outcomes carry the driver's statistics with solver time as a `Duration`:
+`Optimal(solution, stats)` or `Limited(reason, optional_solution, stats)`,
+alongside `Infeasible` and `Unbounded`. `stats(outcome)` returns an option; the
+latter two have none. `solve` supplies unlimited budgets to `solve_with`; the
+latter lowers optional time to integer seconds/nanoseconds and passes node
+counts unchanged. `evaluate` lowers an expression the same way, calls the
+caller's lookup once per distinct key in first-reference order and stops at
+the first missing value, then sends the indexed expression and values to
+`driver_evaluate`, which shares canonicalization with solving before
 multiplying by the values. `evaluate_solution` and `evaluate_dict` pass
 `value(solution, _)` and `dict.get(values, _)` as the lookup, and `residual`
 evaluates `Difference(lhs, rhs)` of a constraint.
@@ -100,27 +105,32 @@ evaluates `Difference(lhs, rhs)` of a constraint.
   range. Binary variables are `Integer(Some(0), Some(1))`. A domain with
   `lower > upper` is valid but empty and makes the model infeasible.
 - `Row(lhs, relation, rhs)` relates two expressions.
-- `solve` returns
-  `Ok(Optimal(objective, values, stats) | Infeasible | UnboundedProblem)` or
-  `Error(InvalidModel(reason) | SolverFailure(_))`. `Stats(nodes, iterations,
-  nanoseconds)` copies microlp's node count, simplex iterations and elapsed
-  solver time, all zero when the driver answers without calling microlp. Invalid input is distinct
-  from a numerical or internal failure. The reason says where:
-  `MalformedModel`, `InvalidObjective`, `InvalidDomain(variable)`,
-  `InvalidRow(row)`, `NonFiniteObjective` or `NonFiniteRow(row)`, with
-  zero-based positions that higher layers map back to their own names. The
-  non-finite reasons are user data (an overflowing sum, or non-finite input on a
-  target that allows it); the others, apart from domains, indicate a bug in the
-  producer.
+- `Limits(time: Option(#(Int, Int)), nodes: Option(Int))` travels separately
+  from the model. Time is normalized seconds/nanoseconds, not the representation
+  of Gleam's opaque `Duration`. `None` is unlimited; zero is permitted.
+- `solve(model, limits)` returns `Ok(Optimal(objective, values, stats) |
+  Limited(reason, primal, stats) | Infeasible | UnboundedProblem)` or an error.
+  `primal` is `Option(#(Float, List(Float)))`, with a full objective and values
+  in column order. Reasons are `TimeLimit | NodeLimit`.
+- `Stats(nodes, iterations, nanoseconds, gap)` carries backend work counters and
+  elapsed solver time; counters/time are zero for trivial optima. The optional
+  relative gap uses Waffle's objective offset (DESIGN.md: "Solve statistics").
+- Errors are `InvalidTimeLimit`, `InvalidNodeLimit`,
+  `InvalidModel(reason)` or `SolverFailure(_)`. Malformed limits are contract
+  failures. Invalid model reasons remain `MalformedModel`, `InvalidObjective`,
+  `InvalidDomain(variable)`, `InvalidRow(row)`, `NonFiniteObjective` and
+  `NonFiniteRow(row)`. Positions are zero-based and mapped to keys/constraints
+  by the modeling layer. Non-finite reasons and invalid domains identify user
+  data; the other model reasons indicate a producer bug.
 
 This contract is the single numeric interface. Higher layers produce it;
 the native layer canonicalizes and enforces it.
 
 ## Native boundary
 
-`driver_solve` canonicalizes, validates and solves a model on a dirty CPU
-scheduler. `driver_evaluate` canonicalizes an indexed expression by the same
-rules and computes its value at the supplied values, returning
+`driver_solve/2` validates budgets, canonicalizes, validates and solves a model
+on a dirty CPU scheduler. `driver_evaluate` canonicalizes an indexed expression
+by the same rules and computes its value at the supplied values, returning
 `Error(Nil)` for an invalid expression or non-finite arithmetic. It also runs on
 a dirty CPU scheduler because decoding and sorting are unrestricted work. The
 rules NIFs follow are in DESIGN.md ("NIF rules").
@@ -134,7 +144,7 @@ representation directly:
 | `Finite(1.0)`, `Integer(Some(0), None)` | `{finite, 1.0}`, `{integer, {some, 0}, none}` | `NifTaggedEnum` |
 | `Sum([..])`, `Scaled(2.0, ..)` (one node) | `{sum, [..]}`, `{scaled, 2.0, ..}` | `NifTaggedEnum` (`Node`) with `Term` children |
 | `Row(..)`, `Model(..)` | `{row, ..}`, `{model, ..}` | `NifRecord` with `#[tag]` |
-| `None`, `Some(1)` (`Option(Int)`) | `none`, `{some, 1}` | `NifTaggedEnum` (`IntegerBound`) |
+| `None`, `Some(value)` (`Option`) | `none`, `{some, Value}` | `NifTaggedEnum` (`Optional<T>` for limits/results, `IntegerBound` for domains) |
 | `Result(a, e)` | `{ok, A}`, `{error, E}` | `Result<T, E>` |
 
 A Gleam type change must be matched in `driver.rs`, and vice versa. Expressions
@@ -143,9 +153,13 @@ on an explicit stack, so decoding, traversal and drop never recurse.
 
 **Steps in `driver.rs`.**
 
-1. Decode the model shell, then each variable domain, the objective and each
-   row separately, so a failure reports its position. A term that isn't a model
-   is `MalformedModel`; integer bounds outside `i32` are `InvalidDomain(i)`.
+1. Decode limits, checking time first and nodes second. Non-integer fields or
+   malformed tags are contract failures; negative/out-of-range integers are
+   typed invalid-limit errors. Time is at most 100 years (DESIGN.md: "Solve
+   limits"); nodes fit `u64`. Then decode the model shell, each variable
+   domain, the objective and each row separately, so a failure reports its
+   position. A term that isn't a model is `MalformedModel`; integer bounds
+   outside `i32` are `InvalidDomain(i)`.
 2. Canonicalize the objective and each row (`lhs − rhs`) by the rules in
    DESIGN.md ("Canonicalization"): expand the tree depth-first, multiplying
    scale factors into leaves; stable-sort terms by index, sum duplicates and
@@ -158,10 +172,17 @@ on an explicit stack, so decoding, traversal and drop never recurse.
 3. Answer trivial cases directly: an empty domain or an unsatisfiable constant
    row means `Infeasible`; a model with no variables returns its offset as the
    optimum.
-4. Build a microlp `Problem` and solve. microlp's infeasible and unbounded errors
-   become outcomes; any other non-optimal return is a `SolverFailure`. An
-   optimum carries microlp's statistics.
-5. Reject non-finite objective or values instead of returning them to the BEAM.
+4. Build a microlp `Problem` and call `solve_with`, changing only time and node
+   budgets from defaults. Time covers this backend call and can overshoot
+   between checks; node budgets exclude the root relaxation. Infeasible and
+   unbounded errors become proof outcomes. Optimal solutions become `Optimal`;
+   feasible solutions and `InterruptedSolve` become `Limited` with and without
+   primal values respectively. Copy stats before dropping all backend state;
+   no resume resource survives the call. Unexpected reasons remain failures.
+5. Reject non-finite primal objectives or values on both solution paths. Shift
+   the best bound by the objective offset and compute the relative gap in Rust;
+   unavailable or non-finite diagnostic arithmetic yields `None`. Only the
+   backend's proof status determines `Optimal`.
 
 Solver panics are caught with `catch_unwind` and returned as `SolverFailure`, so
 the NIF always answers with a tagged result.
@@ -195,7 +216,8 @@ for the representative models in `test/examples/`.
 - `test/waffle_test.gleam`: gleeunit's entry point and the modeling API,
   grouped by concern: variables and keys, domains, constraints, expressions,
   outcomes and errors, solutions, evaluation against supplied values,
-  residuals, and statistics.
+  residuals, statistics, budgets, incumbent availability, validation precedence
+  and offset-aware gaps.
 - `test/examples/`: representative models. `readme_test` is the README's waffle
   stand in full, one test per step, ending with a hand-made plan;
   `production_network_test` is a multi-period network with mixed variable

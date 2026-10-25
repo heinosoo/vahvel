@@ -6,6 +6,8 @@
 
 import gleam/dict
 import gleam/list
+import gleam/option.{None, Some}
+import gleam/time/duration
 import gleeunit/should
 import waffle.{Constant, Difference, Linear, Sum, Variable}
 
@@ -43,7 +45,7 @@ pub fn first_model_test() {
   // `solve` separates answers from failures: `Ok(Infeasible)` and
   // `Ok(Unbounded)` are answers, `Error(_)` means invalid input. Only an
   // `Optimal` answer carries a solution to query.
-  let assert Ok(waffle.Optimal(solution)) = waffle.solve(model)
+  let assert Ok(waffle.Optimal(solution, _)) = waffle.solve(model)
   // Chocolate earns the most per minute, but 4 chocolate waffles leave a
   // minute unused and earn 20. Mixing in classics uses all 13 minutes.
   waffle.objective(solution) |> should.equal(21.0)
@@ -120,7 +122,7 @@ fn rush() -> waffle.Model(Decision) {
 }
 
 pub fn models_from_data_test() {
-  let assert Ok(waffle.Optimal(solution)) = waffle.solve(rush())
+  let assert Ok(waffle.Optimal(solution, _)) = waffle.solve(rush())
   // Berry now earns the most per minute, yet filling up on berries first
   // earns only 21. The best rush bakes all three and uses every minute and
   // every scoop.
@@ -173,7 +175,7 @@ fn with_stations() -> waffle.Model(Decision) {
 }
 
 pub fn yes_or_no_decisions_test() {
-  let assert Ok(waffle.Optimal(solution)) = waffle.solve(with_stations())
+  let assert Ok(waffle.Optimal(solution, _)) = waffle.solve(with_stations())
   // The single chocolate waffle doesn't pay for its station, so the priciest
   // waffle leaves the menu: 3 classic and 3 berry earn 22.50 − 1.50.
   waffle.objective(solution) |> should.equal(21.0)
@@ -186,7 +188,7 @@ pub fn yes_or_no_decisions_test() {
 // Step 4: reporting. The expressions that built the model also explain the
 // result.
 pub fn reporting_test() {
-  let assert Ok(waffle.Optimal(solution)) = waffle.solve(with_stations())
+  let assert Ok(waffle.Optimal(solution, _)) = waffle.solve(with_stations())
   waffle.evaluate_solution(sales(), solution) |> should.equal(Ok(22.5))
   waffle.evaluate_solution(station_costs(), solution) |> should.equal(Ok(1.5))
   // Revenue per waffle, from the same menu.
@@ -227,4 +229,26 @@ pub fn checking_a_plan_test() {
   supply_limits()
   |> list.map(waffle.residual(_, dict.get(plan, _)))
   |> should.equal([Ok(-1.0), Ok(-1.0)])
+}
+
+// A caller may accept any feasible plan, while keeping its proof status and
+// solve statistics in the outcome.
+pub fn limited_solve_test() {
+  let assert Ok(outcome) =
+    waffle.solve_with(
+      with_stations(),
+      waffle.Limits(time: Some(duration.seconds(2)), nodes: Some(1000)),
+    )
+  let plan = case outcome {
+    waffle.Optimal(solution, _) | waffle.Limited(_, Some(solution), _) ->
+      Some(solution)
+    waffle.Limited(_, None, _) | waffle.Infeasible | waffle.Unbounded -> None
+  }
+  let statistics = waffle.stats(outcome)
+  let assert Some(solution) = plan
+  let assert Some(stats) = statistics
+  // This small model finishes within the node budget; reporting works for
+  // either optimal or limited assignments without changing the model.
+  waffle.objective(solution) |> should.equal(21.0)
+  { stats.nodes <= 1000 } |> should.be_true
 }

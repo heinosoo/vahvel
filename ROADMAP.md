@@ -7,13 +7,9 @@ work is removed from this file; git log keeps it. Design decisions are in
 
 ## Next
 
-- **Solve limits.** Time and iteration limits with an outcome that separates
-  optimal, feasible-but-unproven and stopped results (DESIGN.md: "Solve
-  limits"). microlp already supports this; the driver contract changes with it.
-  The gap of a feasible result goes into `Stats`.
 - **Performance.** Benchmark construction on larger sparse models, starting
   with the production network's `instance(size)`;
-  `stats(solution).solve_time` separates solving from construction and NIF
+  the outcome's `stats.solve_time` separates solving from construction and NIF
   overhead. Measure the per-term key lookup that stays in Gleam against the work
   done in Rust (DESIGN.md: "Describe in Gleam, compute in Rust"). Benchmark
   nested expression construction and evaluation, including column discovery,
