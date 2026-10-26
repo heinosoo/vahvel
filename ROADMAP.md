@@ -1,91 +1,116 @@
 # Waffle roadmap
 
-Focus: an idiomatic Gleam optimization library with a small native solver layer.
-These are rough priorities; API shapes and backend choices remain open. Finished
-work is removed from this file; git log keeps it. Design decisions are in
-[DESIGN.md](DESIGN.md).
+Next milestone: publish the existing LP/MILP library on GitHub and Hex, built
+from source with Rust. Keep the current Gleam modeling API unless a concrete
+correctness or usability problem warrants a change.
 
-## Later
+Finished work is removed; git keeps the history. Current behavior belongs in
+[ARCHITECTURE.md](ARCHITECTURE.md), decisions in [DESIGN.md](DESIGN.md), and
+installation instructions in [README.md](README.md).
 
-### API
+## First public release
 
-Judge additions by semantic clarity, composability, predictable validation and
-public surface cost; examples provide ergonomic evidence, not the sole
-acceptance criterion.
+A release candidate is ready when a fresh consuming project can follow the
+README, build the native library, and solve a model from both a Git dependency
+and the prepared Hex package. Publication itself is a separate final step.
 
-- **Checking a supplied plan.** Go beyond residuals to verdicts: check
-  variable bounds, integrality and constraints. Define tolerances (solver
-  results satisfy rows only within microlp's) and distinguish missing
-  assignments, domain violations, constraint violations and numeric failures.
-  A plan can satisfy every row while assigning fractional trucks.
-- **Model inspection.** Inspect generated constraints, referenced variables and
-  their domains before solving. Determine what helps diagnose incorrectly
-  assembled models, and how it relates to expression printing under Diagnostics.
-- **Constraint identity and metadata.** Investigate locating a generated row by
-  application meaning, such as warehouse and period. Assess whether metadata
-  maintained alongside constraints is sufficient before adding names or keys to
-  the model; account for duplicate rows and changes across scenarios.
-- **Indexed construction.** Investigate repeated mapping, grouping and filtering
-  in sparse scheduling, assignment and network models. Add helpers only for
-  recurring concepts with clear composition or error-prevention benefits over
-  ordinary collections. Any paired-data operation must address mismatched
-  lengths and duplicate keys explicitly; measure construction costs where
-  performance motivates an abstraction.
+### 1. Name, license, metadata
 
-### Backends
+These shape everything below, so settle them first.
 
-- **Dual values.** Needs a dual-capable backend and the requirements in
-  DESIGN.md ("Dual values").
-- **Truly unbounded integer variables.** A `None` integer bound currently stops
-  at the signed 32-bit range. Needs microlp to accept infinite integer bounds (it
-  stores them as floats internally) or another backend.
-- **Convex quadratic objectives.** A separate quadratic type accepted only where
-  a backend supports it, and validation of supported models.
-- **Clarabel.** Evaluate Clarabel with its optional faer backend alongside
-  microlp; its adapter builds CSC inside Rust.
-- **Solver selection.** Automatic selection based on model capabilities, with an
-  explicit override and clear errors for unsupported models.
+- Confirm the Hex package name. `waffle` is probably taken by an Elixir
+  library; a rename touches the Gleam package, `code:priv_dir(waffle)`, the
+  NIF file name, the Cargo crate and the docs.
+- Choose a license and add its text. Replace the placeholder `gleam.toml`
+  metadata (description, license, repository) and align the Cargo metadata.
 
-### Distribution
+### 2. Package layout and consumer installation
 
-- **Precompiled NIFs.** Download prebuilt libraries so users need no Rust
-  toolchain, like Elixir's `rustler_precompiled`. Today the release binary
-  isn't portable and everyone builds from source. Users then run machine code
-  they can't audit against the source, so: pin each binary's checksum in the
-  Hex package, build in public CI with provenance (Gleam's own releases ship
-  sigstore attestations and SBOMs), and keep building from source first-class
-  for users whose policies require it. Gleam's maintainers consider
-  ecosystem-wide binary distribution too costly to certify
-  ([gleam#3165](https://github.com/gleam-lang/gleam/discussions/3165)), so this
-  stays per package. libsql_gleam and glimra ship precompiled NIFs but don't
-  document how.
-- **Reusable Gleam–Rust NIF tooling.** Extract the setup, build and
-  version-check flow (and precompiled downloads, once they exist) into a small
-  package that doesn't depend on optimization. Gleam has no build hooks, so
-  other Gleam projects with Rust NIFs rebuild the same plumbing. Watch
-  [Gleamler](https://github.com/chlonishe/gleamler), which generates Gleam
-  bindings, types and the Erlang stub from Rust (early, and Rust becomes the
-  source of the contract), and Rustler's
-  [#777](https://github.com/rusterlium/rustler/pull/777), which embeds NIF
-  signatures so wrapper stubs can be generated (draft, Elixir-only).
-- **JS target via WASM.** Split the Rust code into a target-independent engine
-  and thin adapters (Rustler, wasm-bindgen).
+Gleam's Hex package contains only `src/`, `priv/`, the README and
+`gleam.toml`, so `native/` is missing from it; Git dependencies hide this.
+A scratch test showed that a crate under `priv/` ships, `.cargo/config.toml`
+included. `src/waffle/internal/build.gleam` also resolves paths relative to
+the working directory, while the loader uses `code:priv_dir(waffle)`.
 
-### Diagnostics
+- Move the crate under `priv/`. Only the built library joins it there;
+  Cargo's target directory (gigabytes) stays outside, since `priv/` ships
+  with every deployment.
+- Resolve sources and the output library inside the installed dependency, and
+  verify that setup writes where the runtime loads, including after
+  `gleam clean`.
+- From a fresh project outside this checkout, install from Git at a fixed
+  commit, then from the prepared Hex tarball. Run setup and a small solve
+  without borrowing this checkout's build artifacts.
+- Inspect the tarball: Rust sources, Cargo manifest and lockfile, `.cargo`
+  config, Erlang FFI and license; no compiled libraries or build output.
+- Check first setup, repeated setup, `--force`, version mismatch, and clear
+  guidance for a missing Rust toolchain or an unloadable NIF (`on_load` as
+  well as the version check).
+- Check that a built consuming application runs with the NIF in its release.
+  Document what is needed at build time versus on the runtime machine.
 
-- **Expression printing (tentative).** Render expressions and constraints
-  readably for debugging and error messages, e.g. `3·Chair + 2·Table + 7 ≤ 4`.
-  Keys are arbitrary values, so callers would pass a `fn(v) -> String` or
-  accept `string.inspect`. Only if debugging or diagnostics need it.
-- **Optional solver trace.** Only if debugging needs it: forward microlp's `log`
-  output to Erlang's `logger`, off by default and never including model data.
-  Statistics returned as data come first.
+### 3. Documentation and cleanup
 
-## Open questions
+- README: Git and Hex installation, Rust and linker prerequisites, the Erlang
+  target requirement, setup and a first solve. Consumers need neither Nix nor
+  `just`. Add troubleshooting based on the checks in section 2.
+- Document the 0.x compatibility policy and known limits: the integer range
+  limit, solve-budget semantics and outcome handling.
+- Review the generated API docs against actual behavior.
+- Run the motivating Advent of Code problem on a full input and record
+  correctness and solve time. Don't redistribute personal puzzle inputs.
+- Remove stale comments, placeholder configuration and misleading release
+  instructions.
 
-- Should keys become runtime-identified handles for models assembled from
-  independent components, so cross-model mix-ups are detected?
-- Would key-driven rows and bounds (`bound: fn(row) -> Interval`) serve large
-  indexed constraint families better than per-row constraints?
-- Should errors be collected rather than reporting the first, once diagnostics
-  need it?
+### 4. Release process
+
+CI runs repository checks in Nix on Linux. The release workflow bumps
+versions, tags, and attaches a nonportable Nix-built library; it neither
+tests an installed package nor publishes to Hex.
+
+- Add a `just` recipe for the consumer smoke test and run it in CI with fresh
+  native builds.
+- Check version consistency across `gleam.toml`, `Cargo.toml` and
+  `Cargo.lock`.
+- Test the exact tarball before tagging. Make the Git tag and Hex version
+  point at the same revision; document publication order and retries.
+- Drop the binary attachment from the release workflow.
+- Document or automate Hex and API-doc publication, with release notes on
+  requirements and limitations.
+- After publishing, smoke-test the real Hex download and record the result.
+
+## Conditional follow-up work
+
+Possibilities, not commitments. Promote an item when a real use case supplies
+an acceptance criterion. Judge API additions by semantic clarity,
+composability, predictable validation and public surface cost.
+
+- **Checking a supplied plan.** Extend evaluation to bounds, integrality and
+  constraints. Needs defined tolerances and handling of missing assignments,
+  numeric failures and multiple violations.
+- **Model diagnostics.** If generated models are hard to debug, look at
+  referenced variables, summaries and readable expressions together. Try
+  application-owned row metadata before adding identity to the model.
+  Printing a model doesn't explain infeasibility; that needs its own guidance.
+- **Indexed construction.** Helpers such as key-driven row families, if
+  mapping/grouping obscures models. Must handle mismatched lengths and
+  duplicate keys; performance claims need measurements.
+- **Backend limitations.** If workloads hit solver or numerical limits, extend
+  the LP benchmark with representative MILPs and checked small cases before
+  choosing a replacement. The signed 32-bit integer-domain limit stays
+  documented until it blocks an application.
+- **Duals and quadratic objectives.** For applications needing sensitivity
+  analysis or convex QP. Duals must meet DESIGN.md's requirements; quadratics
+  need capability-specific types and convexity rules. Clarabel is a candidate.
+  Solver selection only once a second backend has a purpose.
+- **Precompiled NIFs.** If requiring Rust prevents adoption. Size is not the
+  obstacle (about 330 KB compressed per target); portable builds per target,
+  pinned checksums and build provenance are. Keep the source build.
+- **Automatic build via a rebar3 wrapper.** If the explicit setup step proves
+  annoying, a rebar3 native package with a `cargo` pre-hook could build during
+  `gleam build`. Verify first that Gleam runs rebar3 hooks; costs a second
+  package published in lockstep.
+- **JavaScript through WASM.** For a browser or JS application; covers
+  loading, execution and interruption.
+
+Runtime model handles and reusable Gleam–Rust tooling are not planned.
