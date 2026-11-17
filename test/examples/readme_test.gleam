@@ -9,7 +9,7 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/time/duration
 import gleeunit/should
-import waffle.{Constant, Difference, Linear, Sum, Variable}
+import vahvel.{Constant, Difference, Linear, Sum, Variable}
 
 // Variables are named by your own values. A custom type makes the names
 // self-describing, and the compiler checks every `case` over them.
@@ -24,19 +24,19 @@ type Waffle {
 // minutes.
 pub fn first_model_test() {
   let model =
-    waffle.Model(
+    vahvel.Model(
       // Every variable needs a domain. Half a waffle doesn't sell, so both
       // counts are nonnegative integers.
-      domain: fn(_) { waffle.NonNegativeInteger },
+      domain: fn(_) { vahvel.NonNegativeInteger },
       // `Linear(coefficient, key)` is one weighted variable, and `Sum` adds
       // expressions: 3·classic + 5·chocolate.
-      objective: waffle.Maximize(
+      objective: vahvel.Maximize(
         Sum([Linear(3.0, Classic), Linear(5.0, Chocolate)]),
       ),
       // Both sides of a constraint are expressions, so the 13 minutes are a
       // `Constant`: 2·classic + 3·chocolate ≤ 13.
       constraints: [
-        waffle.LessEqual(
+        vahvel.LessEqual(
           Sum([Linear(2.0, Classic), Linear(3.0, Chocolate)]),
           Constant(13.0),
         ),
@@ -45,12 +45,12 @@ pub fn first_model_test() {
   // `solve` separates answers from failures: `Ok(Infeasible)` and
   // `Ok(Unbounded)` are answers, `Error(_)` means invalid input. Only an
   // `Optimal` answer carries a solution to query.
-  let assert Ok(waffle.Optimal(solution, _)) = waffle.solve(model)
+  let assert Ok(vahvel.Optimal(solution, _)) = vahvel.solve(model)
   // Chocolate earns the most per minute, but 4 chocolate waffles leave a
   // minute unused and earn 20. Mixing in classics uses all 13 minutes.
-  waffle.objective(solution) |> should.equal(21.0)
-  waffle.value(solution, Chocolate) |> should.equal(Ok(3.0))
-  waffle.value(solution, Classic) |> should.equal(Ok(2.0))
+  vahvel.objective(solution) |> should.equal(21.0)
+  vahvel.value(solution, Chocolate) |> should.equal(Ok(3.0))
+  vahvel.value(solution, Classic) |> should.equal(Ok(2.0))
 }
 
 // Step 2: models from data. Berry waffles join the menu, and batter runs
@@ -87,21 +87,21 @@ type Decision {
   Station(Waffle)
 }
 
-fn domain(decision: Decision) -> waffle.Domain {
+fn domain(decision: Decision) -> vahvel.Domain {
   case decision {
-    Bake(_) -> waffle.NonNegativeInteger
-    Station(_) -> waffle.Binary
+    Bake(_) -> vahvel.NonNegativeInteger
+    Station(_) -> vahvel.Binary
   }
 }
 
 // Expressions are usually mapped over data and summed at the end.
-fn sales() -> waffle.Expression(Decision) {
+fn sales() -> vahvel.Expression(Decision) {
   list.map(menu, fn(recipe) { Linear(recipe.price, Bake(recipe.waffle)) })
   |> Sum
 }
 
 // One constraint per resource: what all waffles use stays within supply.
-fn supply_limits() -> List(waffle.Constraint(Decision)) {
+fn supply_limits() -> List(vahvel.Constraint(Decision)) {
   list.map(supply, fn(entry) {
     let #(resource, available) = entry
     let used =
@@ -109,27 +109,27 @@ fn supply_limits() -> List(waffle.Constraint(Decision)) {
         Linear(uses(recipe, resource), Bake(recipe.waffle))
       })
       |> Sum
-    waffle.LessEqual(used, Constant(available))
+    vahvel.LessEqual(used, Constant(available))
   })
 }
 
-fn rush() -> waffle.Model(Decision) {
-  waffle.Model(
+fn rush() -> vahvel.Model(Decision) {
+  vahvel.Model(
     domain:,
-    objective: waffle.Maximize(sales()),
+    objective: vahvel.Maximize(sales()),
     constraints: supply_limits(),
   )
 }
 
 pub fn models_from_data_test() {
-  let assert Ok(waffle.Optimal(solution, _)) = waffle.solve(rush())
+  let assert Ok(vahvel.Optimal(solution, _)) = vahvel.solve(rush())
   // Berry now earns the most per minute, yet filling up on berries first
   // earns only 21. The best rush bakes all three and uses every minute and
   // every scoop.
-  waffle.objective(solution) |> should.equal(23.0)
+  vahvel.objective(solution) |> should.equal(23.0)
   // Report by mapping over the same data that built the model.
   list.map(menu, fn(recipe) {
-    #(recipe.waffle, waffle.value(solution, Bake(recipe.waffle)))
+    #(recipe.waffle, vahvel.value(solution, Bake(recipe.waffle)))
   })
   |> should.equal([
     #(Classic, Ok(3.0)),
@@ -148,52 +148,52 @@ type Topping {
 
 const toppings = [Topping(Chocolate, 2.0, 4.0), Topping(Berry, 1.5, 6.0)]
 
-fn station_costs() -> waffle.Expression(Decision) {
+fn station_costs() -> vahvel.Expression(Decision) {
   list.map(toppings, fn(topping) {
     Linear(topping.cost, Station(topping.waffle))
   })
   |> Sum
 }
 
-fn with_stations() -> waffle.Model(Decision) {
+fn with_stations() -> vahvel.Model(Decision) {
   // Bake(waffle) ≤ serves · Station(waffle): with the station off, the binary
   // is 0 and so is the bake count.
   let station_limits =
     list.map(toppings, fn(topping) {
-      waffle.LessEqual(
+      vahvel.LessEqual(
         Variable(Bake(topping.waffle)),
         Linear(topping.serves, Station(topping.waffle)),
       )
     })
   // Named expressions are reused as they are: profit is sales minus station
   // costs, and `..rush()` keeps the domain.
-  waffle.Model(
+  vahvel.Model(
     ..rush(),
-    objective: waffle.Maximize(Difference(sales(), station_costs())),
+    objective: vahvel.Maximize(Difference(sales(), station_costs())),
     constraints: list.append(supply_limits(), station_limits),
   )
 }
 
 pub fn yes_or_no_decisions_test() {
-  let assert Ok(waffle.Optimal(solution, _)) = waffle.solve(with_stations())
+  let assert Ok(vahvel.Optimal(solution, _)) = vahvel.solve(with_stations())
   // The single chocolate waffle doesn't pay for its station, so the priciest
   // waffle leaves the menu: 3 classic and 3 berry earn 22.50 − 1.50.
-  waffle.objective(solution) |> should.equal(21.0)
-  waffle.value(solution, Station(Chocolate)) |> should.equal(Ok(0.0))
-  waffle.value(solution, Station(Berry)) |> should.equal(Ok(1.0))
-  waffle.value(solution, Bake(Classic)) |> should.equal(Ok(3.0))
-  waffle.value(solution, Bake(Berry)) |> should.equal(Ok(3.0))
+  vahvel.objective(solution) |> should.equal(21.0)
+  vahvel.value(solution, Station(Chocolate)) |> should.equal(Ok(0.0))
+  vahvel.value(solution, Station(Berry)) |> should.equal(Ok(1.0))
+  vahvel.value(solution, Bake(Classic)) |> should.equal(Ok(3.0))
+  vahvel.value(solution, Bake(Berry)) |> should.equal(Ok(3.0))
 }
 
 // Step 4: reporting. The expressions that built the model also explain the
 // result.
 pub fn reporting_test() {
-  let assert Ok(waffle.Optimal(solution, _)) = waffle.solve(with_stations())
-  waffle.evaluate_solution(sales(), solution) |> should.equal(Ok(22.5))
-  waffle.evaluate_solution(station_costs(), solution) |> should.equal(Ok(1.5))
+  let assert Ok(vahvel.Optimal(solution, _)) = vahvel.solve(with_stations())
+  vahvel.evaluate_solution(sales(), solution) |> should.equal(Ok(22.5))
+  vahvel.evaluate_solution(station_costs(), solution) |> should.equal(Ok(1.5))
   // Revenue per waffle, from the same menu.
   list.map(menu, fn(recipe) {
-    waffle.evaluate_solution(
+    vahvel.evaluate_solution(
       Linear(recipe.price, Bake(recipe.waffle)),
       solution,
     )
@@ -202,7 +202,7 @@ pub fn reporting_test() {
   // A variable exists only once an expression references it. Classic
   // waffles need no station, so `Station(Classic)` was never referenced and
   // asking for it is an error rather than a silent zero.
-  waffle.value(solution, Station(Classic))
+  vahvel.value(solution, Station(Classic))
   |> should.equal(Error(Nil))
 }
 
@@ -219,15 +219,15 @@ pub fn checking_a_plan_test() {
       #(Station(Berry), 1.0),
     ])
   // Profit references both stations, and the plan forgot one.
-  waffle.evaluate_dict(profit, plan)
-  |> should.equal(Error(waffle.MissingValue(Station(Chocolate))))
+  vahvel.evaluate_dict(profit, plan)
+  |> should.equal(Error(vahvel.MissingValue(Station(Chocolate))))
   // With it, the plan earns 21.00 − 1.50: less than the solver's 21.
   let plan = dict.insert(plan, Station(Chocolate), 0.0)
-  waffle.evaluate_dict(profit, plan) |> should.equal(Ok(19.5))
+  vahvel.evaluate_dict(profit, plan) |> should.equal(Ok(19.5))
   // A residual is lhs − rhs, so a `LessEqual` holds when it is at most zero:
   // one minute and one scoop to spare.
   supply_limits()
-  |> list.map(waffle.residual(_, dict.get(plan, _)))
+  |> list.map(vahvel.residual(_, dict.get(plan, _)))
   |> should.equal([Ok(-1.0), Ok(-1.0)])
 }
 
@@ -235,20 +235,20 @@ pub fn checking_a_plan_test() {
 // solve statistics in the outcome.
 pub fn limited_solve_test() {
   let assert Ok(outcome) =
-    waffle.solve_with(
+    vahvel.solve_with(
       with_stations(),
-      waffle.Limits(time: Some(duration.seconds(2)), nodes: Some(1000)),
+      vahvel.Limits(time: Some(duration.seconds(2)), nodes: Some(1000)),
     )
   let plan = case outcome {
-    waffle.Optimal(solution, _) | waffle.Limited(_, Some(solution), _) ->
+    vahvel.Optimal(solution, _) | vahvel.Limited(_, Some(solution), _) ->
       Some(solution)
-    waffle.Limited(_, None, _) | waffle.Infeasible | waffle.Unbounded -> None
+    vahvel.Limited(_, None, _) | vahvel.Infeasible | vahvel.Unbounded -> None
   }
-  let statistics = waffle.stats(outcome)
+  let statistics = vahvel.stats(outcome)
   let assert Some(solution) = plan
   let assert Some(stats) = statistics
   // This small model finishes within the node budget; reporting works for
   // either optimal or limited assignments without changing the model.
-  waffle.objective(solution) |> should.equal(21.0)
+  vahvel.objective(solution) |> should.equal(21.0)
   { stats.nodes <= 1000 } |> should.be_true
 }

@@ -6,7 +6,7 @@ import gleam/dict
 import gleam/int
 import gleam/list
 import gleeunit/should
-import waffle.{Constant, Sum, Variable}
+import vahvel.{Constant, Sum, Variable}
 
 type Square {
   Queen(row: Int, column: Int)
@@ -17,18 +17,18 @@ fn board(n: Int) -> List(Square) {
   list.flat_map(indices, fn(row) { list.map(indices, Queen(row, _)) })
 }
 
-fn model(n: Int) -> waffle.Model(Square) {
+fn model(n: Int) -> vahvel.Model(Square) {
   let squares = board(n)
   let at_most_one = fn(line: fn(Square) -> Int) {
     list.group(squares, line)
     |> dict.values
     |> list.map(fn(group) {
-      waffle.LessEqual(Sum(list.map(group, Variable)), Constant(1.0))
+      vahvel.LessEqual(Sum(list.map(group, Variable)), Constant(1.0))
     })
   }
-  waffle.Model(
-    domain: fn(_) { waffle.Binary },
-    objective: waffle.Maximize(Sum(list.map(squares, Variable))),
+  vahvel.Model(
+    domain: fn(_) { vahvel.Binary },
+    objective: vahvel.Maximize(Sum(list.map(squares, Variable))),
     constraints: list.flatten([
       at_most_one(fn(q) { q.row }),
       at_most_one(fn(q) { q.column }),
@@ -39,8 +39,8 @@ fn model(n: Int) -> waffle.Model(Square) {
 }
 
 fn queens(n: Int) -> List(Square) {
-  let assert Ok(waffle.Optimal(solution, _)) = waffle.solve(model(n))
-  waffle.values(solution)
+  let assert Ok(vahvel.Optimal(solution, _)) = vahvel.solve(model(n))
+  vahvel.values(solution)
   |> dict.filter(fn(_, placed) { placed == 1.0 })
   |> dict.keys
 }

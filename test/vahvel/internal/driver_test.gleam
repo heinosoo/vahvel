@@ -2,7 +2,7 @@ import gleam/float
 import gleam/list
 import gleam/option.{None, Some}
 import gleeunit/should
-import waffle/internal/driver as d
+import vahvel/internal/driver as d
 
 fn assert_assignment(model: d.Model, values: List(Float), objective: Float) {
   let assert Ok(d.Optimal(actual_objective, actual_values, _)) = solve(model)
@@ -429,7 +429,7 @@ pub fn objective_overflow_is_a_solver_error_test() {
   let assert Error(d.SolverFailure(_)) = solve(model)
 }
 
-@external(erlang, "waffle_nif", "driver_solve")
+@external(erlang, "vahvel_nif", "driver_solve")
 fn solve_raw_with(model: a, limits: b) -> Result(d.Outcome, d.DriverError)
 
 fn solve_raw(model: a) -> Result(d.Outcome, d.DriverError) {

@@ -1,8 +1,8 @@
-name = "waffle"
+name = "vahvel"
 version = "0.3.0"
 internal_modules = [
-  "waffle/internal",
-  "waffle/internal/*",
+  "vahvel/internal",
+  "vahvel/internal/*",
 ]
 
 # Fill out these fields if you intend to generate HTML documentation or publish

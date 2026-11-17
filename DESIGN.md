@@ -1,6 +1,6 @@
-# Waffle design
+# Vahvel design
 
-Why waffle is built the way it is, for both the Gleam API and the native layer.
+Why vahvel is built the way it is, for both the Gleam API and the native layer.
 [ARCHITECTURE.md](ARCHITECTURE.md) describes how it works; this file explains
 the decisions behind it. Future work and open questions live in
 [ROADMAP.md](ROADMAP.md).
@@ -194,7 +194,7 @@ an unweighted reference; `Sum`, `Difference` and `Scaled` name operations.
 `Linear` stays a leaf rather than `Scaled(c, Variable(key))`:
 weighted variables are the dominant construction, and two constructors per term
 would hurt readability. Coefficients come first, as in `3x`. Callers can rename
-at the import (`import waffle.{Linear as L, Constant as C}`), which the
+at the import (`import vahvel.{Linear as L, Constant as C}`), which the
 `Expression` docs mention.
 
 **Convenience forms.** `Variable(key)` lowers to `Linear(1.0, key)`;
@@ -554,7 +554,7 @@ optional diagnostics become `None`; non-finite primal values remain failures.
 **Why.** Solve effort and proof quality describe a run, not an assignment.
 Both primal availability states need the same statistics. Keeping them in the
 outcome avoids asymmetric ownership or duplicate storage. The native solver
-does not see Waffle's objective constant, so copying its relative gap would
+does not see Vahvel's objective constant, so copying its relative gap would
 misreport shifted objectives. Computation stays in Rust.
 
 **Rejected.**
@@ -566,8 +566,8 @@ misreport shifted objectives. Computation stays in Rust.
 
 ### The API owns its types
 
-**Decision.** `waffle` is the one public modeling module. Users never import
-`waffle/internal/*`, and no public function takes or returns a driver type.
+**Decision.** `vahvel` is the one public modeling module. Users never import
+`vahvel/internal/*`, and no public function takes or returns a driver type.
 Tests check behavior through `solve`, not the lowered data. Split the module only
 along real boundaries, never into forwarding modules.
 
@@ -674,7 +674,7 @@ Data-driven models can legitimately produce empty ranges.
 - Never change an explicit bound, relax integer variables, or return non-finite
   floats to the BEAM.
 - Erlang modules share one global namespace and take their name from `-module`,
-  so every `.erl` file is prefixed with `waffle_`.
+  so every `.erl` file is prefixed with `vahvel_`.
 
 **Why.** Solving and expression evaluation must not block normal schedulers.
 Benchmarks can justify a bounded fast path for small evaluations later. Solver

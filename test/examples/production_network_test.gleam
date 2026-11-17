@@ -10,7 +10,7 @@ import gleam/int
 import gleam/list
 import gleam/result
 import gleeunit/should
-import waffle.{Constant, Linear, Sum, Variable}
+import vahvel.{Constant, Linear, Sum, Variable}
 
 // Data
 
@@ -96,20 +96,20 @@ pub opaque type Var {
   Stock(warehouse: Int, period: Int)
 }
 
-fn domain(var: Var) -> waffle.Domain {
+fn domain(var: Var) -> vahvel.Domain {
   case var {
-    Open(_) -> waffle.Binary
-    Trucks(..) -> waffle.NonNegativeInteger
-    Make(..) | Ship(..) | Stock(..) -> waffle.NonNegativeReal
+    Open(_) -> vahvel.Binary
+    Trucks(..) -> vahvel.NonNegativeInteger
+    Make(..) | Ship(..) | Stock(..) -> vahvel.NonNegativeReal
   }
 }
 
 type Costs {
   Costs(
-    fixed: waffle.Expression(Var),
-    production: waffle.Expression(Var),
-    transport: waffle.Expression(Var),
-    holding: waffle.Expression(Var),
+    fixed: vahvel.Expression(Var),
+    production: vahvel.Expression(Var),
+    transport: vahvel.Expression(Var),
+    holding: vahvel.Expression(Var),
   )
 }
 
@@ -122,8 +122,8 @@ fn available_routes(data: Instance) -> List(Route) {
 fn over_periods(
   items: List(a),
   periods: List(Int),
-  term: fn(a, Int) -> waffle.Expression(Var),
-) -> waffle.Expression(Var) {
+  term: fn(a, Int) -> vahvel.Expression(Var),
+) -> vahvel.Expression(Var) {
   list.flat_map(items, fn(item) { list.map(periods, term(item, _)) }) |> Sum
 }
 
@@ -144,7 +144,7 @@ fn costs(data: Instance) -> Costs {
   )
 }
 
-fn total(costs: Costs) -> waffle.Expression(Var) {
+fn total(costs: Costs) -> vahvel.Expression(Var) {
   Sum([costs.fixed, costs.production, costs.transport, costs.holding])
 }
 
@@ -153,17 +153,17 @@ fn routes_at(adjacency: Dict(Int, List(Route)), node: Int) -> List(Route) {
   dict.get(adjacency, node) |> result.unwrap([])
 }
 
-fn shipped(routes: List(Route), t: Int) -> waffle.Expression(Var) {
+fn shipped(routes: List(Route), t: Int) -> vahvel.Expression(Var) {
   list.map(routes, fn(route) { Variable(Ship(route, t)) }) |> Sum
 }
 
 // A constraint's builder is also its lookup: reports rebuild the row to read
 // its residual.
-fn capacity(f: Factory, t: Int) -> waffle.Constraint(Var) {
-  waffle.LessEqual(Variable(Make(f.id, t)), Linear(f.capacity, Open(f.id)))
+fn capacity(f: Factory, t: Int) -> vahvel.Constraint(Var) {
+  vahvel.LessEqual(Variable(Make(f.id, t)), Linear(f.capacity, Open(f.id)))
 }
 
-fn constraints(data: Instance) -> List(waffle.Constraint(Var)) {
+fn constraints(data: Instance) -> List(vahvel.Constraint(Var)) {
   let routes = available_routes(data)
   let outgoing = list.group(routes, fn(route) { route.factory })
   let incoming = list.group(routes, fn(route) { route.warehouse })
@@ -172,7 +172,7 @@ fn constraints(data: Instance) -> List(waffle.Constraint(Var)) {
       list.flat_map(data.periods, fn(t) {
         [
           capacity(f, t),
-          waffle.Equal(
+          vahvel.Equal(
             Variable(Make(f.id, t)),
             shipped(routes_at(outgoing, f.id), t),
           ),
@@ -182,7 +182,7 @@ fn constraints(data: Instance) -> List(waffle.Constraint(Var)) {
   let trucks =
     list.flat_map(routes, fn(route) {
       list.map(data.periods, fn(t) {
-        waffle.LessEqual(
+        vahvel.LessEqual(
           Variable(Ship(route, t)),
           Linear(data.truck_capacity, Trucks(route, t)),
         )
@@ -196,7 +196,7 @@ fn constraints(data: Instance) -> List(waffle.Constraint(Var)) {
           1 -> Constant(w.initial_stock)
           _ -> Variable(Stock(w.id, t - 1))
         }
-        waffle.Equal(
+        vahvel.Equal(
           Sum([previous, shipped(routes_at(incoming, w.id), t)]),
           Sum([Constant(demand), Variable(Stock(w.id, t))]),
         )
@@ -205,10 +205,10 @@ fn constraints(data: Instance) -> List(waffle.Constraint(Var)) {
   list.flatten([production, trucks, balance])
 }
 
-pub fn model(data: Instance) -> waffle.Model(Var) {
-  waffle.Model(
+pub fn model(data: Instance) -> vahvel.Model(Var) {
+  vahvel.Model(
     domain:,
-    objective: waffle.Minimize(total(costs(data))),
+    objective: vahvel.Minimize(total(costs(data))),
     constraints: constraints(data),
   )
 }
@@ -217,23 +217,23 @@ pub fn model(data: Instance) -> waffle.Model(Var) {
 
 pub fn smallest_network_test() {
   let data = instance(1)
-  let assert Ok(waffle.Optimal(solution, _)) = waffle.solve(model(data))
-  waffle.objective(solution) |> should.equal(69.0)
+  let assert Ok(vahvel.Optimal(solution, _)) = vahvel.solve(model(data))
+  vahvel.objective(solution) |> should.equal(69.0)
   // Opening is forced; 12 units at 2 each; two trucks per lane; the isolated
   // warehouse holds 4, 3 and 2 units of its initial stock.
   let costs = costs(data)
   [costs.fixed, costs.production, costs.transport, costs.holding]
-  |> list.map(waffle.evaluate_solution(_, solution))
+  |> list.map(vahvel.evaluate_solution(_, solution))
   |> should.equal([Ok(20.0), Ok(24.0), Ok(16.0), Ok(9.0)])
 }
 
 pub fn unavailable_lanes_have_no_variables_test() {
   let data = instance(1)
-  let assert Ok(waffle.Optimal(solution, _)) = waffle.solve(model(data))
+  let assert Ok(vahvel.Optimal(solution, _)) = vahvel.solve(model(data))
   // Reporting over every lane in the data must handle lanes the model never
   // referenced: their keys are not variables.
   list.each(data.lanes, fn(lane) {
-    waffle.value(solution, Ship(lane.route, 1))
+    vahvel.value(solution, Ship(lane.route, 1))
     |> result.is_ok
     |> should.equal(lane.available)
   })
@@ -265,18 +265,18 @@ type LanePlan {
 /// variable: a failed lookup is a bug, reported rather than read as zero.
 fn plan(
   data: Instance,
-  solution: waffle.Solution(Var),
-) -> Result(List(PeriodPlan), waffle.EvaluationError(Var)) {
-  let lookup = waffle.value(solution, _)
+  solution: vahvel.Solution(Var),
+) -> Result(List(PeriodPlan), vahvel.EvaluationError(Var)) {
+  let lookup = vahvel.value(solution, _)
   let read = fn(key) {
-    lookup(key) |> result.replace_error(waffle.MissingValue(key))
+    lookup(key) |> result.replace_error(vahvel.MissingValue(key))
   }
   use t <- list.try_map(data.periods)
   use factories <- result.try(
     list.try_map(data.factories, fn(f) {
       use made <- result.try(read(Make(f.id, t)))
       // made − capacity · open: at most zero, and minus the spare capacity.
-      use residual <- result.try(waffle.residual(capacity(f, t), lookup))
+      use residual <- result.try(vahvel.residual(capacity(f, t), lookup))
       Ok(FactoryPlan(f.id, made:, spare: float.negate(residual)))
     }),
   )
@@ -302,7 +302,7 @@ fn plan(
 
 pub fn complete_plan_test() {
   let data = instance(1)
-  let assert Ok(waffle.Optimal(solution, _)) = waffle.solve(model(data))
+  let assert Ok(vahvel.Optimal(solution, _)) = vahvel.solve(model(data))
   // Holding costs make the network ship each period's demand just in time;
   // only the isolated warehouse draws down its initial stock.
   let lanes = fn(near, far, trucks) {
@@ -325,28 +325,28 @@ pub fn complete_plan_test() {
 
 pub fn plan_reports_wrong_keys_test() {
   let data = instance(1)
-  let assert Ok(waffle.Optimal(solution, _)) = waffle.solve(model(data))
+  let assert Ok(vahvel.Optimal(solution, _)) = vahvel.solve(model(data))
   // A factory the model never saw: the report fails instead of showing zeros.
   let wrong = Instance(..data, factories: [Factory(9, 10.0, 20.0, 2.0)])
   plan(wrong, solution)
-  |> should.equal(Error(waffle.MissingValue(Make(9, 1))))
+  |> should.equal(Error(vahvel.MissingValue(Make(9, 1))))
 }
 
 pub fn what_if_trucks_test() {
   let data = instance(1)
-  let assert Ok(waffle.Optimal(solution, _)) = waffle.solve(model(data))
+  let assert Ok(vahvel.Optimal(solution, _)) = vahvel.solve(model(data))
   // What would the plan cost with one truck on every lane in every period?
   // Overriding values ignores feasibility; evaluation only prices them.
   let one_truck_each = fn(key) {
     case key {
       Trucks(..) -> Ok(1.0)
-      _ -> waffle.value(solution, key)
+      _ -> vahvel.value(solution, key)
     }
   }
   let costs = costs(data)
   // Two lanes costing 3 and 5, over three periods.
-  waffle.evaluate(costs.transport, one_truck_each) |> should.equal(Ok(24.0))
-  waffle.evaluate(total(costs), one_truck_each) |> should.equal(Ok(77.0))
+  vahvel.evaluate(costs.transport, one_truck_each) |> should.equal(Ok(24.0))
+  vahvel.evaluate(total(costs), one_truck_each) |> should.equal(Ok(77.0))
 }
 
 pub fn higher_demand_scenario_test() {
@@ -364,23 +364,23 @@ pub fn higher_demand_scenario_test() {
       }),
     )
   // Costs depend only on prices, so the objective is reused.
-  let scenario = waffle.Model(..base, constraints: constraints(busier))
-  let assert Ok(waffle.Optimal(solution, _)) = waffle.solve(scenario)
+  let scenario = vahvel.Model(..base, constraints: constraints(busier))
+  let assert Ok(vahvel.Optimal(solution, _)) = vahvel.solve(scenario)
   // Three more units at 2 each and one more truck on the lane costing 5.
-  waffle.objective(solution) |> should.equal(80.0)
+  vahvel.objective(solution) |> should.equal(80.0)
 }
 
 pub fn larger_network_test() {
   let data = instance(3)
-  let assert Ok(waffle.Optimal(solution, _)) = waffle.solve(model(data))
+  let assert Ok(vahvel.Optimal(solution, _)) = vahvel.solve(model(data))
   let costs = costs(data)
   let parts = [costs.fixed, costs.production, costs.transport, costs.holding]
   let assert Ok(values) =
-    list.try_map(parts, waffle.evaluate_solution(_, solution))
+    list.try_map(parts, vahvel.evaluate_solution(_, solution))
   float.sum(values)
-  |> float.loosely_equals(waffle.objective(solution), 0.000001)
+  |> float.loosely_equals(vahvel.objective(solution), 0.000001)
   |> should.be_true
-  waffle.values(solution)
+  vahvel.values(solution)
   |> dict.each(fn(key, value) {
     case key {
       Trucks(..) -> value |> should.equal(float.floor(value))

@@ -23,7 +23,7 @@ jobs:
       - uses: nicknovitski/nix-develop@v1
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: native/waffle
+          workspaces: native/vahvel
       - uses: actions/cache@v4
         with:
           path: build/packages

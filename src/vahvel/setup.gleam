@@ -1,12 +1,12 @@
-//// Build the native library: `gleam run -m waffle/setup`. Rebuilds only if it
+//// Build the native library: `gleam run -m vahvel/setup`. Rebuilds only if it
 //// is missing or its version differs; pass `--force` to rebuild anyway.
 
 import gleam/io
 import gleam/list
 import shellout
 import simplifile
-import waffle/internal/build
-import waffle/internal/version
+import vahvel/internal/build
+import vahvel/internal/version
 
 fn should_rebuild_nif() -> Bool {
   let nif = build.nif_path()

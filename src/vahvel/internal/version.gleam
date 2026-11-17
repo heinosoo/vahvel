@@ -1,4 +1,4 @@
-//// Version information for the Waffle library.
+//// Version information for the Vahvel library.
 ////
 //// Provides the package version and utilities to check NIF version compatibility.
 //// The NIF must be loaded before `check_nif_version()` can be called.
@@ -16,5 +16,5 @@ pub fn check_nif_version() -> Result(Bool, Nil) {
   }
 }
 
-@external(erlang, "waffle_nif", "nif_version_result")
+@external(erlang, "vahvel_nif", "nif_version_result")
 fn nif_version() -> Result(String, Nil)

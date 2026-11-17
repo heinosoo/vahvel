@@ -23,19 +23,19 @@ on:
 #         include:
 #           - os: ubuntu-latest
 #             target: x86_64-unknown-linux-gnu
-#             artifact: waffle.so
+#             artifact: vahvel.so
 #             asset_suffix: linux-x86_64.so
 #           - os: macos-latest
 #             target: x86_64-apple-darwin
-#             artifact: libwaffle.dylib
+#             artifact: libvahvel.dylib
 #             asset_suffix: macos-x86_64.dylib
 #           - os: macos-latest
 #             target: aarch64-apple-darwin
-#             artifact: libwaffle.dylib
+#             artifact: libvahvel.dylib
 #             asset_suffix: macos-aarch64.dylib
 #           - os: windows-latest
 #             target: x86_64-pc-windows-msvc
-#             artifact: waffle.dll
+#             artifact: vahvel.dll
 #             asset_suffix: windows-x86_64.dll
 #     runs-on: ${{ matrix.os }}
 #     steps:
@@ -44,7 +44,7 @@ on:
 #         with:
 #           targets: ${{ matrix.target }}
 #       - run: cargo build --release --target ${{ matrix.target }}
-#         working-directory: native/waffle
+#         working-directory: native/vahvel
 #       ... upload each artifact, then collect in a final release job
 
 permissions:
@@ -94,19 +94,19 @@ jobs:
       - name: Update version in Cargo.toml
         run: |
           TARGET="${{ steps.version.outputs.target }}"
-          sed -i "0,/^version = /s/^version = \".*\"/version = \"${TARGET}\"/" native/waffle/Cargo.toml
+          sed -i "0,/^version = /s/^version = \".*\"/version = \"${TARGET}\"/" native/vahvel/Cargo.toml
 
       - name: Update version in version.gleam
         run: |
           TARGET="${{ steps.version.outputs.target }}"
-          sed -i "s/^pub const package_version = \".*\"/pub const package_version = \"${TARGET}\"/" src/waffle/internal/version.gleam
+          sed -i "s/^pub const package_version = \".*\"/pub const package_version = \"${TARGET}\"/" src/vahvel/internal/version.gleam
 
       - uses: cachix/install-nix-action@v31
       # Exports the flake's dev shell into later steps' environment.
       - uses: nicknovitski/nix-develop@v1
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: native/waffle
+          workspaces: native/vahvel
       - uses: actions/cache@v4
         with:
           path: build/packages
@@ -120,7 +120,7 @@ jobs:
           TARGET="${{ steps.version.outputs.target }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add gleam.toml native/waffle/Cargo.toml native/waffle/Cargo.lock src/waffle/internal/version.gleam
+          git add gleam.toml native/vahvel/Cargo.toml native/vahvel/Cargo.lock src/vahvel/internal/version.gleam
           git commit -m "release: v${TARGET}"
 
       - name: Generate changelog
@@ -147,7 +147,7 @@ jobs:
       - name: Package NIF binary
         run: |
           TARGET="${{ steps.version.outputs.target }}"
-          cp priv/waffle.so "waffle-v${TARGET}-linux-x86_64.so"
+          cp priv/vahvel.so "vahvel-v${TARGET}-linux-x86_64.so"
 
       - name: Create GitHub Release
         env:
@@ -155,6 +155,6 @@ jobs:
         run: |
           TARGET="${{ steps.version.outputs.target }}"
           gh release create "v${TARGET}" \
-            "waffle-v${TARGET}-linux-x86_64.so" \
+            "vahvel-v${TARGET}-linux-x86_64.so" \
             --title "v${TARGET}" \
             --notes-file "${{ steps.changelog.outputs.file }}"

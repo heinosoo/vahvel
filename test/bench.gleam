@@ -1,4 +1,4 @@
-//// Measures what waffle adds around the solver: lowering keys to columns, the
+//// Measures what vahvel adds around the solver: lowering keys to columns, the
 //// NIF call and decoding, canonicalization, validation and keyed results.
 //// Overhead is wall time minus the solver's own `solve_time`. If overhead per
 //// term stays flat as models grow, nothing scales superlinearly.
@@ -14,7 +14,7 @@ import gleam/io
 import gleam/list
 import gleam/string
 import gleam/time/duration
-import waffle
+import vahvel
 
 const sizes = [1, 10, 100, 1000]
 
@@ -48,9 +48,9 @@ pub fn main() -> Nil {
   residual_calls(100)
 }
 
-fn relaxed(size: Int) -> waffle.Model(network.Var) {
-  waffle.Model(..network.model(network.instance(size)), domain: fn(_) {
-    waffle.NonNegativeReal
+fn relaxed(size: Int) -> vahvel.Model(network.Var) {
+  vahvel.Model(..network.model(network.instance(size)), domain: fn(_) {
+    vahvel.NonNegativeReal
   })
 }
 
@@ -59,12 +59,12 @@ fn solve_overhead(size: Int) -> Nil {
   let samples =
     repeat(fn() {
       let #(build, _) = time(fn() { relaxed(size) })
-      let #(wall, outcome) = time(fn() { waffle.solve(model) })
-      let assert Ok(waffle.Optimal(solution, stats)) = outcome
+      let #(wall, outcome) = time(fn() { vahvel.solve(model) })
+      let assert Ok(vahvel.Optimal(solution, stats)) = outcome
       let #(seconds, nanoseconds) =
         duration.to_seconds_and_nanoseconds(stats.solve_time)
       let solver = seconds * 1_000_000_000 + nanoseconds
-      #(build, wall, solver, dict.size(waffle.values(solution)))
+      #(build, wall, solver, dict.size(vahvel.values(solution)))
     })
   let assert [#(_, _, _, vars), ..] = samples
   let terms = model_terms(model)
@@ -84,8 +84,8 @@ fn solve_overhead(size: Int) -> Nil {
 
 fn residual_calls(size: Int) -> Nil {
   let model = relaxed(size)
-  let assert Ok(waffle.Optimal(solution, _)) = waffle.solve(model)
-  let lookup = waffle.value(solution, _)
+  let assert Ok(vahvel.Optimal(solution, _)) = vahvel.solve(model)
+  let lookup = vahvel.value(solution, _)
   let rows = list.length(model.constraints)
   let total =
     summary(
@@ -93,7 +93,7 @@ fn residual_calls(size: Int) -> Nil {
         let #(elapsed, _) =
           time(fn() {
             list.each(model.constraints, fn(c) {
-              let assert Ok(_) = waffle.residual(c, lookup)
+              let assert Ok(_) = vahvel.residual(c, lookup)
             })
           })
         elapsed
@@ -148,22 +148,22 @@ fn time(run: fn() -> a) -> #(Int, a) {
 // Model size: variable references, counted with duplicates as they reach the
 // driver.
 
-fn model_terms(model: waffle.Model(v)) -> Int {
+fn model_terms(model: vahvel.Model(v)) -> Int {
   let objective = case model.objective {
-    waffle.Minimize(e) | waffle.Maximize(e) -> e
+    vahvel.Minimize(e) | vahvel.Maximize(e) -> e
   }
   list.fold(model.constraints, terms(objective), fn(count, c) {
     count + terms(c.lhs) + terms(c.rhs)
   })
 }
 
-fn terms(expression: waffle.Expression(v)) -> Int {
+fn terms(expression: vahvel.Expression(v)) -> Int {
   case expression {
-    waffle.Variable(_) | waffle.Linear(..) -> 1
-    waffle.Constant(_) -> 0
-    waffle.Sum(expressions) -> int.sum(list.map(expressions, terms))
-    waffle.Difference(lhs, rhs) -> terms(lhs) + terms(rhs)
-    waffle.Scaled(_, e) -> terms(e)
+    vahvel.Variable(_) | vahvel.Linear(..) -> 1
+    vahvel.Constant(_) -> 0
+    vahvel.Sum(expressions) -> int.sum(list.map(expressions, terms))
+    vahvel.Difference(lhs, rhs) -> terms(lhs) + terms(rhs)
+    vahvel.Scaled(_, e) -> terms(e)
   }
 }
 

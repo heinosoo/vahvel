@@ -1,36 +1,36 @@
-# Waffle architecture
+# Vahvel architecture
 
-Waffle is a Gleam library for linear and mixed-integer linear programming. Gleam
+Vahvel is a Gleam library for linear and mixed-integer linear programming. Gleam
 code describes models; a Rust NIF validates and solves them with
 [microlp](https://docs.rs/microlp/0.6.0/microlp/). This document describes how the
 pieces fit together as they are now. The reasons behind them are in
 [DESIGN.md](DESIGN.md); planned work is in [ROADMAP.md](ROADMAP.md).
 
-Status: `waffle` is the public modeling module and is unstable while the
-package is 0.x. `waffle/setup` is the public build entry point. Everything below
-`waffle/internal` is internal.
+Status: `vahvel` is the public modeling module and is unstable while the
+package is 0.x. `vahvel/setup` is the public build entry point. Everything below
+`vahvel/internal` is internal.
 
 ## Layers
 
 ```mermaid
 flowchart TD
   A["Application model<br/>(custom-type keys, lists)"] --> B
-  B["waffle<br/>model types, lowering, keyed solutions"] --> C
-  C["waffle/internal/driver<br/>numeric contract (Gleam types)"] --> D
-  D["waffle/internal/waffle_nif.erl<br/>NIF stubs, loads priv/waffle.*"] --> E
-  E["native/waffle (Rust cdylib)<br/>decode, canonicalize, validate, solve"] --> F
+  B["vahvel<br/>model types, lowering, keyed solutions"] --> C
+  C["vahvel/internal/driver<br/>numeric contract (Gleam types)"] --> D
+  D["vahvel/internal/vahvel_nif.erl<br/>NIF stubs, loads priv/vahvel.*"] --> E
+  E["native/vahvel (Rust cdylib)<br/>decode, canonicalize, validate, solve"] --> F
   F["microlp<br/>simplex + branch and bound"]
 ```
 
 | Layer | Files | Owns |
 | --- | --- | --- |
-| Modeling | `src/waffle.gleam` | Expressions, constraints, objectives and domains; lowering keys to columns; keyed solution queries |
-| Numeric driver | `src/waffle/internal/driver.gleam` | The contract with Rust: domains, unsummed expressions, rows, outcomes, errors |
-| Erlang FFI | `src/waffle/internal/waffle_nif.erl`, `waffle_build_ffi.erl` | Loading the shared library and the `nif_not_loaded` fallbacks; OS detection for the build |
-| Native | `native/waffle/src/lib.rs`, `driver.rs` | Term decoding, canonicalization, validation, solver calls, evaluation |
-| Build and setup | `src/waffle/setup.gleam`, `src/waffle/internal/build.gleam`, `src/waffle/internal/version.gleam` | Compiling the NIF, copying it to `priv/`, version checks |
+| Modeling | `src/vahvel.gleam` | Expressions, constraints, objectives and domains; lowering keys to columns; keyed solution queries |
+| Numeric driver | `src/vahvel/internal/driver.gleam` | The contract with Rust: domains, unsummed expressions, rows, outcomes, errors |
+| Erlang FFI | `src/vahvel/internal/vahvel_nif.erl`, `vahvel_build_ffi.erl` | Loading the shared library and the `nif_not_loaded` fallbacks; OS detection for the build |
+| Native | `native/vahvel/src/lib.rs`, `driver.rs` | Term decoding, canonicalization, validation, solver calls, evaluation |
+| Build and setup | `src/vahvel/setup.gleam`, `src/vahvel/internal/build.gleam`, `src/vahvel/internal/version.gleam` | Compiling the NIF, copying it to `priv/`, version checks |
 
-Every `.erl` file is prefixed with `waffle_` (DESIGN.md: "NIF rules").
+Every `.erl` file is prefixed with `vahvel_` (DESIGN.md: "NIF rules").
 
 Each layer only talks to the one below it. The modeling layer never sees column
 numbers from the outside, and the native layer never sees names or keys.
@@ -41,7 +41,7 @@ contains no float arithmetic (DESIGN.md: "Describe in Gleam, compute in Rust").
 
 ## Modeling layer
 
-`waffle.gleam` turns a symbolic model, written with application-owned keys, into
+`vahvel.gleam` turns a symbolic model, written with application-owned keys, into
 the driver model, and maps the numeric result back to those keys. Expressions are
 affine trees (`Variable(key)`, `Linear(coefficient, key)`, `Constant(value)`,
 `Sum(expressions)`, `Difference(lhs, rhs)` or `Scaled(coefficient, expression)`),
@@ -114,7 +114,7 @@ evaluates `Difference(lhs, rhs)` of a constraint.
   in column order. Reasons are `TimeLimit | NodeLimit`.
 - `Stats(nodes, iterations, nanoseconds, gap)` carries backend work counters and
   elapsed solver time; counters/time are zero for trivial optima. The optional
-  relative gap uses Waffle's objective offset (DESIGN.md: "Solve statistics").
+  relative gap uses Vahvel's objective offset (DESIGN.md: "Solve statistics").
 - Errors are `InvalidTimeLimit`, `InvalidNodeLimit`,
   `InvalidModel(reason)` or `SolverFailure(_)`. Malformed limits are contract
   failures. Invalid model reasons remain `MalformedModel`, `InvalidObjective`,
@@ -191,19 +191,19 @@ the NIF always answers with a tagged result.
 
 ## Build, loading and versions
 
-- `just build` runs `gleam run -m waffle/internal/build`, which runs
-  `cargo build --release` in `native/waffle` and copies the platform library to
-  `priv/waffle.{so,dylib,dll}`.
-- `gleam run -m waffle/setup` rebuilds only if the library is missing or its
-  `nif_version` differs from `waffle/internal/version.package_version`;
+- `just build` runs `gleam run -m vahvel/internal/build`, which runs
+  `cargo build --release` in `native/vahvel` and copies the platform library to
+  `priv/vahvel.{so,dylib,dll}`.
+- `gleam run -m vahvel/setup` rebuilds only if the library is missing or its
+  `nif_version` differs from `vahvel/internal/version.package_version`;
   `--force` rebuilds anyway.
-- `waffle_nif.erl` loads `priv/waffle` in its `on_load` hook. Until it is
+- `vahvel_nif.erl` loads `priv/vahvel` in its `on_load` hook. Until it is
   loaded, every stub raises `nif_not_loaded`. Its module name must match
   `rustler::init!` in `lib.rs`.
-- The package version lives in `gleam.toml`, `native/waffle/Cargo.toml` and
-  `src/waffle/internal/version.gleam`. The release workflow bumps all three
+- The package version lives in `gleam.toml`, `native/vahvel/Cargo.toml` and
+  `src/vahvel/internal/version.gleam`. The release workflow bumps all three
   together, and `version_test` checks they agree.
-- Linux targets link `libstdc++` statically (`native/waffle/.cargo/config.toml`).
+- Linux targets link `libstdc++` statically (`native/vahvel/.cargo/config.toml`).
 
 ## Testing
 
@@ -213,7 +213,7 @@ unit tests and no mocks.
 Test files mirror the source tree, so test modules are namespaced too, except
 for the representative models in `test/examples/`.
 
-- `test/waffle_test.gleam`: gleeunit's entry point and the modeling API,
+- `test/vahvel_test.gleam`: gleeunit's entry point and the modeling API,
   grouped by concern: variables and keys, domains, constraints, expressions,
   outcomes and errors, solutions, evaluation against supplied values,
   residuals, statistics, budgets, incumbent availability, validation precedence
@@ -225,14 +225,14 @@ for the representative models in `test/examples/`.
   lookups and residuals, a what-if over solution values and a scenario,
   generated by size; `n_queens_test` is a small binary model built from index
   sets.
-- `test/waffle/internal/driver_test.gleam`: the numeric contract, covering
+- `test/vahvel/internal/driver_test.gleam`: the numeric contract, covering
   real and integer domains, canonicalization, offsets, infeasible and
   unbounded outcomes, constant models, positioned errors, non-finite sums,
   malformed terms and expressions, and `evaluate`.
-- `test/waffle/internal/version_test.gleam`: NIF and package versions match.
+- `test/vahvel/internal/version_test.gleam`: NIF and package versions match.
 - `test/bench.gleam`: not a test; `just bench` runs it. It solves the
   production network's LP relaxation at growing sizes and reports wall time,
-  solver time and their difference (waffle's overhead) per term, plus the cost
+  solver time and their difference (vahvel's overhead) per term, plus the cost
   of one `residual` call, as median and range over repeated runs after
   warm-up. Timings are too noisy for CI, so nothing asserts on them.
 

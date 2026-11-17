@@ -4,7 +4,7 @@ import gleam/string
 import shellout
 import simplifile
 
-@external(erlang, "waffle_build_ffi", "os_family")
+@external(erlang, "vahvel_build_ffi", "os_family")
 fn os_family() -> String
 
 fn detect_os() -> String {
@@ -24,17 +24,17 @@ fn detect_os() -> String {
 
 fn source_path(os: String) -> String {
   case os {
-    "windows" -> "native/waffle/target/release/waffle.dll"
-    "macos" -> "native/waffle/target/release/libwaffle.dylib"
-    _ -> "native/waffle/target/release/libwaffle.so"
+    "windows" -> "native/vahvel/target/release/vahvel.dll"
+    "macos" -> "native/vahvel/target/release/libvahvel.dylib"
+    _ -> "native/vahvel/target/release/libvahvel.so"
   }
 }
 
 fn dest_path(os: String) -> String {
   case os {
-    "windows" -> "priv/waffle.dll"
-    "macos" -> "priv/waffle.dylib"
-    _ -> "priv/waffle.so"
+    "windows" -> "priv/vahvel.dll"
+    "macos" -> "priv/vahvel.dylib"
+    _ -> "priv/vahvel.so"
   }
 }
 
@@ -54,7 +54,7 @@ pub fn do_compile() -> Result(Nil, String) {
   // Run cargo build
   io.println("Compiling Rust NIF...")
   use _ <- result.try(
-    shellout.command("cargo", ["build", "--release"], in: "native/waffle", opt: [
+    shellout.command("cargo", ["build", "--release"], in: "native/vahvel", opt: [
       shellout.LetBeStdout,
     ])
     |> result.map_error(fn(err) {

@@ -6,7 +6,7 @@ import gleam/option.{None, Some}
 import gleam/time/duration
 import gleeunit
 import gleeunit/should
-import waffle.{Constant, Difference, Linear, Scaled, Sum, Variable} as m
+import vahvel.{Constant, Difference, Linear, Scaled, Sum, Variable} as m
 
 pub fn main() {
   gleeunit.main()
@@ -851,7 +851,7 @@ pub fn limits_preserve_infeasible_and_unbounded_answers_test() {
 
 // The offset never reaches the backend, so every shift of one model finds the
 // same incumbent and bound at the same budget; only the gap's denominator,
-// Waffle's full objective, changes.
+// Vahvel's full objective, changes.
 pub fn limited_incumbent_is_queryable_and_gap_uses_full_objective_test() {
   let model = knapsack()
   let assert m.Maximize(objective) = model.objective

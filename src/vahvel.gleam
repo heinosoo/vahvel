@@ -8,7 +8,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/time/duration.{type Duration}
-import waffle/internal/driver
+import vahvel/internal/driver
 
 /// An affine expression over variable keys. Duplicate variables and zero
 /// coefficients are allowed, and expressions nest to any depth.
@@ -20,7 +20,7 @@ import waffle/internal/driver
 /// ```
 ///
 /// For shorter literals, rename the constructors at the import:
-/// `import waffle.{Linear as L, Constant as C}`.
+/// `import vahvel.{Linear as L, Constant as C}`.
 pub type Expression(v) {
   /// A variable with coefficient one, equivalent to `Linear(1.0, variable)`.
   Variable(variable: v)
@@ -402,11 +402,11 @@ pub fn values(solution: Solution(v)) -> Dict(v, Float) {
 /// `MissingValue(key)`; unreferenced keys are never looked up.
 ///
 /// ```gleam
-/// waffle.evaluate(profit, dict.get(plan, _))
-/// waffle.evaluate(profit, fn(key) {
+/// vahvel.evaluate(profit, dict.get(plan, _))
+/// vahvel.evaluate(profit, fn(key) {
 ///   case dict.get(overrides, key) {
 ///     Ok(value) -> Ok(value)
-///     Error(Nil) -> waffle.value(solution, key)
+///     Error(Nil) -> vahvel.value(solution, key)
 ///   }
 /// })
 /// ```
@@ -448,7 +448,7 @@ pub fn evaluate_dict(
 /// `GreaterEqual`; solver results meet that only within the solver's tolerance.
 ///
 /// ```gleam
-/// list.map(constraints, fn(c) { #(c, waffle.residual(c, lookup)) })
+/// list.map(constraints, fn(c) { #(c, vahvel.residual(c, lookup)) })
 /// ```
 pub fn residual(
   constraint: Constraint(v),

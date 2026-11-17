@@ -122,12 +122,12 @@ pub type InvalidReason {
 /// The whole model is validated before any outcome is reported. Constant models
 /// are valid; infeasibility (including empty domains) and unboundedness are
 /// outcomes. Binary variables are represented as `Integer(Some(0), Some(1))`.
-@external(erlang, "waffle_nif", "driver_solve")
+@external(erlang, "vahvel_nif", "driver_solve")
 pub fn solve(model: Model, limits: Limits) -> Result(Outcome, DriverError)
 
 /// Canonicalize with the same rules as solve, then evaluate at indexed values.
 /// Invalid expressions or non-finite intermediate products/sums are errors.
-@external(erlang, "waffle_nif", "driver_evaluate")
+@external(erlang, "vahvel_nif", "driver_evaluate")
 pub fn evaluate(
   expression: Expression,
   values: List(Float),

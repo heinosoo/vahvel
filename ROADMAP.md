@@ -1,4 +1,4 @@
-# Waffle roadmap
+# Vahvel roadmap
 
 Next milestone: publish the existing LP/MILP library on GitHub and Hex, built
 from source with Rust. Keep the current Gleam modeling API unless a concrete
@@ -14,13 +14,11 @@ A release candidate is ready when a fresh consuming project can follow the
 README, build the native library, and solve a model from both a Git dependency
 and the prepared Hex package. Publication itself is a separate final step.
 
-### 1. Name, license, metadata
+### 1. License and metadata
 
 These shape everything below, so settle them first.
 
-- Confirm the Hex package name. `waffle` is probably taken by an Elixir
-  library; a rename touches the Gleam package, `code:priv_dir(waffle)`, the
-  NIF file name, the Cargo crate and the docs.
+- Rename the GitHub repository to `vahvel`.
 - Choose a license and add its text. Replace the placeholder `gleam.toml`
   metadata (description, license, repository) and align the Cargo metadata.
 
@@ -29,8 +27,8 @@ These shape everything below, so settle them first.
 Gleam's Hex package contains only `src/`, `priv/`, the README and
 `gleam.toml`, so `native/` is missing from it; Git dependencies hide this.
 A scratch test showed that a crate under `priv/` ships, `.cargo/config.toml`
-included. `src/waffle/internal/build.gleam` also resolves paths relative to
-the working directory, while the loader uses `code:priv_dir(waffle)`.
+included. `src/vahvel/internal/build.gleam` also resolves paths relative to
+the working directory, while the loader uses `code:priv_dir(vahvel)`.
 
 - Move the crate under `priv/`. Only the built library joins it there;
   Cargo's target directory (gigabytes) stays outside, since `priv/` ships

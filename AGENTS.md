@@ -1,4 +1,4 @@
-# Waffle — contributor guide
+# Vahvel — contributor guide
 
 Start here. General working rules are below; everything else lives in one place:
 
@@ -6,7 +6,7 @@ Start here. General working rules are below; everything else lives in one place:
 | --- | --- |
 | Use the library or set it up | `README.md` |
 | Understand how it works now | `ARCHITECTURE.md` |
-| Know why it is this way, or change the public API | `DESIGN.md` ("Modeling API"), `src/waffle.gleam` |
+| Know why it is this way, or change the public API | `DESIGN.md` ("Modeling API"), `src/vahvel.gleam` |
 | Change the driver, Rust or NIFs | `ARCHITECTURE.md` ("Numeric driver contract", "Native boundary"), `DESIGN.md` ("Native boundary") |
 | Plan work or find open questions | `ROADMAP.md` |
 

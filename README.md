@@ -1,9 +1,9 @@
-# Waffle
+# Vahvel
 
 Linear and mixed-integer programming for Gleam. Describe a model with plain
 Gleam data, keyed by your own types, and solve it with
 [microlp](https://docs.rs/microlp/0.6.0/microlp/) through a Rust NIF. The API
-is unstable while the package is 0.x.
+is unstable while the package is 0.x. *Vahvel* is Estonian for waffle.
 
 ## Example
 
@@ -11,7 +11,7 @@ A waffle stand has 13 minutes of iron time. Classic waffles earn 3.00 and take
 2 minutes; chocolate waffles earn 5.00 and take 3. How many of each?
 
 ```gleam
-import waffle.{Constant, Linear, Sum}
+import vahvel.{Constant, Linear, Sum}
 
 type Waffle {
   Classic
@@ -19,20 +19,20 @@ type Waffle {
 }
 
 let model =
-  waffle.Model(
-    domain: fn(_) { waffle.NonNegativeInteger },
-    objective: waffle.Maximize(
+  vahvel.Model(
+    domain: fn(_) { vahvel.NonNegativeInteger },
+    objective: vahvel.Maximize(
       Sum([Linear(3.0, Classic), Linear(5.0, Chocolate)]),
     ),
     constraints: [
-      waffle.LessEqual(
+      vahvel.LessEqual(
         Sum([Linear(2.0, Classic), Linear(3.0, Chocolate)]),
         Constant(13.0),
       ),
     ],
   )
-let assert Ok(waffle.Optimal(solution, _)) = waffle.solve(model)
-waffle.objective(solution)  // 21.0: 3 chocolate and 2 classic
+let assert Ok(vahvel.Optimal(solution, _)) = vahvel.solve(model)
+vahvel.objective(solution)  // 21.0: 3 chocolate and 2 classic
 ```
 
 [test/examples/readme_test.gleam](test/examples/readme_test.gleam) grows this
@@ -52,10 +52,10 @@ type Decision {
   Station(Waffle)
 }
 
-fn domain(decision: Decision) -> waffle.Domain {
+fn domain(decision: Decision) -> vahvel.Domain {
   case decision {
-    Bake(_) -> waffle.NonNegativeInteger
-    Station(_) -> waffle.Binary
+    Bake(_) -> vahvel.NonNegativeInteger
+    Station(_) -> vahvel.Binary
   }
 }
 ```
@@ -83,7 +83,7 @@ over data:
 
 ```gleam
 list.map(toppings, fn(topping) {
-  waffle.LessEqual(
+  vahvel.LessEqual(
     Variable(Bake(topping.waffle)),
     Linear(topping.serves, Station(topping.waffle)),
   )
@@ -96,16 +96,16 @@ or solver failures. `solve_with` also supports budget stops with an optional
 feasible assignment:
 
 ```gleam
-let assert Ok(outcome) = waffle.solve_with(
+let assert Ok(outcome) = vahvel.solve_with(
   model,
-  waffle.Limits(time: Some(duration.seconds(2)), nodes: Some(1000)),
+  vahvel.Limits(time: Some(duration.seconds(2)), nodes: Some(1000)),
 )
 let plan = case outcome {
-  waffle.Optimal(solution, _) | waffle.Limited(_, Some(solution), _) ->
+  vahvel.Optimal(solution, _) | vahvel.Limited(_, Some(solution), _) ->
     Some(solution)
-  waffle.Limited(_, None, _) | waffle.Infeasible | waffle.Unbounded -> None
+  vahvel.Limited(_, None, _) | vahvel.Infeasible | vahvel.Unbounded -> None
 }
-let statistics = waffle.stats(outcome)  // Some(stats), or None for infeasible/unbounded
+let statistics = vahvel.stats(outcome)  // Some(stats), or None for infeasible/unbounded
 ```
 
 Import `gleam/option.{None, Some}` and `gleam/time/duration` for this example.
@@ -126,10 +126,10 @@ such as a hand-made plan. A key no expression referenced is an error, never a
 silent zero:
 
 ```gleam
-waffle.evaluate_solution(sales, solution)  // Ok(22.5)
-waffle.value(solution, Bake(Berry))  // Ok(3.0)
-waffle.value(solution, Station(Classic))  // Error(Nil)
-waffle.evaluate_dict(profit, plan)  // Ok(19.5)
+vahvel.evaluate_solution(sales, solution)  // Ok(22.5)
+vahvel.value(solution, Bake(Berry))  // Ok(3.0)
+vahvel.value(solution, Station(Classic))  // Error(Nil)
+vahvel.evaluate_dict(profit, plan)  // Ok(19.5)
 ```
 
 `evaluate(expression, lookup)` takes any `fn(key) -> Result(Float, Nil)`, for
@@ -161,6 +161,6 @@ just fmt    # format Gleam and Rust
 just build  # rebuild the native library
 ```
 
-The setup entry point, `gleam run -m waffle/setup`, builds a missing or
-version-mismatched NIF. Use `gleam run -m waffle/setup -- --force` to rebuild at
+The setup entry point, `gleam run -m vahvel/setup`, builds a missing or
+version-mismatched NIF. Use `gleam run -m vahvel/setup -- --force` to rebuild at
 the same version. Native libraries are built from source and stored in `priv/`.

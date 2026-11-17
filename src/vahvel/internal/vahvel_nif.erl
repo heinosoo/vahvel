@@ -1,9 +1,9 @@
--module(waffle_nif).
+-module(vahvel_nif).
 -on_load(init/0).
 -export([init/0, nif_version/0, nif_version_result/0, driver_solve/2, driver_evaluate/2]).
 
 init() ->
-    SoName = code:priv_dir(waffle) ++ "/waffle",
+    SoName = code:priv_dir(vahvel) ++ "/vahvel",
     erlang:load_nif(SoName, 0).
 
 nif_version() ->
