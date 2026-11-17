@@ -2,6 +2,10 @@
 name = "vahvel"
 version = "0.3.0"
 edition = "2021"
+description = "Native solver for the vahvel Gleam package"
+license = "Apache-2.0"
+repository = "https://github.com/heinosoo/vahvel"
+publish = false
 
 [lib]
 name = "vahvel"

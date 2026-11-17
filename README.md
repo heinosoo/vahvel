@@ -164,3 +164,14 @@ just build  # rebuild the native library
 The setup entry point, `gleam run -m vahvel/setup`, builds a missing or
 version-mismatched NIF. Use `gleam run -m vahvel/setup -- --force` to rebuild at
 the same version. Native libraries are built from source and stored in `priv/`.
+
+## Acknowledgements
+
+Vahvel is a modeling layer; the solving is done by
+[microlp](https://github.com/Specy/microlp), a pure-Rust MILP solver.
+[Rustler](https://github.com/rusterlium/rustler) makes the native boundary safe
+to write. Thank you!
+
+## License
+
+Apache-2.0, see [LICENSE](LICENSE).

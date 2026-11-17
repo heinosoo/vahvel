@@ -14,17 +14,9 @@ A release candidate is ready when a fresh consuming project can follow the
 README, build the native library, and solve a model from both a Git dependency
 and the prepared Hex package. Publication itself is a separate final step.
 
-### 1. License and metadata
+### 1. Package layout and consumer installation
 
-These shape everything below, so settle them first.
-
-- Rename the GitHub repository to `vahvel`.
-- Choose a license and add its text. Replace the placeholder `gleam.toml`
-  metadata (description, license, repository) and align the Cargo metadata.
-
-### 2. Package layout and consumer installation
-
-Gleam's Hex package contains only `src/`, `priv/`, the README and
+Gleam's Hex package contains only `src/`, `priv/`, the README, license and
 `gleam.toml`, so `native/` is missing from it; Git dependencies hide this.
 A scratch test showed that a crate under `priv/` ships, `.cargo/config.toml`
 included. `src/vahvel/internal/build.gleam` also resolves paths relative to
@@ -41,17 +33,19 @@ the working directory, while the loader uses `code:priv_dir(vahvel)`.
   without borrowing this checkout's build artifacts.
 - Inspect the tarball: Rust sources, Cargo manifest and lockfile, `.cargo`
   config, Erlang FFI and license; no compiled libraries or build output.
+  Gleam ignores `.gitignore` here: a local `priv/vahvel.so` ends up in the
+  package, so build the release tarball from a clean checkout.
 - Check first setup, repeated setup, `--force`, version mismatch, and clear
   guidance for a missing Rust toolchain or an unloadable NIF (`on_load` as
   well as the version check).
 - Check that a built consuming application runs with the NIF in its release.
   Document what is needed at build time versus on the runtime machine.
 
-### 3. Documentation and cleanup
+### 2. Documentation and cleanup
 
 - README: Git and Hex installation, Rust and linker prerequisites, the Erlang
   target requirement, setup and a first solve. Consumers need neither Nix nor
-  `just`. Add troubleshooting based on the checks in section 2.
+  `just`. Add troubleshooting based on the checks in section 1.
 - Document the 0.x compatibility policy and known limits: the integer range
   limit, solve-budget semantics and outcome handling.
 - Review the generated API docs against actual behavior.
@@ -60,7 +54,7 @@ the working directory, while the loader uses `code:priv_dir(vahvel)`.
 - Remove stale comments, placeholder configuration and misleading release
   instructions.
 
-### 4. Release process
+### 3. Release process
 
 CI runs repository checks in Nix on Linux. The release workflow bumps
 versions, tags, and attaches a nonportable Nix-built library; it neither

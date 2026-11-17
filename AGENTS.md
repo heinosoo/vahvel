@@ -33,6 +33,8 @@ Start here. General working rules are below; everything else lives in one place:
 - Test files mirror the source tree; test the public API through `solve`.
   The exception is `test/examples/`: representative models, one per file,
   including the README examples. Judge API changes by how they read.
+- Keep tests fast (milliseconds). Performance belongs in `just bench`
+  (`test/bench.gleam`), not in large or timeout-based tests.
 
 ## Software Design
 
@@ -43,14 +45,5 @@ Start here. General working rules are below; everything else lives in one place:
 
 ## Dependency Lookup
 
-Gleam dependency source is available locally in `build/packages/`. Look up the
-installed interfaces there with `rg`:
-
-```sh
-rg -A 10 'pub fn function_name' build/packages/package_name
-rg -A 30 'pub( opaque)? type TypeName' build/packages/package_name
-rg '^pub (fn|type|const)' build/packages/package_name/src/module.gleam
-```
-
-Read the signature or type definition; avoid browsing implementations unless needed.
-Use [docs.rs](https://docs.rs) for Rust dependency documentation.
+Gleam dependency sources are in `build/packages/`; search signatures there with
+`rg` rather than reading implementations. Rust dependencies: [docs.rs](https://docs.rs).
