@@ -357,8 +357,8 @@ pub type Domain {
 Real and integer bounds behave the same for the user. microlp limits
 integer variables to signed 32 bits, so a `None` integer bound means "no bound
 beyond that range": Rust fills in `i32::MIN`/`i32::MAX`, microlp's documented
-convention. A truly unbounded integer direction therefore reports `Optimal` at
-±2³¹, which the `Domain` docs state and a driver test pins.
+convention. A truly unbounded integer direction therefore reports `Optimal`
+at −2³¹ or 2³¹ − 1, which the `Domain` docs state and a driver test pins.
 
 **Why.** Users shouldn't have to guess a "large enough" integer bound, and the
 backend limit belongs in one place, in Rust.

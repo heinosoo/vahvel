@@ -1,5 +1,9 @@
 name: release
 
+# Bumps the version, checks the repository and the Hex tarball, then tags and
+# creates a GitHub release. Publishing to Hex is publish.yml; it runs here only
+# when `publish` is set. consumer.yml is started on the tag and not awaited.
+
 on:
   workflow_dispatch:
     inputs:
@@ -12,149 +16,97 @@ on:
           - patch
           - minor
           - major
-
-# Multi-platform builds (future):
-# When ready, replace the single `release` job with a matrix strategy:
-#
-# jobs:
-#   build:
-#     strategy:
-#       matrix:
-#         include:
-#           - os: ubuntu-latest
-#             target: x86_64-unknown-linux-gnu
-#             artifact: vahvel.so
-#             asset_suffix: linux-x86_64.so
-#           - os: macos-latest
-#             target: x86_64-apple-darwin
-#             artifact: libvahvel.dylib
-#             asset_suffix: macos-x86_64.dylib
-#           - os: macos-latest
-#             target: aarch64-apple-darwin
-#             artifact: libvahvel.dylib
-#             asset_suffix: macos-aarch64.dylib
-#           - os: windows-latest
-#             target: x86_64-pc-windows-msvc
-#             artifact: vahvel.dll
-#             asset_suffix: windows-x86_64.dll
-#     runs-on: ${{ matrix.os }}
-#     steps:
-#       - uses: actions/checkout@v4
-#       - uses: dtolnay/rust-toolchain@stable
-#         with:
-#           targets: ${{ matrix.target }}
-#       - run: cargo build --release --target ${{ matrix.target }}
-#         working-directory: priv/native
-#       ... upload each artifact, then collect in a final release job
+      publish:
+        description: "Publish to Hex once the release exists"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
+  # Dispatching consumer.yml and publish.yml on the new tag.
+  actions: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}
 
 jobs:
   release:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - name: Determine version
-        id: version
+      # Cargo.lock follows when `just test` builds; version_test checks all four.
+      - name: Bump version
         run: |
-          CURRENT=$(grep '^version' gleam.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
-          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
-
-          MAJOR=$(echo "$CURRENT" | cut -d. -f1)
-          MINOR=$(echo "$CURRENT" | cut -d. -f2)
-          PATCH=$(echo "$CURRENT" | cut -d. -f3)
-          case "${{ github.event.inputs.bump }}" in
+          CURRENT=$(sed -n 's/^version = "\(.*\)"/\1/p' gleam.toml)
+          IFS=. read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          case "${{ inputs.bump }}" in
             major) TARGET="$((MAJOR + 1)).0.0" ;;
             minor) TARGET="${MAJOR}.$((MINOR + 1)).0" ;;
             patch) TARGET="${MAJOR}.${MINOR}.$((PATCH + 1))" ;;
           esac
-          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
-
-      - name: Check for conflicts
-        run: |
-          TARGET="${{ steps.version.outputs.target }}"
-          if git rev-parse "v${TARGET}" >/dev/null 2>&1; then
+          if git rev-parse -q --verify "refs/tags/v${TARGET}" >/dev/null; then
             echo "::error::Tag v${TARGET} already exists"
             exit 1
           fi
-
-      - name: Update version in gleam.toml
-        run: |
-          TARGET="${{ steps.version.outputs.target }}"
           sed -i "s/^version = \".*\"/version = \"${TARGET}\"/" gleam.toml
-
-      - name: Update version in Cargo.toml
-        run: |
-          TARGET="${{ steps.version.outputs.target }}"
           sed -i "0,/^version = /s/^version = \".*\"/version = \"${TARGET}\"/" priv/native/Cargo.toml
-
-      - name: Update version in version.gleam
-        run: |
-          TARGET="${{ steps.version.outputs.target }}"
           sed -i "s/^pub const package_version = \".*\"/pub const package_version = \"${TARGET}\"/" src/vahvel/internal/version.gleam
+          echo "TARGET=$TARGET" >> "$GITHUB_ENV"
 
       - uses: cachix/install-nix-action@v31
       # Exports the flake's dev shell into later steps' environment.
       - uses: nicknovitski/nix-develop@v1
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: priv/native -> ../../target
-      - uses: actions/cache@v4
-        with:
-          path: build/packages
-          key: gleam-deps-${{ hashFiles('gleam.toml', 'manifest.toml') }}
-          restore-keys: gleam-deps-
       - run: just lint
       - run: just test
 
       - name: Commit version bump
         run: |
-          TARGET="${{ steps.version.outputs.target }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add gleam.toml priv/native/Cargo.toml priv/native/Cargo.lock src/vahvel/internal/version.gleam
-          git commit -m "release: v${TARGET}"
+          git commit -am "release: v${TARGET}"
 
-      - name: Generate changelog
-        id: changelog
+      # Gleam packs priv/ regardless of .gitignore, so the tarball comes from a
+      # fresh clone: the library `just test` built must not ship.
+      - name: Build the Hex tarball
         run: |
-          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-          if [ -n "$PREV_TAG" ]; then
-            LOG=$(git log "${PREV_TAG}..HEAD~1" --pretty=format:"- %s (%h)" --no-merges)
-          else
-            LOG=$(git log HEAD~1 --pretty=format:"- %s (%h)" --no-merges)
+          git clone -q . "$RUNNER_TEMP/clean"
+          (cd "$RUNNER_TEMP/clean" && gleam export hex-tarball)
+
+      - name: Install the tarball into a fresh project
+        run: |
+          cd "$RUNNER_TEMP"
+          mkdir vahvel consumer consumer/src
+          tar -xOf "clean/build/vahvel-${TARGET}.tar" contents.tar.gz | tar -xz -C vahvel
+          if find vahvel -name '*.so' -o -name '*.dll' -o -name '*.dylib' | grep .; then
+            echo "::error::compiled library in the Hex package"
+            exit 1
           fi
-          # Write to file to avoid delimiter issues
-          echo "$LOG" > /tmp/changelog.txt
-          echo "file=/tmp/changelog.txt" >> "$GITHUB_OUTPUT"
+          printf '%s\n' 'name = "consumer"' 'version = "1.0.0"' '[dependencies]' \
+            'vahvel = { path = "../vahvel" }' > consumer/gleam.toml
+          cd consumer
+          gleam run -m vahvel/setup
 
-      - name: Create and push tag
+      # Atomic, and not forced: fails if main moved during the run.
+      - name: Push commit and tag
         run: |
-          TARGET="${{ steps.version.outputs.target }}"
           git tag "v${TARGET}"
-          git push origin main --tags
+          git push --atomic origin HEAD:main "refs/tags/v${TARGET}"
 
-      # This Nix-built binary may depend on Nix runtime paths and a newer glibc.
-      # It is not a portable prebuilt artifact for arbitrary Linux distributions.
-      - name: Package NIF binary
-        run: |
-          TARGET="${{ steps.version.outputs.target }}"
-          cp priv/vahvel.so "vahvel-v${TARGET}-linux-x86_64.so"
-
-      - name: Create GitHub Release
+      - name: Create GitHub release and start follow-up workflows
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          NOTES: |
+            Built from source on first use: requires the Erlang target and
+            [Rust](https://rustup.rs) with `cargo` and a platform linker. See the
+            README for installation and limitations.
         run: |
-          TARGET="${{ steps.version.outputs.target }}"
-          gh release create "v${TARGET}" \
-            "vahvel-v${TARGET}-linux-x86_64.so" \
-            --title "v${TARGET}" \
-            --notes-file "${{ steps.changelog.outputs.file }}"
+          gh release create "v${TARGET}" --title "v${TARGET}" --notes "$NOTES" --generate-notes
+          gh workflow run consumer.yml --ref "v${TARGET}"
+          if [ "${{ inputs.publish }}" = true ]; then
+            gh workflow run publish.yml --ref "v${TARGET}"
+          fi

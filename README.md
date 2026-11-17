@@ -35,12 +35,25 @@ let assert Ok(vahvel.Optimal(solution, _)) = vahvel.solve(model)
 vahvel.objective(solution)  // 21.0: 3 chocolate and 2 classic
 ```
 
-[test/examples/readme_test.gleam](test/examples/readme_test.gleam) grows this
-into a full story, step by step with explanations: a menu from data, topping
-stations as yes-or-no decisions, a report, and a hand-made plan. The snippets
-below come from it.
+## Installation
+
+```sh
+gleam add vahvel
+```
+
+Or depend on the repository:
+`vahvel = { git = "https://github.com/heinosoo/vahvel", ref = "main" }`.
+
+Vahvel runs on the Erlang target. Building it needs
+[Rust](https://rustup.rs) with `cargo` on the `PATH` and a platform linker. The
+native library is built from source the first time vahvel is loaded, or ahead
+of time with `gleam run -m vahvel/setup`. A machine that only runs a built
+release needs neither: the library ships inside it as `priv/vahvel.*`.
 
 ## Features
+
+[test/examples/readme_test.gleam][readme_test] grows the example into a full story: a menu from data, topping stations as yes-or-no
+decisions, a report, and a hand-made plan. The snippets below come from it.
 
 **Your own keys.** Variables are named by any Gleam value, usually a custom
 type naming the decision. A variable exists once an expression references it,
@@ -60,13 +73,7 @@ fn domain(decision: Decision) -> vahvel.Domain {
 }
 ```
 
-Domains are `Real` or `Integer` with optional inclusive bounds, or `Binary`.
-`NonNegativeReal` and `NonNegativeInteger` specify a zero lower bound and no
-explicit upper bound. For example, `Real(Some(-2.5), Some(3.0))` allows real
-values from −2.5 to 3; `None` leaves that side unbounded. Integer domains are
-currently limited to the backend's signed 32-bit range.
-
-**Expressions are data.** An expression is a small affine tree: `Variable`,
+**Expressions are data.** An expression is a small affine tree of `Variable`,
 `Linear`, `Constant`, `Sum`, `Difference` and `Scaled`. Build it with the
 standard library, name it, and reuse it anywhere:
 
@@ -90,10 +97,9 @@ list.map(toppings, fn(topping) {
 })
 ```
 
-**Answers are values.** Unlimited `solve` returns `Ok(Optimal(solution, stats))`,
-`Ok(Infeasible)` or `Ok(Unbounded)`; `Error(_)` is reserved for invalid input
-or solver failures. `solve_with` also supports budget stops with an optional
-feasible assignment:
+**Answers are values.** Infeasible and unbounded models are outcomes, not
+errors; `Error(_)` means invalid input or a solver failure. `solve_with` adds
+time and node budgets, and a budget stop may still carry a feasible plan:
 
 ```gleam
 let assert Ok(outcome) = vahvel.solve_with(
@@ -105,25 +111,11 @@ let plan = case outcome {
     Some(solution)
   vahvel.Limited(_, None, _) | vahvel.Infeasible | vahvel.Unbounded -> None
 }
-let statistics = vahvel.stats(outcome)  // Some(stats), or None for infeasible/unbounded
 ```
 
-Import `gleam/option.{None, Some}` and `gleam/time/duration` for this example.
-`Limited(TimeLimit | NodeLimit, Some(solution), stats)` is feasible but unproven;
-with `None`, no usable assignment was found. A time budget covers the backend
-solve and may overshoot between checks. Node limits exclude the root relaxation
-and do not limit continuous LPs. `None` means unlimited; zero is valid; negative
-budgets, times over 100 years and node counts beyond 64 bits return
-`InvalidTimeLimit` / `InvalidNodeLimit`.
-
-Stats include nodes, simplex iterations, solver time and an optional relative
-gap. An optimum's gap is zero; a limited result's gap may be unavailable.
-Statistics belong to the outcome; `Solution` contains objective and values.
-
-**Reporting reuses the model.** Look up values by key and evaluate the
-expressions that built the model, at a solution or at any values you supply,
-such as a hand-made plan. A key no expression referenced is an error, never a
-silent zero:
+**Reporting reuses the model.** Evaluate the expressions that built the model
+at a solution or at any values you supply, such as a hand-made plan. A key no
+expression referenced is an error, never a silent zero:
 
 ```gleam
 vahvel.evaluate_solution(sales, solution)  // Ok(22.5)
@@ -132,23 +124,26 @@ vahvel.value(solution, Station(Classic))  // Error(Nil)
 vahvel.evaluate_dict(profit, plan)  // Ok(19.5)
 ```
 
-`evaluate(expression, lookup)` takes any `fn(key) -> Result(Float, Nil)`, for
-example solution values with some overridden. `residual(constraint, lookup)`
-gives a constraint's `lhs − rhs`, so a `LessEqual` holds when it is at most
-zero.
-
 **Numerics in Rust.** Gleam only describes the model; Rust sums, scales,
 validates and solves it in one native call. Overflow and non-finite numbers are
-reported with their location when solving or evaluating, never during
-construction.
+reported with their location, never during construction.
 
 ## Learn more
 
-More examples, including a multi-period production network and N-queens, are
-in [test/examples](test/examples).
-[ARCHITECTURE.md](ARCHITECTURE.md) describes how the library fits together,
-[DESIGN.md](DESIGN.md) explains the design decisions, and
-[ROADMAP.md](ROADMAP.md) lists planned work.
+The [API reference](https://hexdocs.pm/vahvel/) gives exact semantics,
+including domain and budget limits. More examples, including a multi-period
+production network and N-queens, are in [test/examples][examples].
+[ARCHITECTURE.md][architecture] describes how the library fits together,
+[DESIGN.md][design] explains the design decisions, and [ROADMAP.md][roadmap]
+lists planned work.
+
+<!-- Absolute links: HexDocs renders this README without the repository. -->
+[readme_test]: https://github.com/heinosoo/vahvel/blob/main/test/examples/readme_test.gleam
+[examples]: https://github.com/heinosoo/vahvel/tree/main/test/examples
+[architecture]: https://github.com/heinosoo/vahvel/blob/main/ARCHITECTURE.md
+[design]: https://github.com/heinosoo/vahvel/blob/main/DESIGN.md
+[roadmap]: https://github.com/heinosoo/vahvel/blob/main/ROADMAP.md
+[license]: https://github.com/heinosoo/vahvel/blob/main/LICENSE
 
 ## Development
 
@@ -161,11 +156,6 @@ just fmt    # format Gleam and Rust
 just build  # rebuild the native library
 ```
 
-The native library is built from source with Cargo the first time vahvel is
-loaded, into vahvel's own `priv/` (in a consumer, `build/packages/vahvel/`).
-`gleam run -m vahvel/setup` builds it ahead of time and rebuilds a broken or
-version-mismatched one; add `-- --force` to rebuild anyway.
-
 ## Acknowledgements
 
 Vahvel is a modeling layer; the solving is done by
@@ -175,4 +165,4 @@ to write. Thank you!
 
 ## License
 
-Apache-2.0, see [LICENSE](LICENSE).
+Apache-2.0, see [LICENSE][license].

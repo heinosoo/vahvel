@@ -1,0 +1,57 @@
+name: publish
+
+# Publishes a release tag to Hex (package and docs) from a clean checkout, then
+# installs it from Hex into a fresh project. Run on a tag, or let release.yml
+# dispatch it. If only the smoke test fails, retry with "Re-run failed jobs".
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: cachix/install-nix-action@v31
+      # Exports the flake's dev shell into later steps' environment.
+      - uses: nicknovitski/nix-develop@v1
+      - name: Check the tag
+        run: |
+          VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' gleam.toml)
+          if [ "$GITHUB_REF" != "refs/tags/v${VERSION}" ]; then
+            echo "::error::run on tag v${VERSION}, not ${GITHUB_REF}"
+            exit 1
+          fi
+      - run: gleam publish --yes
+        env:
+          HEXPM_API_KEY: ${{ secrets.HEXPM_API_KEY }}
+
+  smoke:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: cachix/install-nix-action@v31
+      - uses: nicknovitski/nix-develop@v1
+      - name: Install from Hex into a fresh project
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          cd "$RUNNER_TEMP"
+          mkdir -p consumer/src
+          printf '%s\n' 'name = "consumer"' 'version = "1.0.0"' '[dependencies]' \
+            "vahvel = \"== ${VERSION}\"" > consumer/gleam.toml
+          cd consumer
+          # The package can take a moment to reach the repository mirror.
+          for attempt in 1 2 3 4 5 6; do
+            gleam deps download && break
+            [ "$attempt" = 6 ] && exit 1
+            sleep 30
+          done
+          gleam run -m vahvel/setup
+          echo "vahvel ${VERSION}: installed from Hex and built on ubuntu-latest." >> "$GITHUB_STEP_SUMMARY"

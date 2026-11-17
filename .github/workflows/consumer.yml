@@ -1,0 +1,92 @@
+name: consumer
+
+# Informational: release.yml dispatches it on each new tag without waiting, so
+# scarce macOS and Windows runners never block a release.
+
+permissions: read-all
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Installs the Hex package into a fresh project without Nix, as users do.
+  consumer:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          gleam-version: "1.19.2"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Unpack the Hex tarball
+        run: |
+          gleam export hex-tarball
+          cp build/vahvel-*.tar "$RUNNER_TEMP/vahvel.tar"
+          cd "$RUNNER_TEMP"
+          mkdir vahvel
+          tar -xf vahvel.tar contents.tar.gz
+          tar -xzf contents.tar.gz -C vahvel
+          if find vahvel -name '*.so' -o -name '*.dll' -o -name '*.dylib' | grep .; then
+            echo "::error::compiled library in the Hex package"
+            exit 1
+          fi
+      - name: Create a consumer project
+        working-directory: ${{ runner.temp }}
+        run: |
+          mkdir -p consumer/src
+          cat > consumer/gleam.toml <<'TOML'
+          name = "consumer"
+          version = "1.0.0"
+
+          [dependencies]
+          gleam_stdlib = ">= 1.0.0 and < 2.0.0"
+          vahvel = { path = "../vahvel" }
+          TOML
+          cat > consumer/src/consumer.gleam <<'GLEAM'
+          import vahvel.{Constant, Linear, Sum}
+
+          pub fn main() {
+            let model =
+              vahvel.Model(
+                domain: fn(_) { vahvel.NonNegativeInteger },
+                objective: vahvel.Maximize(Sum([Linear(3.0, 1), Linear(5.0, 2)])),
+                constraints: [
+                  vahvel.LessEqual(
+                    Sum([Linear(2.0, 1), Linear(3.0, 2)]),
+                    Constant(13.0),
+                  ),
+                ],
+              )
+            let assert Ok(vahvel.Optimal(solution, _)) = vahvel.solve(model)
+            let assert 21.0 = vahvel.objective(solution)
+            Nil
+          }
+          GLEAM
+      - name: Solve, building the NIF on first use
+        working-directory: ${{ runner.temp }}/consumer
+        run: gleam run
+      - name: Setup finds the built NIF
+        working-directory: ${{ runner.temp }}/consumer
+        run: gleam run -m vahvel/setup
+      - name: Solve from an Erlang shipment
+        working-directory: ${{ runner.temp }}/consumer
+        run: |
+          gleam export erlang-shipment
+          ls build/erlang-shipment/vahvel/priv/vahvel.*
+          if [ "$RUNNER_OS" = Windows ]; then
+            pwsh build/erlang-shipment/entrypoint.ps1 run
+          else
+            build/erlang-shipment/entrypoint.sh run
+          fi

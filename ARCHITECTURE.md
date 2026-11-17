@@ -196,21 +196,21 @@ the NIF always answers with a tagged result.
   (`--target-dir`, mirrored in `priv/native/.cargo/config.toml`; `just` runs
   Cargo inside the crate because `--manifest-path` skips that config).
 - Paths come from the installed package, never the working directory. The
-  library goes to `code:priv_dir(vahvel)`, where the runtime loads it. On Unix
-  Gleam links that directory to the package's own `priv/` (for a consumer,
+  library goes to `code:priv_dir(vahvel)`, where the runtime loads it. Gleam
+  links that directory to the package's own `priv/` (for a consumer,
   `build/packages/vahvel/priv`), so the library ships with `gleam export` and
-  `gleam clean` removes it. Windows copies `priv/` instead; untested.
+  `gleam clean` removes it. The consumer workflow checks this on each platform.
 - `vahvel_nif.erl`'s `on_load` hook builds a missing library
   (`build.ensure_built`), then loads `priv/vahvel`. If the build or load fails,
   the module is not loaded and calls raise `undef`; a failed build prints its
   cause first. The module name must match `rustler::init!` in `lib.rs`.
 - `gleam run -m vahvel/setup` also rebuilds a library that fails to load or whose
   `nif_version` differs from `version.package_version`; `--force` always
-  rebuilds. `just build` is `setup --force`.
-- The package version lives in `gleam.toml`, `priv/native/Cargo.toml` and
-  `src/vahvel/internal/version.gleam`. The release workflow bumps all three
-  together, and `version_test` checks they agree.
-- Linux targets link `libstdc++` statically (`priv/native/.cargo/config.toml`).
+  rebuilds. `just build` is `setup --force`. Setup fails if a library rebuilt
+  after a failed load still won't load.
+- The package version lives in `gleam.toml`, `priv/native/Cargo.toml`,
+  `priv/native/Cargo.lock` and `src/vahvel/internal/version.gleam`. The
+  release workflow bumps them together, and `version_test` checks they agree.
 
 ## Testing
 
@@ -251,8 +251,14 @@ for the representative models in `test/examples/`.
   and tests. `just fmt` formats Gleam and Rust.
 - `.github/workflows/test.yml` runs `just lint` and `just test` in the Nix dev
   shell on pushes and pull requests.
-- `.github/workflows/release.yml` is manually triggered: it bumps the version,
-  runs the checks, tags, and attaches a Linux x86_64 library to the GitHub
-  release. That binary is built in Nix and may depend on Nix runtime paths, so
-  it is not a portable prebuilt artifact; a cross-platform matrix is sketched
-  in the workflow but not enabled.
+- Releases use three manually triggered workflows. `release.yml` bumps the
+  version, runs the checks, and installs the Hex tarball into a fresh project
+  before tagging. It exports the tarball from a fresh clone because Gleam packs
+  `priv/` regardless of `.gitignore`. It then dispatches `consumer.yml`, and
+  `publish.yml` if asked; pushes made with `GITHUB_TOKEN` trigger no workflows.
+  `publish.yml` runs `gleam publish` on the tag and smoke-tests the Hex
+  download in a separate job that can be re-run alone. Gleam's tarballs are not
+  byte-reproducible (`metadata.config` lists dependencies in hash order), so
+  the tag, not a checksum, ties the published package to the tested one.
+  `consumer.yml` installs on Linux, macOS and Windows without Nix. It never
+  blocks, because those runners can queue for a long time.

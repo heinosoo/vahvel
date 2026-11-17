@@ -57,7 +57,7 @@ pub type Objective(v) {
 ///
 /// The current backend limits integer variables to the signed 32-bit range:
 /// explicit integer bounds must fit it, and a `None` integer bound stops at its
-/// edge. An integer value at ±2³¹ therefore means that limit was reached.
+/// edge. A value of −2³¹ or 2³¹ − 1 therefore means that limit was reached.
 pub type Domain {
   /// An integer variable restricted to zero or one.
   Binary
@@ -68,7 +68,6 @@ pub type Domain {
   /// A real-valued variable at least zero: `Real(Some(0.0), None)`.
   NonNegativeReal
   /// An integer-valued variable at least zero: `Integer(Some(0), None)`.
-  /// The backend's signed 32-bit limit still applies.
   NonNegativeInteger
 }
 
@@ -83,7 +82,7 @@ pub type Model(v) {
   )
 }
 
-/// Per-call solver budgets. None means unlimited; zero is valid.
+/// Per-call solver budgets. `None` means unlimited; zero is valid.
 /// Time covers only the backend solve and may be exceeded between checks.
 /// Nodes exclude the root relaxation and do not limit continuous LP work.
 pub type Limits {
@@ -282,7 +281,8 @@ fn compile(model: Model(v)) -> #(driver.Model, List(v)) {
   #(driver.Model(direction, domains, objective, rows), keys)
 }
 
-/// Solve without time or node limits.
+/// Solve without time or node limits. The outcome is `Optimal`, `Infeasible`
+/// or `Unbounded`, never `Limited`.
 pub fn solve(model: Model(v)) -> Result(Outcome(v), SolveError(v)) {
   solve_with(model, Limits(None, None))
 }

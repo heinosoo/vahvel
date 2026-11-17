@@ -14,52 +14,13 @@ A release candidate is ready when a fresh consuming project can follow the
 README, build the native library, and solve a model from both a Git dependency
 and the prepared Hex package. Publication itself is a separate final step.
 
-### 1. Package layout and consumer installation
+### Release process
 
-Scratch consumers on Linux installed from a local Git repository at a fixed
-commit and from unpacked `gleam export hex-tarball` contents (as a path
-dependency). Each ran setup, solved, survived `gleam clean`, `--force`, a
-version mismatch and a corrupt library, and ran from an Erlang shipment. A
-missing library builds on first load.
+The release workflows have not run on GitHub yet.
 
-- Windows: Gleam copies `priv/` instead of linking it, so setup writes into
-  the build copy and the target directory lands under `build/<mode>`. Check
-  setup, `gleam export` and the loader there, or document Windows as
-  unsupported.
-
-### 2. Documentation and cleanup
-
-- README: Git and Hex installation, Rust and linker prerequisites, the Erlang
-  target requirement, setup and a first solve. Consumers need neither Nix nor
-  `just`. Add troubleshooting based on the checks in section 1. Say what is
-  needed at build time (Rust, a linker) versus on the runtime machine (only
-  the built `priv/vahvel.*` inside the release).
-- Document the 0.x compatibility policy and known limits: the integer range
-  limit, solve-budget semantics and outcome handling.
-- Review the generated API docs against actual behavior.
-- Run the motivating Advent of Code problem on a full input and record
-  correctness and solve time. Don't redistribute personal puzzle inputs.
-- Remove stale comments, placeholder configuration and misleading release
-  instructions.
-
-### 3. Release process
-
-CI runs repository checks in Nix on Linux. The release workflow bumps
-versions, tags, and attaches a nonportable Nix-built library; it neither
-tests an installed package nor publishes to Hex.
-
-- Add a `just` recipe for the consumer smoke test and run it in CI with fresh
-  native builds.
-- Check version consistency across `gleam.toml`, `Cargo.toml` and
-  `Cargo.lock`.
-- Build the tarball from a clean checkout: Gleam ignores `.gitignore` for
-  `priv/`, so a local `priv/vahvel.so` would ship. Test that exact tarball
-  before tagging. Make the Git tag and Hex version point at the same
-  revision; document publication order and retries.
-- Drop the binary attachment from the release workflow.
-- Document or automate Hex and API-doc publication, with release notes on
-  requirements and limitations.
-- After publishing, smoke-test the real Hex download and record the result.
+- Add the `HEXPM_API_KEY` repository secret.
+- Run `release`, check the consumer results, then run `publish` on the tag.
+  Record the smoke-test result and fix what the first run turns up.
 
 ## Conditional follow-up work
 
