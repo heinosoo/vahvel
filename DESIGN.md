@@ -663,6 +663,21 @@ Data-driven models can legitimately produce empty ranges.
   implementations of one rule.
 - *Empty domains as invalid models.* Empty ranges are infeasibility.
 
+### Building the native library
+
+**Decision.** The NIF is built from source with Cargo when its module loads and
+the library is missing; `vahvel/setup` remains for ahead-of-time builds,
+mismatches and `--force`. A failed build prints its cause and leaves the module
+unloaded.
+
+**Why.** Installing, upgrading and `gleam clean` all leave the library missing,
+so an explicit step would be forgotten on every one of them. The cost is a
+one-time blocking build that needs Rust and network access on first use.
+
+**Rejected.** *Returning an `Error` from `solve`.* A setup failure isn't a model
+outcome. *A rebar3 wrapper package building during `gleam build`.* A second
+package published in lockstep.
+
 ### NIF rules
 
 **Decision.**

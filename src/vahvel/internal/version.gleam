@@ -8,7 +8,7 @@ pub const package_version = "0.3.0"
 
 /// Check if the NIF version matches the package version.
 /// Returns Ok(True) if versions match, Ok(False) if they don't,
-/// or Error if the NIF isn't loaded.
+/// or Error if the NIF is missing or failed to load.
 pub fn check_nif_version() -> Result(Bool, Nil) {
   case nif_version() {
     Ok(nif_ver) -> Ok(nif_ver == package_version)
@@ -16,5 +16,5 @@ pub fn check_nif_version() -> Result(Bool, Nil) {
   }
 }
 
-@external(erlang, "vahvel_nif", "nif_version_result")
+@external(erlang, "vahvel_build_ffi", "loaded_nif_version")
 fn nif_version() -> Result(String, Nil)

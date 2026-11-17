@@ -16,36 +16,24 @@ and the prepared Hex package. Publication itself is a separate final step.
 
 ### 1. Package layout and consumer installation
 
-Gleam's Hex package contains only `src/`, `priv/`, the README, license and
-`gleam.toml`, so `native/` is missing from it; Git dependencies hide this.
-A scratch test showed that a crate under `priv/` ships, `.cargo/config.toml`
-included. `src/vahvel/internal/build.gleam` also resolves paths relative to
-the working directory, while the loader uses `code:priv_dir(vahvel)`.
+Scratch consumers on Linux installed from a local Git repository at a fixed
+commit and from unpacked `gleam export hex-tarball` contents (as a path
+dependency). Each ran setup, solved, survived `gleam clean`, `--force`, a
+version mismatch and a corrupt library, and ran from an Erlang shipment. A
+missing library builds on first load.
 
-- Move the crate under `priv/`. Only the built library joins it there;
-  Cargo's target directory (gigabytes) stays outside, since `priv/` ships
-  with every deployment.
-- Resolve sources and the output library inside the installed dependency, and
-  verify that setup writes where the runtime loads, including after
-  `gleam clean`.
-- From a fresh project outside this checkout, install from Git at a fixed
-  commit, then from the prepared Hex tarball. Run setup and a small solve
-  without borrowing this checkout's build artifacts.
-- Inspect the tarball: Rust sources, Cargo manifest and lockfile, `.cargo`
-  config, Erlang FFI and license; no compiled libraries or build output.
-  Gleam ignores `.gitignore` here: a local `priv/vahvel.so` ends up in the
-  package, so build the release tarball from a clean checkout.
-- Check first setup, repeated setup, `--force`, version mismatch, and clear
-  guidance for a missing Rust toolchain or an unloadable NIF (`on_load` as
-  well as the version check).
-- Check that a built consuming application runs with the NIF in its release.
-  Document what is needed at build time versus on the runtime machine.
+- Windows: Gleam copies `priv/` instead of linking it, so setup writes into
+  the build copy and the target directory lands under `build/<mode>`. Check
+  setup, `gleam export` and the loader there, or document Windows as
+  unsupported.
 
 ### 2. Documentation and cleanup
 
 - README: Git and Hex installation, Rust and linker prerequisites, the Erlang
   target requirement, setup and a first solve. Consumers need neither Nix nor
-  `just`. Add troubleshooting based on the checks in section 1.
+  `just`. Add troubleshooting based on the checks in section 1. Say what is
+  needed at build time (Rust, a linker) versus on the runtime machine (only
+  the built `priv/vahvel.*` inside the release).
 - Document the 0.x compatibility policy and known limits: the integer range
   limit, solve-budget semantics and outcome handling.
 - Review the generated API docs against actual behavior.
@@ -64,8 +52,10 @@ tests an installed package nor publishes to Hex.
   native builds.
 - Check version consistency across `gleam.toml`, `Cargo.toml` and
   `Cargo.lock`.
-- Test the exact tarball before tagging. Make the Git tag and Hex version
-  point at the same revision; document publication order and retries.
+- Build the tarball from a clean checkout: Gleam ignores `.gitignore` for
+  `priv/`, so a local `priv/vahvel.so` would ship. Test that exact tarball
+  before tagging. Make the Git tag and Hex version point at the same
+  revision; document publication order and retries.
 - Drop the binary attachment from the release workflow.
 - Document or automate Hex and API-doc publication, with release notes on
   requirements and limitations.
@@ -98,10 +88,6 @@ composability, predictable validation and public surface cost.
 - **Precompiled NIFs.** If requiring Rust prevents adoption. Size is not the
   obstacle (about 330 KB compressed per target); portable builds per target,
   pinned checksums and build provenance are. Keep the source build.
-- **Automatic build via a rebar3 wrapper.** If the explicit setup step proves
-  annoying, a rebar3 native package with a `cargo` pre-hook could build during
-  `gleam build`. Verify first that Gleam runs rebar3 hooks; costs a second
-  package published in lockstep.
 - **JavaScript through WASM.** For a browser or JS application; covers
   loading, execution and interruption.
 

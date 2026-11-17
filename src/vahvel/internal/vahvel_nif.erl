@@ -1,20 +1,20 @@
 -module(vahvel_nif).
 -on_load(init/0).
--export([init/0, nif_version/0, nif_version_result/0, driver_solve/2, driver_evaluate/2]).
+-export([init/0, nif_version/0, driver_solve/2, driver_evaluate/2]).
 
 init() ->
-    SoName = code:priv_dir(vahvel) ++ "/vahvel",
-    erlang:load_nif(SoName, 0).
+    case 'vahvel@internal@build':ensure_built() of
+        {ok, nil} ->
+            erlang:load_nif(code:priv_dir(vahvel) ++ "/vahvel", 0);
+        {error, Message} ->
+            io:format(standard_error,
+                      "vahvel: ~ts~nvahvel: fix the cause, then run `gleam run -m vahvel/setup`~n",
+                      [Message]),
+            {error, Message}
+    end.
 
 nif_version() ->
     erlang:nif_error(nif_not_loaded).
-
-nif_version_result() ->
-    try
-        {ok, nif_version()}
-    catch
-        error:nif_not_loaded -> {error, nil}
-    end.
 
 driver_solve(_Model, _Limits) ->
     erlang:nif_error(nif_not_loaded).

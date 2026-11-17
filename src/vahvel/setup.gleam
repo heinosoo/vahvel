@@ -1,62 +1,36 @@
-//// Build the native library: `gleam run -m vahvel/setup`. Rebuilds only if it
-//// is missing or its version differs; pass `--force` to rebuild anyway.
+//// Build the native library ahead of time: `gleam run -m vahvel/setup`.
+//// vahvel builds a missing library on first use; setup also rebuilds one that
+//// fails to load or has the wrong version. Pass `--force` to rebuild anyway.
 
 import gleam/io
 import gleam/list
+import gleam/result
 import shellout
-import simplifile
 import vahvel/internal/build
 import vahvel/internal/version
 
-fn should_rebuild_nif() -> Bool {
-  let nif = build.nif_path()
-
-  case simplifile.is_file(nif) {
-    Ok(True) -> check_nif_version(nif)
-    Ok(False) | Error(_) -> {
-      io.println("NIF not found, building from source...")
-      True
-    }
-  }
-}
-
-fn check_nif_version(nif: String) -> Bool {
-  case version.check_nif_version() {
-    Error(_) -> {
-      io.println(
-        "NIF exists but version check failed, rebuilding from source...",
-      )
-      True
-    }
-    Ok(False) -> {
-      io.println(
-        "NIF version mismatch (expected "
-        <> version.package_version
-        <> "), rebuilding from source...",
-      )
-      True
-    }
-    Ok(True) -> {
-      io.println("NIF already built at " <> nif)
-      False
-    }
-  }
-}
-
 pub fn main() {
-  let args = shellout.arguments()
-  let force = list.contains(args, "--force")
-
-  case force || should_rebuild_nif() {
-    False -> Nil
-    True -> {
-      case build.do_compile() {
-        Ok(_) -> io.println("Setup complete.")
-        Error(msg) -> {
-          io.println("Error: " <> msg)
-          shellout.exit(1)
-        }
+  let outcome = case list.contains(shellout.arguments(), "--force") {
+    True -> build.compile()
+    False -> {
+      use _ <- result.try(build.ensure_built())
+      case version.check_nif_version() {
+        Ok(True) -> Ok(io.println("vahvel: native library is up to date"))
+        Ok(False) -> rebuild("does not match " <> version.package_version)
+        Error(_) -> rebuild("could not be loaded")
       }
     }
   }
+  case outcome {
+    Ok(_) -> Nil
+    Error(message) -> {
+      io.println_error("vahvel: " <> message)
+      shellout.exit(1)
+    }
+  }
+}
+
+fn rebuild(reason: String) -> Result(Nil, String) {
+  io.println("vahvel: native library " <> reason <> ", rebuilding...")
+  build.compile()
 }

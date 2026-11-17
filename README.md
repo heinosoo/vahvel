@@ -161,9 +161,10 @@ just fmt    # format Gleam and Rust
 just build  # rebuild the native library
 ```
 
-The setup entry point, `gleam run -m vahvel/setup`, builds a missing or
-version-mismatched NIF. Use `gleam run -m vahvel/setup -- --force` to rebuild at
-the same version. Native libraries are built from source and stored in `priv/`.
+The native library is built from source with Cargo the first time vahvel is
+loaded, into vahvel's own `priv/` (in a consumer, `build/packages/vahvel/`).
+`gleam run -m vahvel/setup` builds it ahead of time and rebuilds a broken or
+version-mismatched one; add `-- --force` to rebuild anyway.
 
 ## Acknowledgements
 

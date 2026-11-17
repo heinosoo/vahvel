@@ -1,99 +1,86 @@
+//// Builds the native library from the Rust crate shipped in `priv/native`.
+
 import gleam/io
 import gleam/result
 import gleam/string
 import shellout
-import simplifile
 
-@external(erlang, "vahvel_build_ffi", "os_family")
-fn os_family() -> String
+type Paths {
+  Paths(crate: String, target: String, built: String, nif: String)
+}
 
-fn detect_os() -> String {
-  case os_family() {
-    "win32" -> "windows"
-    _ ->
-      shellout.command("uname", ["-s"], in: ".", opt: [])
-      |> result.map(fn(output) {
-        case string.trim(output) {
-          "Darwin" -> "macos"
-          _ -> "linux"
-        }
-      })
-      |> result.unwrap("linux")
+@external(erlang, "vahvel_build_ffi", "dirs")
+fn dirs() -> Result(#(String, String), Nil)
+
+@external(erlang, "vahvel_build_ffi", "library_names")
+fn library_names() -> #(String, String)
+
+@external(erlang, "vahvel_build_ffi", "copy")
+fn copy(from: String, to: String) -> Result(Nil, String)
+
+@external(erlang, "filelib", "is_regular")
+fn is_file(path: String) -> Bool
+
+fn paths() -> Result(Paths, String) {
+  use #(priv, package) <- result.try(
+    dirs()
+    |> result.replace_error("the vahvel application is not on the code path"),
+  )
+  let #(built, nif) = library_names()
+  // Outside priv/, which ships; matches priv/native/.cargo/config.toml.
+  let target = package <> "/target"
+  Ok(Paths(
+    crate: package <> "/priv/native",
+    target:,
+    built: target <> "/release/" <> built,
+    nif: priv <> "/" <> nif,
+  ))
+}
+
+/// Builds the library if it is missing. Called when the NIF module loads.
+pub fn ensure_built() -> Result(Nil, String) {
+  use paths <- result.try(paths())
+  case is_file(paths.nif) {
+    True -> Ok(Nil)
+    False -> {
+      io.println(
+        "vahvel: building the native library from source with Cargo (first use only, may take a minute)...",
+      )
+      compile_at(paths)
+    }
   }
 }
 
-fn source_path(os: String) -> String {
-  case os {
-    "windows" -> "native/vahvel/target/release/vahvel.dll"
-    "macos" -> "native/vahvel/target/release/libvahvel.dylib"
-    _ -> "native/vahvel/target/release/libvahvel.so"
-  }
+/// Builds the library, replacing any existing one.
+pub fn compile() -> Result(Nil, String) {
+  result.try(paths(), compile_at)
 }
 
-fn dest_path(os: String) -> String {
-  case os {
-    "windows" -> "priv/vahvel.dll"
-    "macos" -> "priv/vahvel.dylib"
-    _ -> "priv/vahvel.so"
-  }
-}
-
-pub fn nif_path() -> String {
-  dest_path(detect_os())
-}
-
-pub fn do_compile() -> Result(Nil, String) {
-  // Check for cargo
+fn compile_at(paths: Paths) -> Result(Nil, String) {
   use _ <- result.try(
     shellout.which("cargo")
     |> result.replace_error(
-      "cargo not found. Please install Rust via https://rustup.rs/ and try again.",
+      "cargo not found; install Rust from https://rustup.rs and try again",
     ),
   )
-
-  // Run cargo build
-  io.println("Compiling Rust NIF...")
+  // An explicit target dir also overrides CARGO_TARGET_DIR, so `built` holds.
   use _ <- result.try(
-    shellout.command("cargo", ["build", "--release"], in: "native/vahvel", opt: [
-      shellout.LetBeStdout,
-    ])
+    shellout.command(
+      "cargo",
+      ["build", "--release", "--target-dir", paths.target],
+      in: paths.crate,
+      opt: [shellout.LetBeStdout],
+    )
     |> result.map_error(fn(err) {
-      let #(status, msg) = err
-      "cargo build failed (exit " <> string.inspect(status) <> "): " <> msg
+      "cargo build failed (exit " <> string.inspect(err.0) <> ")"
     }),
   )
-
-  // Detect OS
-  let os = detect_os()
-  let src = source_path(os)
-  let dest = dest_path(os)
-
-  // Create priv directory
   use _ <- result.try(
-    simplifile.create_directory_all("priv")
-    |> result.map_error(fn(e) {
-      "Failed to create priv/ directory: " <> string.inspect(e)
+    copy(paths.built, paths.nif)
+    |> result.map_error(fn(reason) {
+      "could not copy " <> paths.built <> " to " <> paths.nif <> ": " <> reason
     }),
   )
-
-  // Copy file
-  use _ <- result.try(
-    simplifile.copy_file(at: src, to: dest)
-    |> result.map_error(fn(e) {
-      "Failed to copy " <> src <> " to " <> dest <> ": " <> string.inspect(e)
-    }),
-  )
-
-  io.println("NIF compiled and copied to " <> dest)
+  io.println("vahvel: native library built at " <> paths.nif)
   Ok(Nil)
-}
-
-pub fn main() {
-  case do_compile() {
-    Ok(_) -> io.println("Build complete.")
-    Error(msg) -> {
-      io.println("Error: " <> msg)
-      shellout.exit(1)
-    }
-  }
 }

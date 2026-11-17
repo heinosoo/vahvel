@@ -1,3 +1,7 @@
+# Cargo commands run inside the crate so they pick up its .cargo/config.toml,
+# which keeps build output out of priv/; --manifest-path would skip it.
+crate := "priv/native"
+
 # Default recipe: format-check + lint + test
 check: lint test
 
@@ -12,32 +16,32 @@ bench: build
 # Auto-format both Gleam and Rust
 fmt:
     gleam format src test
-    cargo fmt --manifest-path native/vahvel/Cargo.toml
+    cd {{crate}} && cargo fmt
 
 # Format checks + clippy (read-only, CI-safe)
 lint:
     gleam format --check src test
-    cargo fmt --manifest-path native/vahvel/Cargo.toml --check
-    cargo clippy --no-deps --manifest-path native/vahvel/Cargo.toml -- -D warnings
+    cd {{crate}} && cargo fmt --check
+    cd {{crate}} && cargo clippy --no-deps -- -D warnings
 
 # Compile NIF from source
 build:
-    gleam run -m vahvel/internal/build
+    gleam run -m vahvel/setup -- --force
 
 # Clean all build artifacts
 clean:
     gleam clean
-    cargo clean --manifest-path native/vahvel/Cargo.toml
+    cd {{crate}} && cargo clean
 
 # Update lockfiles within current constraints
 update:
     gleam deps update
-    cargo update --manifest-path native/vahvel/Cargo.toml
+    cd {{crate}} && cargo update
 
 # Upgrade dependency constraints and tooling to latest compatible versions
 upgrade:
-    gleam add gleam_stdlib shellout simplifile
-    gleam add --dev gleeunit tom
-    cargo add rustler --manifest-path native/vahvel/Cargo.toml
-    cargo add microlp --no-default-features --manifest-path native/vahvel/Cargo.toml
+    gleam add gleam_stdlib gleam_time shellout
+    gleam add --dev gleeunit simplifile tom
+    cd {{crate}} && cargo add rustler
+    cd {{crate}} && cargo add microlp --no-default-features
     nix flake update

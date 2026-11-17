@@ -1,0 +1,14 @@
+# priv/ ships with the package and with releases, so build output must not land
+# here. Relative to priv/native: the package root's target/. Setup passes the
+# same directory explicitly (src/vahvel/internal/build.gleam).
+[build]
+target-dir = "../../target"
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-static-libstdc++"]
+
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-static-libstdc++"]
+
+[target.x86_64-pc-windows-msvc]
+rustflags = []

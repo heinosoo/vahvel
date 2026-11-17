@@ -18,7 +18,7 @@ flowchart TD
   B["vahvel<br/>model types, lowering, keyed solutions"] --> C
   C["vahvel/internal/driver<br/>numeric contract (Gleam types)"] --> D
   D["vahvel/internal/vahvel_nif.erl<br/>NIF stubs, loads priv/vahvel.*"] --> E
-  E["native/vahvel (Rust cdylib)<br/>decode, canonicalize, validate, solve"] --> F
+  E["priv/native (Rust cdylib)<br/>decode, canonicalize, validate, solve"] --> F
   F["microlp<br/>simplex + branch and bound"]
 ```
 
@@ -27,8 +27,8 @@ flowchart TD
 | Modeling | `src/vahvel.gleam` | Expressions, constraints, objectives and domains; lowering keys to columns; keyed solution queries |
 | Numeric driver | `src/vahvel/internal/driver.gleam` | The contract with Rust: domains, unsummed expressions, rows, outcomes, errors |
 | Erlang FFI | `src/vahvel/internal/vahvel_nif.erl`, `vahvel_build_ffi.erl` | Loading the shared library and the `nif_not_loaded` fallbacks; OS detection for the build |
-| Native | `native/vahvel/src/lib.rs`, `driver.rs` | Term decoding, canonicalization, validation, solver calls, evaluation |
-| Build and setup | `src/vahvel/setup.gleam`, `src/vahvel/internal/build.gleam`, `src/vahvel/internal/version.gleam` | Compiling the NIF, copying it to `priv/`, version checks |
+| Native | `priv/native/src/lib.rs`, `driver.rs` | Term decoding, canonicalization, validation, solver calls, evaluation |
+| Build and setup | `src/vahvel/setup.gleam`, `src/vahvel/internal/build.gleam`, `src/vahvel/internal/version.gleam` | Building the NIF on first load or on demand, version checks |
 
 Every `.erl` file is prefixed with `vahvel_` (DESIGN.md: "NIF rules").
 
@@ -191,19 +191,26 @@ the NIF always answers with a tagged result.
 
 ## Build, loading and versions
 
-- `just build` runs `gleam run -m vahvel/internal/build`, which runs
-  `cargo build --release` in `native/vahvel` and copies the platform library to
-  `priv/vahvel.{so,dylib,dll}`.
-- `gleam run -m vahvel/setup` rebuilds only if the library is missing or its
-  `nif_version` differs from `vahvel/internal/version.package_version`;
-  `--force` rebuilds anyway.
-- `vahvel_nif.erl` loads `priv/vahvel` in its `on_load` hook. Until it is
-  loaded, every stub raises `nif_not_loaded`. Its module name must match
-  `rustler::init!` in `lib.rs`.
-- The package version lives in `gleam.toml`, `native/vahvel/Cargo.toml` and
+- The crate lives in `priv/native`: Hex packages ship only `src/` and `priv/`.
+  `priv/` also ships in releases, so Cargo builds into the package's `target/`
+  (`--target-dir`, mirrored in `priv/native/.cargo/config.toml`; `just` runs
+  Cargo inside the crate because `--manifest-path` skips that config).
+- Paths come from the installed package, never the working directory. The
+  library goes to `code:priv_dir(vahvel)`, where the runtime loads it. On Unix
+  Gleam links that directory to the package's own `priv/` (for a consumer,
+  `build/packages/vahvel/priv`), so the library ships with `gleam export` and
+  `gleam clean` removes it. Windows copies `priv/` instead; untested.
+- `vahvel_nif.erl`'s `on_load` hook builds a missing library
+  (`build.ensure_built`), then loads `priv/vahvel`. If the build or load fails,
+  the module is not loaded and calls raise `undef`; a failed build prints its
+  cause first. The module name must match `rustler::init!` in `lib.rs`.
+- `gleam run -m vahvel/setup` also rebuilds a library that fails to load or whose
+  `nif_version` differs from `version.package_version`; `--force` always
+  rebuilds. `just build` is `setup --force`.
+- The package version lives in `gleam.toml`, `priv/native/Cargo.toml` and
   `src/vahvel/internal/version.gleam`. The release workflow bumps all three
   together, and `version_test` checks they agree.
-- Linux targets link `libstdc++` statically (`native/vahvel/.cargo/config.toml`).
+- Linux targets link `libstdc++` statically (`priv/native/.cargo/config.toml`).
 
 ## Testing
 
