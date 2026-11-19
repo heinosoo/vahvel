@@ -6,9 +6,8 @@ code describes models; a Rust NIF validates and solves them with
 pieces fit together as they are now. The reasons behind them are in
 [DESIGN.md](DESIGN.md); planned work is in [ROADMAP.md](ROADMAP.md).
 
-Status: `vahvel` is the public modeling module and is unstable while the
-package is 0.x. `vahvel/setup` is the public build entry point. Everything below
-`vahvel/internal` is internal.
+`vahvel` is the public modeling module and `vahvel/setup` the public build entry
+point. Everything below `vahvel/internal` is internal.
 
 ## Layers
 
@@ -30,110 +29,53 @@ flowchart TD
 | Native | `priv/native/src/lib.rs`, `driver.rs` | Term decoding, canonicalization, validation, solver calls, evaluation |
 | Build and setup | `src/vahvel/setup.gleam`, `src/vahvel/internal/build.gleam`, `src/vahvel/internal/version.gleam` | Building the NIF on first load or on demand, version checks |
 
-Every `.erl` file is prefixed with `vahvel_` (DESIGN.md: "NIF rules").
-
-Each layer only talks to the one below it. The modeling layer never sees column
-numbers from the outside, and the native layer never sees names or keys.
-
-Gleam handles keys, columns, domains and structure; Rust does every numeric
-operation: canonicalization, validation, solving, evaluation. The modeling layer
-contains no float arithmetic (DESIGN.md: "Describe in Gleam, compute in Rust").
+Each layer only talks to the one below it. The modeling layer never exposes
+column numbers to callers, and the native layer never sees names or keys. Gleam
+handles keys, columns, domains and structure; Rust does every numeric
+operation (DESIGN.md: "Describe in Gleam, compute in Rust").
 
 ## Modeling layer
 
-`vahvel.gleam` turns a symbolic model, written with application-owned keys, into
-the driver model, and maps the numeric result back to those keys. Expressions are
-affine trees (`Variable(key)`, `Linear(coefficient, key)`, `Constant(value)`,
-`Sum(expressions)`, `Difference(lhs, rhs)` or `Scaled(coefficient, expression)`),
-and constraints relate two expressions (`LessEqual`, `Equal`, `GreaterEqual`).
-A variable exists once an expression references it; the model's `domain`
-function gives each variable's bounds and integrality.
+`vahvel.gleam` lowers a keyed model to a `driver.Model` and maps the numeric
+result back to keys. The public types' doc comments give the exact semantics;
+what matters for the structure:
 
-```mermaid
-flowchart LR
-  A[Symbolic model] --> B[Assign columns on first reference]
-  B --> C[Replace keys by columns, preserve tree]
-  C --> D[driver.Model]
-  B --> E[Column keys]
-  D --> F[driver.solve]
-  F --> G[Outcome with keyed solution]
-  E --> G
-  E --> H[Driver positions mapped to keys]
-  F --> H
-```
-
-Compilation is pure, deterministic and arithmetic-free: columns follow the order
-of first reference (objective, then constraints), rows follow constraint order,
-and keys become column indices. Lowering expands `Variable(key)` to
-`Linear(1.0, key)` and `Difference(lhs, rhs)` to `Sum([lhs, Scaled(-1.0, rhs)])`.
-It preserves the expanded tree shape and depth-first order of leaves, including
-duplicates and zeros, in one tail-recursive loop over an explicit stack of
-frames. Cancellation never removes a reference during lowering. Scaling and
-summing happen in Rust. `Binary` lowers to the same integer
-domain as `Integer(Some(0), Some(1))`; `NonNegativeReal` lowers to
-`Real(Some(0.0), None)` and `NonNegativeInteger` to `Integer(Some(0), None)`.
-The column keys stay in Gleam and are never passed to the NIF; they turn
-solver values into a keyed solution and driver error positions into keys. Row
-positions map back to the constraints themselves, so a `SolveError` names what
-the caller wrote. Solutions are immutable assignments indexed by the same keys.
-Outcomes carry the driver's statistics with solver time as a `Duration`:
-`Optimal(solution, stats)` or `Limited(reason, optional_solution, stats)`,
-alongside `Infeasible` and `Unbounded`. `stats(outcome)` returns an option; the
-latter two have none. `solve` supplies unlimited budgets to `solve_with`; the
-latter lowers optional time to integer seconds/nanoseconds and passes node
-counts unchanged. `evaluate` lowers an expression the same way, calls the
-caller's lookup once per distinct key in first-reference order and stops at
-the first missing value, then sends the indexed expression and values to
-`driver_evaluate`, which shares canonicalization with solving before
-multiplying by the values. `evaluate_solution` and `evaluate_dict` pass
-`value(solution, _)` and `dict.get(values, _)` as the lookup, and `residual`
-evaluates `Difference(lhs, rhs)` of a constraint.
+- Columns follow the order of first reference, objective first, then
+  constraints in order. Rows follow constraint order one-to-one.
+- Lowering is pure and arithmetic-free. It expands `Variable(key)` to
+  `Linear(1.0, key)` and `Difference(lhs, rhs)` to
+  `Sum([lhs, Scaled(-1.0, rhs)])`, keeps the tree shape, duplicates and zeros,
+  and runs in one tail-recursive loop over an explicit stack of frames.
+  `Binary`, `NonNegativeReal` and `NonNegativeInteger` lower to bounded
+  `Integer`/`Real` driver domains.
+- The column keys stay in Gleam. They turn solver values into a keyed
+  `Solution` and driver error positions into keys; row positions map back to
+  the constraint values themselves.
+- `solve` is `solve_with` with no limits. `solve_with` converts the `Duration`
+  to integer seconds and nanoseconds without float arithmetic.
+- `evaluate` lowers the expression the same way, calls the lookup once per
+  distinct key in first-reference order, stops at the first missing value, and
+  sends the indexed expression and values to `driver_evaluate`.
+  `evaluate_solution`, `evaluate_dict` and `residual` are one-line calls to it.
 
 ## Numeric driver contract
 
-`driver.gleam` defines the IR that crosses the native boundary:
+`driver.gleam` defines the IR that crosses the native boundary, and its doc
+comments are the contract's reference. Variables are zero-based positions in
+`Model.variables`; expressions are unsummed trees of `Linear`, `Constant`,
+`Sum` and `Scaled` with repeated indices and zero coefficients allowed. Limits
+travel separately from the model. Errors carry positions, which the modeling
+layer maps back; invalid domains and non-finite numbers come from user data,
+every other invalid-model reason is a producer bug.
 
-- `Model(direction, variables, objective, rows)`. Variable references are
-  zero-based positions in `variables`.
-- `Expression` is `Linear(coefficient, index)`, `Constant(value)`,
-  `Sum(expressions)` or `Scaled(coefficient, expression)`, nested to any depth.
-  Indices may repeat and coefficients may be zero. The objective's constants
-  are its offset.
-- `Domain` is `Real(lower, upper)` with `Unbounded | Finite(Float)` bounds,
-  or `Integer(lower, upper)` with inclusive `Option(Int)` bounds fitting signed
-  32 bits; Rust turns `None` into `i32::MIN`/`i32::MAX`, microlp's integer
-  range. Binary variables are `Integer(Some(0), Some(1))`. A domain with
-  `lower > upper` is valid but empty and makes the model infeasible.
-- `Row(lhs, relation, rhs)` relates two expressions.
-- `Limits(time: Option(#(Int, Int)), nodes: Option(Int))` travels separately
-  from the model. Time is normalized seconds/nanoseconds, not the representation
-  of Gleam's opaque `Duration`. `None` is unlimited; zero is permitted.
-- `solve(model, limits)` returns `Ok(Optimal(objective, values, stats) |
-  Limited(reason, primal, stats) | Infeasible | UnboundedProblem)` or an error.
-  `primal` is `Option(#(Float, List(Float)))`, with a full objective and values
-  in column order. Reasons are `TimeLimit | NodeLimit`.
-- `Stats(nodes, iterations, nanoseconds, gap)` carries backend work counters and
-  elapsed solver time; counters/time are zero for trivial optima. The optional
-  relative gap uses Vahvel's objective offset (DESIGN.md: "Solve statistics").
-- Errors are `InvalidTimeLimit`, `InvalidNodeLimit`,
-  `InvalidModel(reason)` or `SolverFailure(_)`. Malformed limits are contract
-  failures. Invalid model reasons remain `MalformedModel`, `InvalidObjective`,
-  `InvalidDomain(variable)`, `InvalidRow(row)`, `NonFiniteObjective` and
-  `NonFiniteRow(row)`. Positions are zero-based and mapped to keys/constraints
-  by the modeling layer. Non-finite reasons and invalid domains identify user
-  data; the other model reasons indicate a producer bug.
-
-This contract is the single numeric interface. Higher layers produce it;
-the native layer canonicalizes and enforces it.
+This contract is the single numeric interface. A Gleam type change must be
+matched in `driver.rs`, and vice versa.
 
 ## Native boundary
 
-`driver_solve/2` validates budgets, canonicalizes, validates and solves a model
-on a dirty CPU scheduler. `driver_evaluate` canonicalizes an indexed expression
-by the same rules and computes its value at the supplied values, returning
-`Error(Nil)` for an invalid expression or non-finite arithmetic. It also runs on
-a dirty CPU scheduler because decoding and sorting are unrestricted work. The
-rules NIFs follow are in DESIGN.md ("NIF rules").
+`driver_solve/2` and `driver_evaluate/2` run on dirty CPU schedulers;
+`nif_version` is a trivial NIF for build checks. The rules NIFs follow, and why,
+are in DESIGN.md ("NIF rules").
 
 **Term mapping.** Rustler derives decoders that match Gleam's Erlang
 representation directly:
@@ -147,47 +89,32 @@ representation directly:
 | `None`, `Some(value)` (`Option`) | `none`, `{some, Value}` | `NifTaggedEnum` (`Optional<T>`) |
 | `Result(a, e)` | `{ok, A}`, `{error, E}` | `Result<T, E>` |
 
-A Gleam type change must be matched in `driver.rs`, and vice versa. Expressions
-are never decoded into a nested Rust value: each node's children stay `Term`s
-on an explicit stack, so decoding, traversal and drop never recurse.
+Expressions are never decoded into a nested Rust value: each node's children
+stay `Term`s on an explicit stack, so decoding, traversal and drop never
+recurse.
 
-**Steps in `driver.rs`.**
+**Steps in `driver_solve`.**
 
-1. Decode limits, checking time first and nodes second. Non-integer fields or
-   malformed tags are contract failures; negative/out-of-range integers are
-   typed invalid-limit errors. Time is at most 100 years (DESIGN.md: "Solve
-   limits"); nodes fit `u64`. Then decode the model shell, each variable
-   domain, the objective and each row separately, so a failure reports its
-   position. A term that isn't a model is `MalformedModel`; integer bounds
-   outside `i32` are `InvalidDomain(i)`.
-2. Canonicalize the objective and each row (`lhs − rhs`) by the rules in
-   DESIGN.md ("Canonicalization"): expand the tree depth-first, multiplying
-   scale factors into leaves; stable-sort terms by index, sum duplicates and
-   constants in input order, then drop zeros. Every product and sum is checked. Overflow becomes infinity in
-   `f64` and is reported as `NonFiniteObjective`/`NonFiniteRow(i)`; a malformed
-   node or an index out of range is `InvalidObjective`/`InvalidRow(i)`. The
-   objective becomes a dense vector plus offset; each row becomes sorted
-   nonzero terms and a right-hand side. Everything is validated before solving,
-   and nothing is clamped, rounded or relaxed.
+1. Decode and check limits, time before nodes. Malformed terms are
+   `SolverFailure`; out-of-range values are `InvalidTimeLimit` or
+   `InvalidNodeLimit`.
+2. Decode each domain, the objective and each row separately, so a failure
+   reports its position, and canonicalize them (DESIGN.md:
+   "Canonicalization"). The objective becomes a dense vector plus offset; each
+   row becomes sorted nonzero terms and a right-hand side. The whole model is
+   validated before any outcome is reported.
 3. Answer trivial cases directly: an empty domain or an unsatisfiable constant
-   row means `Infeasible`; a model with no variables returns its offset as the
-   optimum.
-4. Build a microlp `Problem` and call `solve_with`, changing only time and node
-   budgets from defaults. Time covers this backend call and can overshoot
-   between checks; node budgets exclude the root relaxation. Infeasible and
-   unbounded errors become proof outcomes. Optimal solutions become `Optimal`;
-   feasible solutions and `InterruptedSolve` become `Limited` with and without
-   primal values respectively. Copy stats before dropping all backend state;
-   no resume resource survives the call. Unexpected reasons remain failures.
-5. Reject non-finite primal objectives or values on both solution paths. Shift
-   the best bound by the objective offset and compute the relative gap in Rust;
-   unavailable or non-finite diagnostic arithmetic yields `None`. Only the
-   backend's proof status determines `Optimal`.
+   row is `Infeasible`; a model with no variables returns its offset.
+4. Build a microlp `Problem` and call `solve_with` with only the time and node
+   budgets changed from defaults. Infeasible and unbounded errors become
+   outcomes; an optimal solution becomes `Optimal`; a feasible solution or an
+   interrupted solve becomes `Limited` with or without primal values. Stats
+   are copied out and no backend state survives the call.
+5. Reject non-finite objectives or values, and compute the relative gap from
+   the offset-shifted bound (DESIGN.md: "Solve statistics").
 
-Solver panics are caught with `catch_unwind` and returned as `SolverFailure`, so
-the NIF always answers with a tagged result.
-
-`nif_version` is a trivial NIF used for build/version checks.
+Panics are caught with `catch_unwind` and returned as `SolverFailure`, so the
+NIF always answers with a tagged result.
 
 ## Build, loading and versions
 
@@ -215,50 +142,34 @@ the NIF always answers with a tagged result.
 ## Testing
 
 All tests are gleeunit tests that go through the real NIF; there are no Rust
-unit tests and no mocks.
+unit tests and no mocks. Test files mirror the source tree:
+`test/vahvel_test.gleam` (also gleeunit's entry point) covers the public API,
+and `test/vahvel/internal/` covers driver contract violations the public API
+can't produce (malformed terms, bad indices and limits) and version checks.
+`test/examples/` holds the representative models, one per file, including the
+README's waffle stand in full.
 
-Test files mirror the source tree, so test modules are namespaced too, except
-for the representative models in `test/examples/`.
-
-- `test/vahvel_test.gleam`: gleeunit's entry point and the modeling API,
-  grouped by concern: variables and keys, domains, constraints, expressions,
-  outcomes and errors, solutions, evaluation against supplied values,
-  residuals, statistics, budgets, incumbent availability, validation precedence
-  and offset-aware gaps.
-- `test/examples/`: representative models. `readme_test` is the README's waffle
-  stand in full, one test per step, ending with a hand-made plan;
-  `production_network_test` is a multi-period network with mixed variable
-  families, sparse routes, cost breakdowns, a complete plan by period mixing
-  lookups and residuals, a what-if over solution values and a scenario,
-  generated by size; `n_queens_test` is a small binary model built from index
-  sets.
-- `test/vahvel/internal/driver_test.gleam`: the numeric contract, covering
-  real and integer domains, canonicalization, offsets, infeasible and
-  unbounded outcomes, constant models, positioned errors, non-finite sums,
-  malformed terms and expressions, and `evaluate`.
-- `test/vahvel/internal/version_test.gleam`: NIF and package versions match.
-- `test/bench.gleam`: not a test; `just bench` runs it. It solves the
-  production network's LP relaxation at growing sizes and reports wall time,
-  solver time and their difference (vahvel's overhead) per term, plus the cost
-  of one `residual` call, as median and range over repeated runs after
-  warm-up. Timings are too noisy for CI, so nothing asserts on them.
+`test/bench.gleam` is not a test; `just bench` runs it. It solves the
+production network's LP relaxation at growing sizes and reports vahvel's
+overhead per term (wall time minus solver time) and the cost of a `residual`
+call. Timings are too noisy for CI, so nothing asserts on them.
 
 ## Tooling and CI
 
-- `nix develop` (or direnv) provides Gleam, Erlang/OTP, Rust and just. The flake
-  also supplies the native build toolchain, so CI and local builds match.
-- `just` lists the recipes. `just check` runs format checks, Clippy with
-  warnings as errors, the native build, and tests. `just fmt` formats Gleam and Rust.
-- `.github/workflows/test.yml` runs `just lint` and `just test` in the Nix dev
-  shell on pushes and pull requests.
-- Releases use three manually triggered workflows. `release.yml` bumps the
-  version, runs the checks, and installs the Hex tarball into a fresh project
-  before tagging. It exports the tarball from a fresh clone because Gleam packs
-  `priv/` regardless of `.gitignore`. It then dispatches `consumer.yml`, and
-  `publish.yml` if asked; pushes made with `GITHUB_TOKEN` trigger no workflows.
-  `publish.yml` runs `gleam publish` on the tag and smoke-tests the Hex
-  download in a separate job that can be re-run alone. Gleam's tarballs are not
-  byte-reproducible (`metadata.config` lists dependencies in hash order), so
-  the tag, not a checksum, ties the published package to the tested one.
-  `consumer.yml` installs on Linux, macOS and Windows without Nix. It never
-  blocks, because those runners can queue for a long time.
+- `nix develop` (or direnv) provides Gleam, Erlang/OTP, Rust and just, so CI
+  and local builds match. `just` lists the recipes; `just check` runs format
+  checks, Clippy with warnings as errors, the native build, and tests.
+- `test.yml` runs `just lint` and `just test` in the Nix dev shell on pushes
+  and pull requests.
+- Releases use three manually triggered workflows, each described in its
+  header: `release.yml` bumps, checks, tags and dispatches the others
+  explicitly, since pushes made with `GITHUB_TOKEN` trigger no workflows;
+  `publish.yml` publishes the tag to Hex and smoke-tests the download;
+  `consumer.yml` installs on Linux, macOS and Windows without Nix and never
+  blocks a release.
+- Gleam packs `priv/` regardless of `.gitignore`, so the Hex tarball is always
+  exported from a fresh clone; never publish from a working copy with a built
+  library.
+- Gleam's tarballs are not byte-reproducible (`metadata.config` lists
+  dependencies in hash order), so the tag, not a checksum, ties the published
+  package to the tested one.

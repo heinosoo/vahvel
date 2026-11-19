@@ -12,7 +12,7 @@ import vahvel/internal/version
 
 /// Builds or checks the library, printing what it did. Exits with status 1 if
 /// the build fails, for example when `cargo` is not installed.
-pub fn main() {
+pub fn main() -> Nil {
   let outcome = case list.contains(shellout.arguments(), "--force") {
     True -> build.compile()
     False -> {

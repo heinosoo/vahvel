@@ -3,7 +3,7 @@
 //// Variable references are zero-based positions in `Model.variables`.
 //// Expressions are not canonical: Rust sums duplicates, sorts, drops zeros and
 //// moves constants, so callers do no float arithmetic. Validation, solving and
-//// all numeric work happen in Rust through a single dirty CPU NIF.
+//// all numeric work happen in Rust, one NIF call per solve or evaluation.
 
 import gleam/option.{type Option}
 

@@ -477,7 +477,6 @@ fn solve(model: Model, options: SolveOptions) -> Result<Outcome, DriverError> {
 }
 
 /// Shares solve canonicalization, including scaling and duplicate merging.
-/// Sorting and decoding are unbounded work, so use a dirty CPU scheduler.
 #[rustler::nif(schedule = "DirtyCpu")]
 fn driver_evaluate(expression: Term<'_>, values: Vec<f64>) -> Result<f64, Atom> {
     let evaluate = || -> Result<f64, Defect> {

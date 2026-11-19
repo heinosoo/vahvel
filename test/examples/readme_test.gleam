@@ -2,7 +2,7 @@
 //// shows lightly adapted snippets of these tests; change both together.
 ////
 //// A stand sells waffles during a rush. Which waffles should it bake to earn
-//// the most? Each step adds one idea, and each answer is a little surprising.
+//// the most? Each step adds one idea.
 
 import gleam/dict
 import gleam/list

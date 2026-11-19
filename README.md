@@ -52,8 +52,9 @@ release needs neither: the library ships inside it as `priv/vahvel.*`.
 
 ## Features
 
-[test/examples/readme_test.gleam][readme_test] grows the example into a full story: a menu from data, topping stations as yes-or-no
-decisions, a report, and a hand-made plan. The snippets below come from it.
+[test/examples/readme_test.gleam][readme_test] grows the example into a full
+story: a menu from data, topping stations as yes-or-no decisions, a report,
+and a hand-made plan. The snippets below come from it.
 
 **Your own keys.** Variables are named by any Gleam value, usually a custom
 type naming the decision. A variable exists once an expression references it,
@@ -130,20 +131,12 @@ reported with their location, never during construction.
 
 ## Learn more
 
-The [API reference](https://hexdocs.pm/vahvel/) gives exact semantics,
+The [API reference](https://hexdocs.pm/vahvel/vahvel.html) gives exact semantics,
 including domain and budget limits. More examples, including a multi-period
 production network and N-queens, are in [test/examples][examples].
 [ARCHITECTURE.md][architecture] describes how the library fits together,
 [DESIGN.md][design] explains the design decisions, and [ROADMAP.md][roadmap]
 lists planned work.
-
-<!-- Absolute links: HexDocs renders this README without the repository. -->
-[readme_test]: https://github.com/heinosoo/vahvel/blob/main/test/examples/readme_test.gleam
-[examples]: https://github.com/heinosoo/vahvel/tree/main/test/examples
-[architecture]: https://github.com/heinosoo/vahvel/blob/main/ARCHITECTURE.md
-[design]: https://github.com/heinosoo/vahvel/blob/main/DESIGN.md
-[roadmap]: https://github.com/heinosoo/vahvel/blob/main/ROADMAP.md
-[license]: https://github.com/heinosoo/vahvel/blob/main/LICENSE
 
 ## Development
 
@@ -167,3 +160,11 @@ to write. Thank you!
 ## License
 
 Apache-2.0, see [LICENSE][license].
+
+<!-- Absolute links: HexDocs renders this README without the repository. -->
+[readme_test]: https://github.com/heinosoo/vahvel/blob/main/test/examples/readme_test.gleam
+[examples]: https://github.com/heinosoo/vahvel/tree/main/test/examples
+[architecture]: https://github.com/heinosoo/vahvel/blob/main/ARCHITECTURE.md
+[design]: https://github.com/heinosoo/vahvel/blob/main/DESIGN.md
+[roadmap]: https://github.com/heinosoo/vahvel/blob/main/ROADMAP.md
+[license]: https://github.com/heinosoo/vahvel/blob/main/LICENSE

@@ -137,11 +137,52 @@ fn chair_and_table() -> m.Model(Product) {
   )
 }
 
-pub fn invalid_integer_domain_names_its_key_test() {
+pub fn integer_domains_span_the_signed_32_bit_range_test() {
+  let pin = fn(value) { m.Integer(Some(value), Some(value)) }
+  let domain = fn(product) {
+    case product {
+      Chair -> pin(-2_147_483_648)
+      Table | Missing -> pin(2_147_483_647)
+    }
+  }
+  let assert Ok(m.Optimal(solution, _)) =
+    m.solve(m.Model(..chair_and_table(), domain:))
+  m.value(solution, Chair) |> should.equal(Ok(-2_147_483_648.0))
+  m.value(solution, Table) |> should.equal(Ok(2_147_483_647.0))
   // The driver reports column 1; the error names the key.
-  let domain = only_table(m.Integer(Some(0), Some(2_147_483_648)))
-  m.solve(m.Model(..chair_and_table(), domain:))
-  |> should.equal(Error(m.InvalidDomain(Table)))
+  list.each(
+    [
+      m.Integer(Some(-2_147_483_649), Some(0)),
+      m.Integer(Some(0), Some(2_147_483_648)),
+      m.Integer(Some(0), Some(9_223_372_036_854_775_808)),
+    ],
+    fn(domain) {
+      m.solve(m.Model(..chair_and_table(), domain: only_table(domain)))
+      |> should.equal(Error(m.InvalidDomain(Table)))
+    },
+  )
+}
+
+pub fn integer_domains_with_missing_bounds_test() {
+  let solve_chair = fn(domain, objective, constraint) {
+    let assert Ok(m.Optimal(solution, _)) =
+      m.solve(
+        m.Model(domain: fn(_) { domain }, objective:, constraints: [constraint]),
+      )
+    m.value(solution, Chair)
+  }
+  solve_chair(
+    m.Integer(None, Some(5)),
+    m.Minimize(Variable(Chair)),
+    m.GreaterEqual(Variable(Chair), Constant(-3.5)),
+  )
+  |> should.equal(Ok(-3.0))
+  solve_chair(
+    m.Integer(None, None),
+    m.Maximize(Variable(Chair)),
+    m.LessEqual(Variable(Chair), Constant(7.5)),
+  )
+  |> should.equal(Ok(7.0))
 }
 
 pub fn empty_domains_are_infeasible_test() {
@@ -222,6 +263,39 @@ pub fn constants_and_terms_on_both_sides_solve_test() {
   close_value(solution, Chair, 2.0)
   close_value(solution, Table, 4.0)
   close(m.objective(solution), 12.0)
+}
+
+pub fn rows_without_variables_are_checked_directly_test() {
+  // Rows whose terms are absent or cancel never reach the solver; Rust checks
+  // their constants itself.
+  list.each(
+    [
+      m.Equal(Sum([]), Constant(0.0)),
+      m.LessEqual(Constant(0.0), Constant(1.0)),
+      m.GreaterEqual(Constant(0.0), Constant(-1.0)),
+      m.LessEqual(Variable(Chair), Variable(Chair)),
+    ],
+    fn(row) {
+      let assert Ok(m.Optimal(_, _)) =
+        m.solve(m.Model(..base(), constraints: [row]))
+    },
+  )
+  list.each(
+    [
+      m.Equal(Constant(0.0), Constant(1.0)),
+      m.LessEqual(Constant(0.0), Constant(-1.0)),
+      m.GreaterEqual(Constant(0.0), Constant(1.0)),
+      m.LessEqual(Linear(-0.0, Chair), Constant(-1.0)),
+      m.LessEqual(
+        Sum([Linear(2.0, Chair), Linear(-2.0, Chair)]),
+        Constant(-1.0),
+      ),
+    ],
+    fn(row) {
+      m.solve(m.Model(..base(), constraints: [row]))
+      |> should.equal(Ok(m.Infeasible))
+    },
+  )
 }
 
 pub fn identical_constraints_are_allowed_test() {
@@ -385,14 +459,36 @@ pub fn difference_overflow_preserves_location_and_order_test() {
 
 // Outcomes and errors
 
-pub fn explicit_outcomes_test() {
+pub fn infeasible_and_unbounded_are_outcomes_without_stats_test() {
   let empty = base()
   let assert Ok(m.Optimal(solution, _)) = m.solve(empty)
   m.objective(solution) |> should.equal(0.0)
-  m.solve(m.Model(..empty, constraints: [m.Equal(Sum([]), Constant(1.0))]))
+  let assert Ok(infeasible) =
+    m.solve(m.Model(..empty, constraints: [m.Equal(Sum([]), Constant(1.0))]))
+  infeasible |> should.equal(m.Infeasible)
+  m.stats(infeasible) |> should.equal(None)
+  let assert Ok(unbounded) =
+    m.solve(m.Model(..empty, objective: m.Maximize(Variable(Chair))))
+  unbounded |> should.equal(m.Unbounded)
+  m.stats(unbounded) |> should.equal(None)
+}
+
+pub fn solver_proves_infeasibility_test() {
+  // Neither model is trivially infeasible, so the backend must prove it.
+  m.solve(
+    m.Model(..base(), objective: m.Minimize(Variable(Chair)), constraints: [
+      m.LessEqual(Variable(Chair), Constant(-1.0)),
+    ]),
+  )
   |> should.equal(Ok(m.Infeasible))
-  m.solve(m.Model(..empty, objective: m.Maximize(Variable(Chair))))
-  |> should.equal(Ok(m.Unbounded))
+  m.solve(
+    m.Model(
+      domain: fn(_) { m.Integer(Some(0), Some(2)) },
+      objective: m.Minimize(Variable(Chair)),
+      constraints: [m.Equal(Variable(Chair), Constant(0.5))],
+    ),
+  )
+  |> should.equal(Ok(m.Infeasible))
 }
 
 pub fn non_finite_sums_report_location_test() {
@@ -713,7 +809,7 @@ pub fn zero_time_budget_has_stats_but_no_assignment_test() {
   stats.gap |> should.equal(None)
 }
 
-pub fn negative_limits_are_flat_errors_test() {
+pub fn negative_limits_are_rejected_time_first_test() {
   m.solve_with(base(), m.Limits(Some(duration.nanoseconds(-1)), None))
   |> should.equal(Error(m.InvalidTimeLimit))
   m.solve_with(base(), m.Limits(None, Some(-1)))
@@ -742,11 +838,6 @@ pub fn zero_limits_preserve_validation_and_trivial_answers_test() {
     limits,
   )
   |> should.equal(Ok(m.Infeasible))
-}
-
-pub fn stats_are_absent_for_proofs_without_assignments_test() {
-  m.stats(m.Infeasible) |> should.equal(None)
-  m.stats(m.Unbounded) |> should.equal(None)
 }
 
 fn knapsack() -> m.Model(Int) {
@@ -917,12 +1008,42 @@ pub fn zero_time_continuous_solve_exposes_no_partial_iterate_test() {
   stats.gap |> should.equal(None)
 }
 
-pub fn oversized_public_limits_are_typed_errors_test() {
+pub fn oversized_limits_are_rejected_test() {
   let huge = 18_446_744_073_709_551_616
   m.solve_with(base(), m.Limits(None, Some(huge)))
   |> should.equal(Error(m.InvalidNodeLimit))
   m.solve_with(base(), m.Limits(Some(duration.seconds(huge)), None))
   |> should.equal(Error(m.InvalidTimeLimit))
+  // The 100-year cap is inclusive and reaches the backend without overflowing
+  // its deadline.
+  let cap = duration.seconds(3_153_600_000)
+  let assert Ok(m.Optimal(_, _)) =
+    m.solve_with(chair_and_table(), m.Limits(Some(cap), None))
+  m.solve_with(
+    chair_and_table(),
+    m.Limits(Some(duration.add(cap, duration.nanoseconds(1))), None),
+  )
+  |> should.equal(Error(m.InvalidTimeLimit))
+  // u64::MAX is a valid node budget even though it exceeds signed i64.
+  let assert Ok(m.Optimal(_, _)) =
+    m.solve_with(
+      chair_and_table(),
+      m.Limits(None, Some(18_446_744_073_709_551_615)),
+    )
+  Nil
+}
+
+pub fn nonfinite_optimal_objective_is_a_failure_test() {
+  // Coefficient and constant are finite, but the solver's objective plus the
+  // constant overflows.
+  let model =
+    m.Model(
+      domain: fn(_) { m.Real(Some(1.0), Some(1.0)) },
+      objective: m.Minimize(Sum([Linear(1.0e308, Chair), Constant(1.0e308)])),
+      constraints: [],
+    )
+  let assert Error(m.SolverFailure(_)) = m.solve(model)
+  Nil
 }
 
 pub fn nonfinite_limited_objective_remains_a_failure_test() {

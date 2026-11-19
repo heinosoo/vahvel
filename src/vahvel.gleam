@@ -1,5 +1,37 @@
 //// Linear and mixed-integer programming. Describe a model with plain Gleam
-//// data, keyed by your own types, and solve it with a native solver.
+//// data, keyed by your own types, and solve it with
+//// [microlp](https://docs.rs/microlp/), a pure-Rust solver, through a NIF.
+////
+//// A `Model` combines an `Objective` and `Constraint`s, both built from
+//// `Expression`s over your variable keys, with a `Domain` for each key.
+//// `solve` returns an `Outcome`; read a `Solution` with `value`, or with
+//// `evaluate_solution` for any expression used to build the model.
+////
+//// ```gleam
+//// import vahvel.{Constant, Linear, Sum}
+////
+//// type Waffle {
+////   Classic
+////   Chocolate
+//// }
+////
+//// let model =
+////   vahvel.Model(
+////     domain: fn(_) { vahvel.NonNegativeInteger },
+////     objective: vahvel.Maximize(
+////       Sum([Linear(3.0, Classic), Linear(5.0, Chocolate)]),
+////     ),
+////     constraints: [
+////       vahvel.LessEqual(
+////         Sum([Linear(2.0, Classic), Linear(3.0, Chocolate)]),
+////         Constant(13.0),
+////       ),
+////     ],
+////   )
+//// let assert Ok(vahvel.Optimal(solution, _)) = vahvel.solve(model)
+//// vahvel.objective(solution)  // 21.0
+//// vahvel.value(solution, Chocolate)  // Ok(3.0)
+//// ```
 ////
 //// The API is unstable while the package is 0.x.
 
@@ -15,8 +47,8 @@ import vahvel/internal/driver
 ///
 /// ```gleam
 /// Sum([Linear(3.0, X), Linear(2.0, Y), Constant(7.0)])  // 3x + 2y + 7
-/// Difference(revenue, cost)                         // revenue − cost
-/// list.map(items, fn(i) { Linear(i.weight, Pick(i.id)) }) |> Sum
+/// Difference(revenue, cost)                              // revenue − cost
+/// list.map(items, fn(i) { Linear(i.weight, Pick(i.id)) }) |> Sum  // Σ wᵢ pickᵢ
 /// ```
 ///
 /// For shorter literals, rename the constructors at the import:
@@ -24,11 +56,13 @@ import vahvel/internal/driver
 pub type Expression(v) {
   /// A variable with coefficient one, equivalent to `Linear(1.0, variable)`.
   Variable(variable: v)
+  /// A variable times a coefficient, written coefficient first as in `3x`.
   Linear(coefficient: Float, variable: v)
+  /// A number that references no variable.
   Constant(value: Float)
   /// The sum of the expressions; the empty sum is zero.
   Sum(expressions: List(Expression(v)))
-  /// Subtract rhs from lhs, equivalent to `Sum([lhs, Scaled(-1.0, rhs)])`.
+  /// `lhs` minus `rhs`, equivalent to `Sum([lhs, Scaled(-1.0, rhs)])`.
   /// Both sides still reference their variables even when they cancel.
   Difference(lhs: Expression(v), rhs: Expression(v))
   /// Scale an expression, including its constants. Scaling by zero still
@@ -39,14 +73,19 @@ pub type Expression(v) {
 /// A linear relation between two expressions. Constraints have no names; a
 /// constraint value is its own identity.
 pub type Constraint(v) {
+  /// `lhs ≤ rhs`.
   LessEqual(lhs: Expression(v), rhs: Expression(v))
+  /// `lhs = rhs`.
   Equal(lhs: Expression(v), rhs: Expression(v))
+  /// `lhs ≥ rhs`.
   GreaterEqual(lhs: Expression(v), rhs: Expression(v))
 }
 
 /// The expression to optimize, with its direction.
 pub type Objective(v) {
+  /// Find the smallest value of the expression.
   Minimize(Expression(v))
+  /// Find the largest value of the expression.
   Maximize(Expression(v))
 }
 
@@ -57,7 +96,7 @@ pub type Objective(v) {
 ///
 /// The current backend limits integer variables to the signed 32-bit range:
 /// explicit integer bounds must fit it, and a `None` integer bound stops at its
-/// edge. A value of −2³¹ or 2³¹ − 1 therefore means that limit was reached.
+/// edge. A solution value of −2³¹ or 2³¹ − 1 therefore means that limit was reached.
 pub type Domain {
   /// An integer variable restricted to zero or one.
   Binary
@@ -76,36 +115,47 @@ pub type Domain {
 /// models.
 pub type Model(v) {
   Model(
+    /// The allowed values of each variable. It is called only for keys the
+    /// objective or constraints reference, so a `case` over the keys a model
+    /// uses is enough.
     domain: fn(v) -> Domain,
+    /// The expression to optimize and its direction.
     objective: Objective(v),
+    /// The relations every solution must satisfy, within the solver's
+    /// tolerance.
     constraints: List(Constraint(v)),
   )
 }
 
 /// Per-call solver budgets. `None` means unlimited; zero is valid.
-/// Time covers only the backend solve and may be exceeded between checks.
-/// Nodes exclude the root relaxation and do not limit continuous LP work.
 pub type Limits {
-  Limits(time: Option(Duration), nodes: Option(Int))
+  Limits(
+    /// Time for the backend solve only; it may be exceeded between checks.
+    time: Option(Duration),
+    /// Branch-and-bound nodes, excluding the root relaxation. Continuous LP
+    /// work is not limited.
+    nodes: Option(Int),
+  )
 }
 
 /// The budget that stopped search before a proof was obtained.
 pub type StopReason {
+  /// `Limits.time` ran out.
   TimeLimit
+  /// `Limits.nodes` ran out.
   NodeLimit
 }
 
 /// Why a model could not be solved. Infeasibility and unboundedness are
-/// answers, not errors; see `Outcome`.
+/// answers, not errors; see [`Outcome`](#Outcome).
 pub type SolveError(v) {
-  /// This variable's domain can't be solved here: its integer bounds do not
-  /// fit the backend's signed 32 bits, or a bound is not finite.
+  /// This variable's integer bounds do not fit the backend's signed 32 bits.
   InvalidDomain(v)
-  /// The duration is negative or longer than 100 years.
+  /// `Limits.time` is negative or longer than 100 years.
   InvalidTimeLimit
-  /// The count is negative or does not fit an unsigned 64-bit integer.
+  /// `Limits.nodes` is negative or does not fit an unsigned 64-bit integer.
   InvalidNodeLimit
-  /// An input or intermediate calculation is infinite or NaN.
+  /// A product or sum of the model's numbers overflowed.
   NonFinite(Location(v))
   /// The solver failed numerically or internally. The message is for
   /// diagnostics only.
@@ -114,14 +164,14 @@ pub type SolveError(v) {
 
 /// Where in a model an error occurred.
 pub type Location(v) {
+  /// The objective expression.
   InObjective
   /// The constraint, and its zero-based position in `Model.constraints`.
   InConstraint(index: Int, constraint: Constraint(v))
 }
 
-/// A usable assignment belonging to this solved snapshot. The enclosing
-/// outcome carries proof status and statistics; a solution alone is not a
-/// claim of optimality.
+/// A usable assignment from one solve. The enclosing outcome carries proof
+/// status and statistics; a solution alone is not a claim of optimality.
 pub opaque type Solution(v) {
   Solution(objective: Float, values: Dict(v, Float))
 }
@@ -134,22 +184,31 @@ pub type Stats {
     nodes: Int,
     /// Simplex iterations, including the root relaxation.
     iterations: Int,
-    /// Time spent inside the solver, excluding model construction and the
-    /// native call.
+    /// Time spent inside the backend solver, excluding lowering, decoding,
+    /// canonicalization and problem construction.
     solve_time: Duration,
-    /// Relative objective gap: abs(objective - bound) / max(abs(objective), 1).
-    /// Some(0.0) for an optimum; None without an incumbent or a finite gap.
+    /// Relative objective gap:
+    /// `abs(objective - bound) / max(abs(objective), 1)`.
+    /// `Some(0.0)` for an optimum; `None` without an incumbent or a finite gap.
     /// A zero gap alone does not prove optimality.
     gap: Option(Float),
   )
 }
 
-/// A proof or a budget stop. Limited may carry a feasible, unproven assignment;
-/// None means no usable assignment was returned, not infeasibility.
+/// A proof or a budget stop.
 pub type Outcome(v) {
+  /// The solver proved this solution optimal, within its tolerance.
   Optimal(solution: Solution(v), stats: Stats)
+  /// A budget in `Limits` stopped search before a proof. The solution, if
+  /// any, is feasible but unproven; `None` means no usable assignment was
+  /// returned, not infeasibility.
   Limited(reason: StopReason, solution: Option(Solution(v)), stats: Stats)
+  /// No assignment satisfies the constraints and domains, including when a
+  /// domain is empty or a constraint over constants is false.
   Infeasible
+  /// The objective improves without limit. An unbounded integer direction is
+  /// instead `Optimal` at the backend's integer limit; see
+  /// [`Domain`](#Domain).
   Unbounded
 }
 
@@ -363,9 +422,10 @@ fn native_error(
   }
 }
 
-/// Objective value including its constant terms, as reported by the solver. It
-/// is not recomputed from the rounded integer values, so it can differ from
-/// `evaluate_solution` of the objective expression in the last digits.
+/// A solution's objective value, including constant terms, as reported by the
+/// solver. It is not recomputed from the rounded integer values, so it can
+/// differ from `evaluate_solution` of the objective expression in the last
+/// digits.
 pub fn objective(solution: Solution(v)) -> Float {
   solution.objective
 }

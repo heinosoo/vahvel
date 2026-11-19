@@ -5,8 +5,9 @@ from source with Rust. Keep the current Gleam modeling API unless a concrete
 correctness or usability problem warrants a change.
 
 Finished work is removed; git keeps the history. Current behavior belongs in
-[ARCHITECTURE.md](ARCHITECTURE.md), decisions in [DESIGN.md](DESIGN.md), and
-installation instructions in [README.md](README.md).
+[ARCHITECTURE.md](ARCHITECTURE.md), decisions (including what is out of scope)
+in [DESIGN.md](DESIGN.md), and installation instructions in
+[README.md](README.md).
 
 ## First public release
 
@@ -25,8 +26,8 @@ The release workflows have not run on GitHub yet.
 ## Conditional follow-up work
 
 Possibilities, not commitments. Promote an item when a real use case supplies
-an acceptance criterion. Judge API additions by semantic clarity,
-composability, predictable validation and public surface cost.
+an acceptance criterion, and judge API additions by DESIGN.md's "API
+criteria and representative models".
 
 - **Checking a supplied plan.** Extend evaluation to bounds, integrality and
   constraints. Needs defined tolerances and handling of missing assignments,
@@ -43,13 +44,25 @@ composability, predictable validation and public surface cost.
   choosing a replacement. The signed 32-bit integer-domain limit stays
   documented until it blocks an application.
 - **Duals and quadratic objectives.** For applications needing sensitivity
-  analysis or convex QP. Duals must meet DESIGN.md's requirements; quadratics
-  need capability-specific types and convexity rules. Clarabel is a candidate.
-  Solver selection only once a second backend has a purpose.
+  analysis or convex QP; microlp 0.6.0 exposes no duals. Clarabel is a
+  candidate. Solver selection only once a second backend has a purpose.
+  Quadratics need their own expression type (DESIGN.md: "Expressions are an
+  affine tree") and convexity rules. Duals are queried by constraint value and
+  need, before shipping:
+  - a definition (Lagrange multipliers or right-hand-side sensitivities) with
+    signs per relation and objective direction;
+  - bound duals and reduced costs, and a row map (the driver drops empty rows
+    before calling the solver);
+  - availability typed independently of primal availability, with an explicit
+    "unavailable" rather than zero, NaN or invented prices;
+  - no LP shadow prices for MILP incumbents; relaxations or fixed-integer
+    resolves are separate, explicit models;
+  - verification with analytic LPs, KKT conditions and right-hand-side
+    perturbation.
 - **Precompiled NIFs.** If requiring Rust prevents adoption. Size is not the
   obstacle (about 330 KB compressed per target); portable builds per target,
   pinned checksums and build provenance are. Keep the source build.
 - **JavaScript through WASM.** For a browser or JS application; covers
-  loading, execution and interruption.
-
-Runtime model handles and reusable Gleam–Rust tooling are not planned.
+  loading, execution and interruption. The numeric rules already live in
+  Rust, so a WASM build shares them: split the driver into a
+  target-independent engine with thin Rustler and wasm-bindgen adapters.
