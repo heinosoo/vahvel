@@ -1,4 +1,3 @@
-import gleam/io
 import gleam/list
 import gleam/result
 import gleeunit/should
@@ -6,22 +5,9 @@ import simplifile
 import tom
 import vahvel/internal/version
 
+// On failure, rebuild with `just build`.
 pub fn nif_version_matches_package_test() {
-  case version.check_nif_version() {
-    Ok(True) -> should.be_true(True)
-    Ok(False) -> {
-      io.println(
-        "NIF version mismatch - expected "
-        <> version.package_version
-        <> ", rebuild with: just build",
-      )
-      should.be_true(False)
-    }
-    Error(_) -> {
-      io.println("NIF not loaded - run: gleam run -m vahvel/setup")
-      should.be_true(False)
-    }
-  }
+  version.check_nif_version() |> should.equal(Ok(True))
 }
 
 pub fn package_version_matches_gleam_toml_test() {

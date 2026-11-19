@@ -2,7 +2,11 @@
 # which keeps build output out of priv/; --manifest-path would skip it.
 crate := "priv/native"
 
-# Default recipe: format-check + lint + test
+[private]
+default:
+    @just --list
+
+# Lint (format checks, Clippy), then test
 check: lint test
 
 # Build NIF from source, then run Gleam tests
@@ -37,11 +41,3 @@ clean:
 update:
     gleam deps update
     cd {{crate}} && cargo update
-
-# Upgrade dependency constraints and tooling to latest compatible versions
-upgrade:
-    gleam add gleam_stdlib gleam_time shellout
-    gleam add --dev gleeunit simplifile tom
-    cd {{crate}} && cargo add rustler
-    cd {{crate}} && cargo add microlp --no-default-features
-    nix flake update

@@ -12,7 +12,7 @@ Start here. General working rules are below; everything else lives in one place:
 
 ## Workflow
 
-- Use `just` recipes for development. Run `just fmt` and `just` before committing.
+- Use `just` recipes for development. Run `just fmt` and `just check` before committing.
 - Use conventional commit messages.
 - Keep the docs in their lanes: behavior changes update `ARCHITECTURE.md`,
   decision changes update `DESIGN.md` in place, and finished roadmap items are

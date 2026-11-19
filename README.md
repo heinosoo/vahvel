@@ -151,7 +151,8 @@ lists planned work.
 `direnv allow` with nix-direnv.
 
 ```sh
-just        # formatting checks, Clippy, native build, and integration tests
+just        # list the recipes
+just check  # formatting checks, Clippy, native build, and integration tests
 just fmt    # format Gleam and Rust
 just build  # rebuild the native library
 ```

@@ -1,18 +1,14 @@
-//// Version information for the Vahvel library.
-////
-//// Provides the package version and utilities to check NIF version compatibility.
-//// The NIF must be loaded before `check_nif_version()` can be called.
+//// Detects a stale native library: one built from a different package version.
 
-/// The version of the Gleam package (from gleam.toml).
+/// The package version; the release workflow keeps it equal to gleam.toml's.
 pub const package_version = "0.4.0"
 
-/// Check if the NIF version matches the package version.
-/// Returns Ok(True) if versions match, Ok(False) if they don't,
-/// or Error if the NIF is missing or failed to load.
+/// Whether the loaded NIF was built from this package version. Calling it loads
+/// the NIF; `Error(Nil)` means the library could not be loaded.
 pub fn check_nif_version() -> Result(Bool, Nil) {
   case nif_version() {
-    Ok(nif_ver) -> Ok(nif_ver == package_version)
-    Error(_) -> Error(Nil)
+    Ok(nif_version) -> Ok(nif_version == package_version)
+    Error(Nil) -> Error(Nil)
   }
 }
 

@@ -144,7 +144,7 @@ representation directly:
 | `Finite(1.0)`, `Integer(Some(0), None)` | `{finite, 1.0}`, `{integer, {some, 0}, none}` | `NifTaggedEnum` |
 | `Sum([..])`, `Scaled(2.0, ..)` (one node) | `{sum, [..]}`, `{scaled, 2.0, ..}` | `NifTaggedEnum` (`Node`) with `Term` children |
 | `Row(..)`, `Model(..)` | `{row, ..}`, `{model, ..}` | `NifRecord` with `#[tag]` |
-| `None`, `Some(value)` (`Option`) | `none`, `{some, Value}` | `NifTaggedEnum` (`Optional<T>` for limits/results, `IntegerBound` for domains) |
+| `None`, `Some(value)` (`Option`) | `none`, `{some, Value}` | `NifTaggedEnum` (`Optional<T>`) |
 | `Result(a, e)` | `{ok, A}`, `{error, E}` | `Result<T, E>` |
 
 A Gleam type change must be matched in `driver.rs`, and vice versa. Expressions
@@ -247,8 +247,8 @@ for the representative models in `test/examples/`.
 
 - `nix develop` (or direnv) provides Gleam, Erlang/OTP, Rust and just. The flake
   also supplies the native build toolchain, so CI and local builds match.
-- `just` runs format checks, Clippy with warnings as errors, the native build,
-  and tests. `just fmt` formats Gleam and Rust.
+- `just` lists the recipes. `just check` runs format checks, Clippy with
+  warnings as errors, the native build, and tests. `just fmt` formats Gleam and Rust.
 - `.github/workflows/test.yml` runs `just lint` and `just test` in the Nix dev
   shell on pushes and pull requests.
 - Releases use three manually triggered workflows. `release.yml` bumps the

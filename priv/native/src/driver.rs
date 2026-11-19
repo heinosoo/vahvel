@@ -25,18 +25,36 @@ impl Bound {
             Self::Finite(value) => *value,
         }
     }
+
+    /// An explicit bound must be finite.
+    fn is_valid(&self) -> bool {
+        match self {
+            Self::Unbounded => true,
+            Self::Finite(value) => value.is_finite(),
+        }
+    }
 }
 
-/// Gleam's `Option(Int)`: `none` or `{some, I}`.
+/// Gleam's `Option`: `none` or `{some, Value}`. Rustler's built-in `Option`
+/// expects `nil` or a bare value instead.
 #[derive(NifTaggedEnum)]
-enum IntegerBound {
+enum Optional<T> {
     None,
-    Some(i32),
+    Some(T),
 }
 
-impl IntegerBound {
-    /// microlp integer variables are limited to `i32`; its documented way to
-    /// leave a side unbounded is `i32::MIN` or `i32::MAX`.
+impl<T> From<Option<T>> for Optional<T> {
+    fn from(value: Option<T>) -> Self {
+        match value {
+            None => Self::None,
+            Some(value) => Self::Some(value),
+        }
+    }
+}
+
+/// An integer bound. microlp integer variables are limited to `i32`; its
+/// documented way to leave a side unbounded is `i32::MIN` or `i32::MAX`.
+impl Optional<i32> {
     fn value(&self, unbounded: i32) -> i32 {
         match self {
             Self::None => unbounded,
@@ -48,15 +66,13 @@ impl IntegerBound {
 #[derive(NifTaggedEnum)]
 enum Domain {
     Real(Bound, Bound),
-    Integer(IntegerBound, IntegerBound),
+    Integer(Optional<i32>, Optional<i32>),
 }
 
 impl Domain {
     fn is_valid(&self) -> bool {
         match self {
-            Self::Real(lower, upper) => {
-                lower.value(0.0).is_finite() && upper.value(0.0).is_finite()
-            }
+            Self::Real(lower, upper) => lower.is_valid() && upper.is_valid(),
             Self::Integer(_, _) => true,
         }
     }
@@ -184,22 +200,6 @@ struct Model {
     objective: Vec<f64>,
     offset: f64,
     rows: Vec<Row>,
-}
-
-/// Gleam options use tagged Some values, unlike Rustler's built-in Option.
-#[derive(NifTaggedEnum)]
-enum Optional<T> {
-    None,
-    Some(T),
-}
-
-impl<T> From<Option<T>> for Optional<T> {
-    fn from(value: Option<T>) -> Self {
-        match value {
-            None => Self::None,
-            Some(value) => Self::Some(value),
-        }
-    }
 }
 
 #[derive(NifRecord)]

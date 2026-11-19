@@ -3,6 +3,8 @@ version = "0.4.0"
 description = "Linear and mixed-integer programming for Gleam, solved natively in Rust"
 licences = ["Apache-2.0"]
 repository = { type = "github", user = "heinosoo", repo = "vahvel" }
+gleam = ">= 1.14.0"
+target = "erlang"
 internal_modules = [
   "vahvel/internal",
   "vahvel/internal/*",

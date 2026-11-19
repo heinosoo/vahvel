@@ -43,7 +43,7 @@ pub fn ensure_built() -> Result(Nil, String) {
   case is_file(paths.nif) {
     True -> Ok(Nil)
     False -> {
-      io.println(
+      io.println_error(
         "vahvel: building the native library from source with Cargo (first use only, may take a minute)...",
       )
       compile_at(paths)
@@ -81,6 +81,6 @@ fn compile_at(paths: Paths) -> Result(Nil, String) {
       "could not copy " <> paths.built <> " to " <> paths.nif <> ": " <> reason
     }),
   )
-  io.println("vahvel: native library built at " <> paths.nif)
+  io.println_error("vahvel: native library built at " <> paths.nif)
   Ok(Nil)
 }
