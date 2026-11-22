@@ -1,7 +1,7 @@
 [package]
 name = "vahvel"
 version = "0.4.0"
-edition = "2021"
+edition = "2024"
 description = "Native solver for the vahvel Gleam package"
 license = "Apache-2.0"
 repository = "https://github.com/heinosoo/vahvel"
@@ -12,5 +12,5 @@ name = "vahvel"
 crate-type = ["cdylib"]
 
 [dependencies]
-rustler = "0.37"
-microlp = { version = "0.6", default-features = false }
+rustler = "0.39"
+microlp = { version = "0.8", default-features = false }

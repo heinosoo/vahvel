@@ -444,7 +444,16 @@ fn solve(model: Model, options: SolveOptions) -> Result<Outcome, DriverError> {
         Err(microlp::Error::Unbounded) => return Ok(Outcome::UnboundedProblem),
         Err(error) => return Err(DriverError::SolverFailure(error.to_string())),
     };
-    let values: Vec<_> = variables.iter().map(|&v| solution.var_value(v)).collect();
+    // microlp accepts integer values within its integrality tolerance; the
+    // contract promises exact whole numbers. Adding 0.0 turns -0.0 into 0.0.
+    let values: Vec<_> = variables
+        .iter()
+        .zip(&model.variables)
+        .map(|(&v, domain)| match domain {
+            Domain::Real(..) => solution.var_value(v) + 0.0,
+            Domain::Integer(..) => solution.var_value(v).round() + 0.0,
+        })
+        .collect();
     let objective = solution.objective() + model.offset;
     if !objective.is_finite() || values.iter().any(|v| !v.is_finite()) {
         return Err(DriverError::SolverFailure(

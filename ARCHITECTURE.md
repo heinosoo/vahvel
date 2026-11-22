@@ -2,7 +2,7 @@
 
 Vahvel is a Gleam library for linear and mixed-integer linear programming. Gleam
 code describes models; a Rust NIF validates and solves them with
-[microlp](https://docs.rs/microlp/0.6.0/microlp/). This document describes how the
+[microlp](https://docs.rs/microlp/0.8.0/microlp/). This document describes how the
 pieces fit together as they are now. The reasons behind them are in
 [DESIGN.md](DESIGN.md); planned work is in [ROADMAP.md](ROADMAP.md).
 
@@ -149,8 +149,8 @@ can't produce (malformed terms, bad indices and limits) and version checks.
 `test/examples/` holds the representative models, one per file, including the
 README's waffle stand in full.
 
-`test/bench.gleam` is not a test; `just bench` runs it. It solves the
-production network's LP relaxation at growing sizes and reports vahvel's
+`test/bench.gleam` is not a test; `just bench` runs it. It solves a sparse
+transportation LP at growing sizes and reports vahvel's
 overhead per term (wall time minus solver time) and the cost of a `residual`
 call. Timings are too noisy for CI, so nothing asserts on them.
 

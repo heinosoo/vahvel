@@ -2,7 +2,7 @@
 
 Linear and mixed-integer programming for Gleam. Describe a model with plain
 Gleam data, keyed by your own types, and solve it with
-[microlp](https://docs.rs/microlp/0.6.0/microlp/) through a Rust NIF. The API
+[microlp](https://docs.rs/microlp/0.8.0/microlp/) through a Rust NIF. The API
 is unstable while the package is 0.x. *Vahvel* is Estonian for waffle.
 
 ## Example
@@ -52,9 +52,10 @@ release needs neither: the library ships inside it as `priv/vahvel.*`.
 
 ## Features
 
-[test/examples/readme_test.gleam][readme_test] grows the example into a full
-story: a menu from data, topping stations as yes-or-no decisions, a report,
-and a hand-made plan. The snippets below come from it.
+[test/examples/waffle_stand_test.gleam][waffle_stand] grows the example into a full
+story: a menu from data, topping stations as yes-or-no decisions, a report
+and a hand-made plan. The snippets below come from it, except the budget,
+which comes from the [knapsack][knapsack].
 
 **Your own keys.** Variables are named by any Gleam value, usually a custom
 type naming the decision. A variable exists once an expression references it,
@@ -100,17 +101,18 @@ list.map(toppings, fn(topping) {
 
 **Answers are values.** Infeasible and unbounded models are outcomes, not
 errors; `Error(_)` means invalid input or a solver failure. `solve_with` adds
-time and node budgets, and a budget stop may still carry a feasible plan:
+time and node budgets, and a stop at the budget is `Limited`, carrying the best
+plan found so far, if any:
 
 ```gleam
-let assert Ok(outcome) = vahvel.solve_with(
-  model,
-  vahvel.Limits(time: Some(duration.seconds(2)), nodes: Some(1000)),
-)
-let plan = case outcome {
-  vahvel.Optimal(solution, _) | vahvel.Limited(_, Some(solution), _) ->
-    Some(solution)
-  vahvel.Limited(_, None, _) | vahvel.Infeasible | vahvel.Unbounded -> None
+let budget = vahvel.Limits(time: Some(duration.seconds(2)), nodes: Some(8))
+case vahvel.solve_with(knapsack(), budget) {
+  Ok(vahvel.Optimal(solution, _))
+  | Ok(vahvel.Limited(_, Some(solution), _)) -> Ok(solution)
+  Ok(vahvel.Limited(_, None, _)) -> Error("no pick within the budget")
+  Ok(vahvel.Infeasible) -> Error("nothing fits")
+  Ok(vahvel.Unbounded) -> Error("value is unbounded")
+  Error(_) -> Error("invalid model")
 }
 ```
 
@@ -132,8 +134,8 @@ reported with their location, never during construction.
 ## Learn more
 
 The [API reference](https://hexdocs.pm/vahvel/vahvel.html) gives exact semantics,
-including domain and budget limits. More examples, including a multi-period
-production network and N-queens, are in [test/examples][examples].
+including domain and budget limits. More examples, from the diet problem to
+currency arbitrage and the magic square, are in [test/examples][examples].
 [ARCHITECTURE.md][architecture] describes how the library fits together,
 [DESIGN.md][design] explains the design decisions, and [ROADMAP.md][roadmap]
 lists planned work.
@@ -162,7 +164,8 @@ to write. Thank you!
 Apache-2.0, see [LICENSE][license].
 
 <!-- Absolute links: HexDocs renders this README without the repository. -->
-[readme_test]: https://github.com/heinosoo/vahvel/blob/main/test/examples/readme_test.gleam
+[waffle_stand]: https://github.com/heinosoo/vahvel/blob/main/test/examples/waffle_stand_test.gleam
+[knapsack]: https://github.com/heinosoo/vahvel/blob/main/test/examples/knapsack_test.gleam
 [examples]: https://github.com/heinosoo/vahvel/tree/main/test/examples
 [architecture]: https://github.com/heinosoo/vahvel/blob/main/ARCHITECTURE.md
 [design]: https://github.com/heinosoo/vahvel/blob/main/DESIGN.md

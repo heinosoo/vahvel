@@ -4,7 +4,6 @@
 
 import gleam/list
 import gleam/option.{None, Some}
-import gleeunit/should
 import vahvel/internal/driver as d
 
 fn integer(lower: Int, upper: Int) -> d.Domain {
@@ -47,7 +46,7 @@ fn solve_raw(model: a) -> Result(d.Outcome, d.DriverError) {
 fn unchecked(term: a) -> d.Expression
 
 fn assert_invalid(model: d.Model, reason: d.InvalidReason) {
-  solve(model) |> should.equal(Error(d.InvalidModel(reason)))
+  assert solve(model) == Error(d.InvalidModel(reason))
 }
 
 pub fn objective_index_validation_test() {
@@ -99,10 +98,8 @@ pub fn validates_whole_model_before_infeasibility_test() {
 }
 
 pub fn malformed_term_is_a_model_error_test() {
-  solve_raw("not a model")
-  |> should.equal(Error(d.InvalidModel(d.MalformedModel)))
-  solve_raw(#(1, 2, 3))
-  |> should.equal(Error(d.InvalidModel(d.MalformedModel)))
+  assert solve_raw("not a model") == Error(d.InvalidModel(d.MalformedModel))
+  assert solve_raw(#(1, 2, 3)) == Error(d.InvalidModel(d.MalformedModel))
 }
 
 pub fn zero_scaled_indices_are_validated_test() {
@@ -117,7 +114,7 @@ pub fn zero_scaled_indices_are_validated_test() {
     ]),
     d.InvalidRow(0),
   )
-  d.evaluate(expression, [1.0]) |> should.equal(Error(Nil))
+  assert d.evaluate(expression, [1.0]) == Error(Nil)
 }
 
 pub fn malformed_expression_is_invalid_test() {
@@ -136,8 +133,7 @@ pub fn malformed_expression_is_invalid_test() {
 
 pub fn evaluation_rejects_undecodable_indices_test() {
   list.each([-1, 18_446_744_073_709_551_616], fn(index) {
-    d.evaluate(d.Sum([d.Linear(1.0, index)]), [1.0])
-    |> should.equal(Error(Nil))
+    assert d.evaluate(d.Sum([d.Linear(1.0, index)]), [1.0]) == Error(Nil)
   })
 }
 
@@ -167,10 +163,10 @@ pub fn malformed_limit_fields_do_not_raise_badarg_test() {
 }
 
 pub fn limits_validate_before_the_model_test() {
-  solve_raw_with("invalid model", d.Limits(Some(#(-1, 0)), Some(-1)))
-  |> should.equal(Error(d.InvalidTimeLimit))
-  solve_raw_with("invalid model", d.Limits(None, Some(-1)))
-  |> should.equal(Error(d.InvalidNodeLimit))
-  solve_raw_with("invalid model", d.Limits(Some(#(0, 0)), Some(0)))
-  |> should.equal(Error(d.InvalidModel(d.MalformedModel)))
+  assert solve_raw_with("invalid model", d.Limits(Some(#(-1, 0)), Some(-1)))
+    == Error(d.InvalidTimeLimit)
+  assert solve_raw_with("invalid model", d.Limits(None, Some(-1)))
+    == Error(d.InvalidNodeLimit)
+  assert solve_raw_with("invalid model", d.Limits(Some(#(0, 0)), Some(0)))
+    == Error(d.InvalidModel(d.MalformedModel))
 }

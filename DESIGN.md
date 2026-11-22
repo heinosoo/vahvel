@@ -314,7 +314,8 @@ cost of a hand-made plan or a what-if. `evaluate_solution` and
 `evaluate_dict` are that call with `value(solution, _)` and
 `dict.get(values, _)` as the lookup. Evaluation fails with its own
 `EvaluationError(v)`: a missing value or overflow. All values are `Float`;
-integer and binary values are exact whole numbers (microlp rounds them). The
+integer and binary values are exact whole numbers: microlp only guarantees
+them within its integrality tolerance, so the driver rounds them. The
 objective is microlp's own value, not recomputed from the rounded values.
 
 **Why.** Silent zeros hide typos. Evaluation needs a lookup, not a storage
@@ -552,5 +553,6 @@ Reviewed 2026-10-25. Design influences, not interfaces to copy.
 - [JuMP solutions](https://jump.dev/JuMP.jl/stable/manual/solutions/):
   availability is checked separately from termination, and certificates differ
   from values.
-- [microlp 0.6.0 Solution](https://docs.rs/microlp/0.6.0/microlp/struct.Solution.html):
-  no public dual accessor; time limits and resumable solves exist.
+- [microlp 0.8.0 Solution](https://docs.rs/microlp/0.8.0/microlp/struct.Solution.html):
+  LP duals and reduced costs; integer values only within tolerance; time
+  limits and resumable solves exist.

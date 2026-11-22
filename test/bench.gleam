@@ -3,11 +3,10 @@
 //// Overhead is wall time minus the solver's own `solve_time`. If overhead per
 //// term stays flat as models grow, nothing scales superlinearly.
 ////
-//// Models are the production network relaxed to an LP, so branch-and-bound
-//// doesn't dominate the run time. Each measurement is repeated after warm-up
-//// runs and reported as median and range. Run with `just bench`.
+//// Models are sparse transportation LPs, so branch-and-bound doesn't
+//// dominate the run time. Each measurement is repeated after warm-up runs and
+//// reported as median and range. Run with `just bench`.
 
-import examples/production_network_test as network
 import gleam/dict
 import gleam/int
 import gleam/io
@@ -24,7 +23,7 @@ const runs = 15
 
 pub fn main() -> Nil {
   io.println(
-    "Solve overhead, LP relaxation ("
+    "Solve overhead, transportation LP ("
     <> int.to_string(runs)
     <> " runs; times in µs, median [min–max])",
   )
@@ -48,17 +47,49 @@ pub fn main() -> Nil {
   residual_calls(100)
 }
 
-fn relaxed(size: Int) -> vahvel.Model(network.Var) {
-  vahvel.Model(..network.model(network.instance(size)), domain: fn(_) {
-    vahvel.NonNegativeReal
-  })
+// Model: `size` depots each supply 10 units to their own store and the next
+// two around a ring, at costs 1, 2 and 3. Every store needs 8, so the model is
+// feasible and its size grows linearly.
+
+type Ship {
+  Ship(depot: Int, store: Int)
+}
+
+const lanes = [#(0, 1.0), #(1, 2.0), #(2, 3.0)]
+
+fn transport(size: Int) -> vahvel.Model(Ship) {
+  let sites = int.range(from: 0, to: size, with: [], run: list.prepend)
+  let ship = fn(depot, offset) { Ship(depot, { depot + offset } % size) }
+  let cost =
+    list.flat_map(sites, fn(depot) {
+      list.map(lanes, fn(lane) { vahvel.Linear(lane.1, ship(depot, lane.0)) })
+    })
+  let supply =
+    list.map(sites, fn(depot) {
+      let sent =
+        list.map(lanes, fn(lane) { vahvel.Variable(ship(depot, lane.0)) })
+      vahvel.LessEqual(vahvel.Sum(sent), vahvel.Constant(10.0))
+    })
+  let demand =
+    list.map(sites, fn(store) {
+      let received =
+        list.map(lanes, fn(lane) {
+          vahvel.Variable(Ship({ store - lane.0 + size } % size, store))
+        })
+      vahvel.GreaterEqual(vahvel.Sum(received), vahvel.Constant(8.0))
+    })
+  vahvel.Model(
+    domain: fn(_) { vahvel.NonNegativeReal },
+    objective: vahvel.Minimize(vahvel.Sum(cost)),
+    constraints: list.append(supply, demand),
+  )
 }
 
 fn solve_overhead(size: Int) -> Nil {
-  let model = relaxed(size)
+  let model = transport(size)
   let samples =
     repeat(fn() {
-      let #(build, _) = time(fn() { relaxed(size) })
+      let #(build, _) = time(fn() { transport(size) })
       let #(wall, outcome) = time(fn() { vahvel.solve(model) })
       let assert Ok(vahvel.Optimal(solution, stats)) = outcome
       let #(seconds, nanoseconds) =
@@ -83,7 +114,7 @@ fn solve_overhead(size: Int) -> Nil {
 }
 
 fn residual_calls(size: Int) -> Nil {
-  let model = relaxed(size)
+  let model = transport(size)
   let assert Ok(vahvel.Optimal(solution, _)) = vahvel.solve(model)
   let lookup = vahvel.value(solution, _)
   let rows = list.length(model.constraints)

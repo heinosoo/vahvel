@@ -44,8 +44,8 @@ criteria and representative models".
   choosing a replacement. The signed 32-bit integer-domain limit stays
   documented until it blocks an application.
 - **Duals and quadratic objectives.** For applications needing sensitivity
-  analysis or convex QP; microlp 0.6.0 exposes no duals. Clarabel is a
-  candidate. Solver selection only once a second backend has a purpose.
+  analysis or convex QP. microlp 0.8 exposes LP duals and reduced costs, so
+  duals need no second backend; for QP, Clarabel is a candidate. Solver selection only once a second backend has a purpose.
   Quadratics need their own expression type (DESIGN.md: "Expressions are an
   affine tree") and convexity rules. Duals are queried by constraint value and
   need, before shipping:

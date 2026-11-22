@@ -5,7 +5,6 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/time/duration
 import gleeunit
-import gleeunit/should
 import vahvel.{Constant, Difference, Linear, Scaled, Sum, Variable} as m
 
 pub fn main() {
@@ -23,7 +22,7 @@ fn nonnegative(_: v) -> m.Domain {
 }
 
 fn close(actual: Float, expected: Float) {
-  float.loosely_equals(actual, expected, 0.000001) |> should.be_true
+  assert float.loosely_equals(actual, expected, 0.000001)
 }
 
 fn close_value(solution: m.Solution(v), key: v, expected: Float) {
@@ -42,14 +41,14 @@ const max = 1.7976931348623157e308
 pub fn unreferenced_key_is_not_a_variable_test() {
   let model = m.Model(..base(), objective: m.Minimize(Variable(Chair)))
   let assert Ok(m.Optimal(solution, _)) = m.solve(model)
-  m.value(solution, Chair) |> should.equal(Ok(0.0))
-  m.value(solution, Missing) |> should.equal(Error(Nil))
+  assert m.value(solution, Chair) == Ok(0.0)
+  assert m.value(solution, Missing) == Error(Nil)
 }
 
 pub fn zero_coefficient_reference_creates_variable_test() {
   let model = m.Model(..base(), objective: m.Minimize(Linear(0.0, Chair)))
   let assert Ok(m.Optimal(solution, _)) = m.solve(model)
-  m.value(solution, Chair) |> should.equal(Ok(0.0))
+  assert m.value(solution, Chair) == Ok(0.0)
 }
 
 pub fn keys_can_be_any_value_test() {
@@ -75,8 +74,8 @@ pub fn keys_can_be_any_value_test() {
         ],
       ),
     )
-  m.value(solution, "a") |> should.equal(Ok(0.0))
-  m.value(solution, "b") |> should.equal(Ok(1.0))
+  assert m.value(solution, "a") == Ok(0.0)
+  assert m.value(solution, "b") == Ok(1.0)
 }
 
 pub fn int_keys_are_names_not_columns_test() {
@@ -147,8 +146,8 @@ pub fn integer_domains_span_the_signed_32_bit_range_test() {
   }
   let assert Ok(m.Optimal(solution, _)) =
     m.solve(m.Model(..chair_and_table(), domain:))
-  m.value(solution, Chair) |> should.equal(Ok(-2_147_483_648.0))
-  m.value(solution, Table) |> should.equal(Ok(2_147_483_647.0))
+  assert m.value(solution, Chair) == Ok(-2_147_483_648.0)
+  assert m.value(solution, Table) == Ok(2_147_483_647.0)
   // The driver reports column 1; the error names the key.
   list.each(
     [
@@ -157,8 +156,8 @@ pub fn integer_domains_span_the_signed_32_bit_range_test() {
       m.Integer(Some(0), Some(9_223_372_036_854_775_808)),
     ],
     fn(domain) {
-      m.solve(m.Model(..chair_and_table(), domain: only_table(domain)))
-      |> should.equal(Error(m.InvalidDomain(Table)))
+      assert m.solve(m.Model(..chair_and_table(), domain: only_table(domain)))
+        == Error(m.InvalidDomain(Table))
     },
   )
 }
@@ -171,26 +170,26 @@ pub fn integer_domains_with_missing_bounds_test() {
       )
     m.value(solution, Chair)
   }
-  solve_chair(
-    m.Integer(None, Some(5)),
-    m.Minimize(Variable(Chair)),
-    m.GreaterEqual(Variable(Chair), Constant(-3.5)),
-  )
-  |> should.equal(Ok(-3.0))
-  solve_chair(
-    m.Integer(None, None),
-    m.Maximize(Variable(Chair)),
-    m.LessEqual(Variable(Chair), Constant(7.5)),
-  )
-  |> should.equal(Ok(7.0))
+  assert solve_chair(
+      m.Integer(None, Some(5)),
+      m.Minimize(Variable(Chair)),
+      m.GreaterEqual(Variable(Chair), Constant(-3.5)),
+    )
+    == Ok(-3.0)
+  assert solve_chair(
+      m.Integer(None, None),
+      m.Maximize(Variable(Chair)),
+      m.LessEqual(Variable(Chair), Constant(7.5)),
+    )
+    == Ok(7.0)
 }
 
 pub fn empty_domains_are_infeasible_test() {
   list.each(
     [m.Integer(Some(2), Some(1)), m.Real(Some(2.0), Some(1.0))],
     fn(domain) {
-      m.solve(m.Model(..chair_and_table(), domain: only_table(domain)))
-      |> should.equal(Ok(m.Infeasible))
+      assert m.solve(m.Model(..chair_and_table(), domain: only_table(domain)))
+        == Ok(m.Infeasible)
     },
   )
 }
@@ -215,9 +214,9 @@ pub fn nonnegative_domains_preserve_bounds_and_integrality_test() {
           m.solve(m.Model(..model, constraints: []))
         close_value(unbounded, Chair, 2_147_483_647.0)
       }
-      _ ->
-        m.solve(m.Model(..model, constraints: []))
-        |> should.equal(Ok(m.Unbounded))
+      _ -> {
+        assert m.solve(m.Model(..model, constraints: [])) == Ok(m.Unbounded)
+      }
     }
   })
 }
@@ -292,8 +291,7 @@ pub fn rows_without_variables_are_checked_directly_test() {
       ),
     ],
     fn(row) {
-      m.solve(m.Model(..base(), constraints: [row]))
-      |> should.equal(Ok(m.Infeasible))
+      assert m.solve(m.Model(..base(), constraints: [row])) == Ok(m.Infeasible)
     },
   )
 }
@@ -329,44 +327,44 @@ pub fn expressions_are_reusable_test() {
   close_value(solution, Chair, 3.0)
   close_value(solution, Table, 1.0)
   close(m.objective(solution), 11.0)
-  m.evaluate_solution(profit, solution) |> should.equal(Ok(11.0))
-  m.evaluate_solution(cost, solution) |> should.equal(Ok(8.0))
-  m.evaluate_solution(
-    Sum([Scaled(2.0, Scaled(-1.0, cost)), Constant(1.0)]),
-    solution,
-  )
-  |> should.equal(Ok(-15.0))
+  assert m.evaluate_solution(profit, solution) == Ok(11.0)
+  assert m.evaluate_solution(cost, solution) == Ok(8.0)
+  assert m.evaluate_solution(
+      Sum([Scaled(2.0, Scaled(-1.0, cost)), Constant(1.0)]),
+      solution,
+    )
+    == Ok(-15.0)
 }
 
 pub fn zero_and_empty_scales_test() {
   let expression = Sum([Scaled(0.0, Linear(2.0, Chair)), Scaled(3.0, Sum([]))])
   let assert Ok(m.Optimal(solution, _)) =
     m.solve(m.Model(..base(), objective: m.Minimize(expression)))
-  m.value(solution, Chair) |> should.equal(Ok(0.0))
-  m.evaluate_solution(expression, solution) |> should.equal(Ok(0.0))
-  m.evaluate_solution(Scaled(0.0, Variable(Missing)), solution)
-  |> should.equal(Error(m.MissingValue(Missing)))
-  m.solve(
-    m.Model(
-      ..base(),
-      domain: fn(_) { m.Integer(Some(2), Some(1)) },
-      objective: m.Minimize(expression),
-    ),
-  )
-  |> should.equal(Ok(m.Infeasible))
+  assert m.value(solution, Chair) == Ok(0.0)
+  assert m.evaluate_solution(expression, solution) == Ok(0.0)
+  assert m.evaluate_solution(Scaled(0.0, Variable(Missing)), solution)
+    == Error(m.MissingValue(Missing))
+  assert m.solve(
+      m.Model(
+        ..base(),
+        domain: fn(_) { m.Integer(Some(2), Some(1)) },
+        objective: m.Minimize(expression),
+      ),
+    )
+    == Ok(m.Infeasible)
 }
 
 pub fn constants_sum_in_depth_first_input_order_test() {
   // max + max overflows before − max is added.
   let overflowing =
     Sum([Sum([Constant(max), Constant(max)]), Constant(0.0 -. max)])
-  m.solve(m.Model(..base(), objective: m.Minimize(overflowing)))
-  |> should.equal(Error(m.NonFinite(m.InObjective)))
+  assert m.solve(m.Model(..base(), objective: m.Minimize(overflowing)))
+    == Error(m.NonFinite(m.InObjective))
   // max − max + max never leaves the finite range.
   let fine = Sum([Constant(max), Sum([Constant(0.0 -. max), Constant(max)])])
   let assert Ok(m.Optimal(solution, _)) =
     m.solve(m.Model(..base(), objective: m.Minimize(fine)))
-  m.objective(solution) |> should.equal(max)
+  assert m.objective(solution) == max
 }
 
 pub fn deep_expressions_test() {
@@ -392,8 +390,8 @@ pub fn deep_expressions_test() {
           constraints: [m.LessEqual(expression, Constant(1.0))],
         ),
       )
-    m.objective(solution) |> should.equal(1.0)
-    m.evaluate_solution(expression, solution) |> should.equal(Ok(1.0))
+    assert m.objective(solution) == 1.0
+    assert m.evaluate_solution(expression, solution) == Ok(1.0)
   })
 }
 
@@ -416,45 +414,43 @@ pub fn difference_composes_on_both_sides_test() {
   close_value(solution, Chair, 3.0)
   close_value(solution, Table, 3.0)
   close(m.objective(solution), 9.0)
-  m.evaluate_solution(expression, solution) |> should.equal(Ok(9.0))
-  m.evaluate_solution(Scaled(2.0, expression), solution)
-  |> should.equal(Ok(18.0))
-  m.evaluate_solution(
-    Difference(Variable(Missing), Variable(Missing)),
-    solution,
-  )
-  |> should.equal(Error(m.MissingValue(Missing)))
+  assert m.evaluate_solution(expression, solution) == Ok(9.0)
+  assert m.evaluate_solution(Scaled(2.0, expression), solution) == Ok(18.0)
+  assert m.evaluate_solution(
+      Difference(Variable(Missing), Variable(Missing)),
+      solution,
+    )
+    == Error(m.MissingValue(Missing))
 }
 
 pub fn difference_preserves_cancelled_and_zero_scaled_references_test() {
   let expression = Difference(Variable(Table), Variable(Table))
   let model = m.Model(..base(), objective: m.Minimize(expression))
   let assert Ok(m.Optimal(solution, _)) = m.solve(model)
-  m.value(solution, Table) |> should.equal(Ok(0.0))
+  assert m.value(solution, Table) == Ok(0.0)
   list.each([expression, Scaled(0.0, expression)], fn(expression) {
-    m.solve(
-      m.Model(
-        ..model,
-        domain: only_table(m.Integer(Some(0), Some(2_147_483_648))),
-        objective: m.Minimize(expression),
-      ),
-    )
-    |> should.equal(Error(m.InvalidDomain(Table)))
+    assert m.solve(
+        m.Model(
+          ..model,
+          domain: only_table(m.Integer(Some(0), Some(2_147_483_648))),
+          objective: m.Minimize(expression),
+        ),
+      )
+      == Error(m.InvalidDomain(Table))
   })
 }
 
 pub fn difference_overflow_preserves_location_and_order_test() {
   let expression =
     Difference(Sum([Constant(max), Constant(max)]), Constant(max))
-  m.solve(m.Model(..base(), objective: m.Minimize(expression)))
-  |> should.equal(Error(m.NonFinite(m.InObjective)))
+  assert m.solve(m.Model(..base(), objective: m.Minimize(expression)))
+    == Error(m.NonFinite(m.InObjective))
   let row = m.Equal(expression, Constant(0.0))
-  m.solve(m.Model(..base(), constraints: [row]))
-  |> should.equal(Error(m.NonFinite(m.InConstraint(0, row))))
-  m.evaluate_dict(expression, dict.new())
-  |> should.equal(Error(m.NonFiniteValue))
-  m.evaluate_dict(Difference(Constant(max), Constant(max)), dict.new())
-  |> should.equal(Ok(0.0))
+  assert m.solve(m.Model(..base(), constraints: [row]))
+    == Error(m.NonFinite(m.InConstraint(0, row)))
+  assert m.evaluate_dict(expression, dict.new()) == Error(m.NonFiniteValue)
+  assert m.evaluate_dict(Difference(Constant(max), Constant(max)), dict.new())
+    == Ok(0.0)
 }
 
 // Outcomes and errors
@@ -462,47 +458,50 @@ pub fn difference_overflow_preserves_location_and_order_test() {
 pub fn infeasible_and_unbounded_are_outcomes_without_stats_test() {
   let empty = base()
   let assert Ok(m.Optimal(solution, _)) = m.solve(empty)
-  m.objective(solution) |> should.equal(0.0)
+  assert m.objective(solution) == 0.0
   let assert Ok(infeasible) =
     m.solve(m.Model(..empty, constraints: [m.Equal(Sum([]), Constant(1.0))]))
-  infeasible |> should.equal(m.Infeasible)
-  m.stats(infeasible) |> should.equal(None)
+  assert infeasible == m.Infeasible
+  assert m.stats(infeasible) == None
   let assert Ok(unbounded) =
     m.solve(m.Model(..empty, objective: m.Maximize(Variable(Chair))))
-  unbounded |> should.equal(m.Unbounded)
-  m.stats(unbounded) |> should.equal(None)
+  assert unbounded == m.Unbounded
+  assert m.stats(unbounded) == None
 }
 
 pub fn solver_proves_infeasibility_test() {
   // Neither model is trivially infeasible, so the backend must prove it.
-  m.solve(
-    m.Model(..base(), objective: m.Minimize(Variable(Chair)), constraints: [
-      m.LessEqual(Variable(Chair), Constant(-1.0)),
-    ]),
-  )
-  |> should.equal(Ok(m.Infeasible))
-  m.solve(
-    m.Model(
-      domain: fn(_) { m.Integer(Some(0), Some(2)) },
-      objective: m.Minimize(Variable(Chair)),
-      constraints: [m.Equal(Variable(Chair), Constant(0.5))],
-    ),
-  )
-  |> should.equal(Ok(m.Infeasible))
+  assert m.solve(
+      m.Model(..base(), objective: m.Minimize(Variable(Chair)), constraints: [
+        m.LessEqual(Variable(Chair), Constant(-1.0)),
+      ]),
+    )
+    == Ok(m.Infeasible)
+  assert m.solve(
+      m.Model(
+        domain: fn(_) { m.Integer(Some(0), Some(2)) },
+        objective: m.Minimize(Variable(Chair)),
+        constraints: [m.Equal(Variable(Chair), Constant(0.5))],
+      ),
+    )
+    == Ok(m.Infeasible)
 }
 
 pub fn non_finite_sums_report_location_test() {
   let model = base()
-  m.solve(
-    m.Model(..model, objective: m.Minimize(Sum([Constant(max), Constant(max)]))),
-  )
-  |> should.equal(Error(m.NonFinite(m.InObjective)))
+  assert m.solve(
+      m.Model(
+        ..model,
+        objective: m.Minimize(Sum([Constant(max), Constant(max)])),
+      ),
+    )
+    == Error(m.NonFinite(m.InObjective))
   let fine = m.LessEqual(Variable(Chair), Constant(1.0))
   // Moving `-max·chair` across sides makes it `+max·chair`.
   let overflowing = m.LessEqual(Linear(max, Chair), Linear(0.0 -. max, Chair))
   // The error names the constraint as well as its position.
-  m.solve(m.Model(..model, constraints: [fine, overflowing]))
-  |> should.equal(Error(m.NonFinite(m.InConstraint(1, overflowing))))
+  assert m.solve(m.Model(..model, constraints: [fine, overflowing]))
+    == Error(m.NonFinite(m.InConstraint(1, overflowing)))
 }
 
 pub fn scaled_overflow_reports_location_test() {
@@ -513,13 +512,12 @@ pub fn scaled_overflow_reports_location_test() {
   ]
   let values = dict.from_list([#(Chair, 0.0)])
   list.each(expressions, fn(expression) {
-    m.solve(m.Model(..base(), objective: m.Minimize(expression)))
-    |> should.equal(Error(m.NonFinite(m.InObjective)))
+    assert m.solve(m.Model(..base(), objective: m.Minimize(expression)))
+      == Error(m.NonFinite(m.InObjective))
     let row = m.Equal(Sum([]), expression)
-    m.solve(m.Model(..base(), constraints: [row]))
-    |> should.equal(Error(m.NonFinite(m.InConstraint(0, row))))
-    m.evaluate_dict(expression, values)
-    |> should.equal(Error(m.NonFiniteValue))
+    assert m.solve(m.Model(..base(), constraints: [row]))
+      == Error(m.NonFinite(m.InConstraint(0, row)))
+    assert m.evaluate_dict(expression, values) == Error(m.NonFiniteValue)
   })
 }
 
@@ -552,8 +550,8 @@ pub fn solution_values_test() {
   let solution = solved_chairs_and_tables()
   close(m.objective(solution), 17.0)
   let values = m.values(solution)
-  dict.size(values) |> should.equal(2)
-  dict.get(values, Chair) |> should.equal(Ok(2.0))
+  assert dict.size(values) == 2
+  assert dict.get(values, Chair) == Ok(2.0)
   close_value(solution, Table, 2.0)
 }
 
@@ -562,15 +560,18 @@ pub fn evaluate_reports_breakdowns_test() {
   // Chairs contribute 3 · 2.
   let assert Ok(chairs) = m.evaluate_solution(Linear(3.0, Chair), solution)
   close(chairs, 6.0)
-  m.evaluate_solution(Sum([]), solution) |> should.equal(Ok(0.0))
+  assert m.evaluate_solution(Sum([]), solution) == Ok(0.0)
 }
 
 pub fn evaluate_errors_test() {
   let solution = solved_chairs_and_tables()
-  m.evaluate_solution(Sum([Variable(Chair), Variable(Missing)]), solution)
-  |> should.equal(Error(m.MissingValue(Missing)))
-  m.evaluate_solution(Linear(max, Chair), solution)
-  |> should.equal(Error(m.NonFiniteValue))
+  assert m.evaluate_solution(
+      Sum([Variable(Chair), Variable(Missing)]),
+      solution,
+    )
+    == Error(m.MissingValue(Missing))
+  assert m.evaluate_solution(Linear(max, Chair), solution)
+    == Error(m.NonFiniteValue)
 }
 
 pub fn evaluation_combines_coefficients_before_multiplying_test() {
@@ -583,10 +584,9 @@ pub fn evaluation_combines_coefficients_before_multiplying_test() {
         constraints: [],
       ),
     )
-  m.objective(solution) |> should.equal(0.0)
-  m.evaluate_solution(expression, solution) |> should.equal(Ok(0.0))
-  m.evaluate_solution(Scaled(1.0, expression), solution)
-  |> should.equal(Ok(0.0))
+  assert m.objective(solution) == 0.0
+  assert m.evaluate_solution(expression, solution) == Ok(0.0)
+  assert m.evaluate_solution(Scaled(1.0, expression), solution) == Ok(0.0)
 }
 
 // Evaluation against supplied values
@@ -600,62 +600,60 @@ pub fn evaluate_with_a_function_test() {
       Missing -> Error(Nil)
     }
   }
-  m.evaluate(
-    Sum([Linear(3.0, Chair), Linear(2.0, Table), Constant(1.0)]),
-    lookup,
-  )
-  |> should.equal(Ok(9.5))
-  m.evaluate(Variable(Missing), lookup)
-  |> should.equal(Error(m.MissingValue(Missing)))
+  assert m.evaluate(
+      Sum([Linear(3.0, Chair), Linear(2.0, Table), Constant(1.0)]),
+      lookup,
+    )
+    == Ok(9.5)
+  assert m.evaluate(Variable(Missing), lookup) == Error(m.MissingValue(Missing))
 }
 
 pub fn evaluate_dict_ignores_unreferenced_entries_test() {
   let plan = dict.from_list([#(Chair, 2.0), #(Table, 3.0), #(Missing, 9.0)])
-  m.evaluate_dict(Difference(Linear(4.0, Table), Variable(Chair)), plan)
-  |> should.equal(Ok(10.0))
-  m.evaluate_dict(Variable(Table), dict.new())
-  |> should.equal(Error(m.MissingValue(Table)))
+  assert m.evaluate_dict(Difference(Linear(4.0, Table), Variable(Chair)), plan)
+    == Ok(10.0)
+  assert m.evaluate_dict(Variable(Table), dict.new())
+    == Error(m.MissingValue(Table))
 }
 
 pub fn evaluate_reports_the_first_missing_reference_test() {
   let plan = dict.from_list([#(Chair, 1.0)])
   // Depth-first: the nested Table comes before Missing.
-  m.evaluate_dict(
-    Sum([Variable(Chair), Sum([Variable(Table)]), Variable(Missing)]),
-    plan,
-  )
-  |> should.equal(Error(m.MissingValue(Table)))
+  assert m.evaluate_dict(
+      Sum([Variable(Chair), Sum([Variable(Table)]), Variable(Missing)]),
+      plan,
+    )
+    == Error(m.MissingValue(Table))
   // A difference visits its left side first.
-  m.evaluate_dict(Difference(Variable(Missing), Variable(Table)), plan)
-  |> should.equal(Error(m.MissingValue(Missing)))
+  assert m.evaluate_dict(Difference(Variable(Missing), Variable(Table)), plan)
+    == Error(m.MissingValue(Missing))
   // Cancelled and zero-scaled references still need values.
-  m.evaluate_dict(Difference(Variable(Table), Variable(Table)), plan)
-  |> should.equal(Error(m.MissingValue(Table)))
-  m.evaluate_dict(Scaled(0.0, Variable(Table)), plan)
-  |> should.equal(Error(m.MissingValue(Table)))
+  assert m.evaluate_dict(Difference(Variable(Table), Variable(Table)), plan)
+    == Error(m.MissingValue(Table))
+  assert m.evaluate_dict(Scaled(0.0, Variable(Table)), plan)
+    == Error(m.MissingValue(Table))
 }
 
 pub fn constants_need_no_values_test() {
   let nothing = fn(_) { Error(Nil) }
-  m.evaluate(Sum([Constant(2.0), Scaled(3.0, Sum([]))]), nothing)
-  |> should.equal(Ok(2.0))
-  m.evaluate(Sum([]), nothing) |> should.equal(Ok(0.0))
+  assert m.evaluate(Sum([Constant(2.0), Scaled(3.0, Sum([]))]), nothing)
+    == Ok(2.0)
+  assert m.evaluate(Sum([]), nothing) == Ok(0.0)
 }
 
 pub fn missing_values_take_precedence_over_overflow_test() {
   let overflowing = Sum([Constant(max), Constant(max), Variable(Missing)])
-  m.evaluate_dict(overflowing, dict.new())
-  |> should.equal(Error(m.MissingValue(Missing)))
-  m.evaluate_dict(overflowing, dict.from_list([#(Missing, 0.0)]))
-  |> should.equal(Error(m.NonFiniteValue))
+  assert m.evaluate_dict(overflowing, dict.new())
+    == Error(m.MissingValue(Missing))
+  assert m.evaluate_dict(overflowing, dict.from_list([#(Missing, 0.0)]))
+    == Error(m.NonFiniteValue)
 }
 
 pub fn supplied_values_can_overflow_test() {
   let plan = dict.from_list([#(Chair, max)])
-  m.evaluate_dict(Linear(2.0, Chair), plan)
-  |> should.equal(Error(m.NonFiniteValue))
-  m.evaluate_dict(Sum([Linear(2.0, Chair), Linear(-1.0, Chair)]), plan)
-  |> should.equal(Ok(max))
+  assert m.evaluate_dict(Linear(2.0, Chair), plan) == Error(m.NonFiniteValue)
+  assert m.evaluate_dict(Sum([Linear(2.0, Chair), Linear(-1.0, Chair)]), plan)
+    == Ok(max)
 }
 
 pub fn overrides_compose_with_solution_values_test() {
@@ -668,10 +666,9 @@ pub fn overrides_compose_with_solution_values_test() {
     }
   }
   // Table keeps its solved value of 2; Chair is overridden to 0.
-  m.evaluate(Sum([Linear(3.0, Chair), Linear(2.0, Table)]), lookup)
-  |> should.equal(Ok(4.0))
-  m.evaluate(Variable(Missing), lookup)
-  |> should.equal(Error(m.MissingValue(Missing)))
+  assert m.evaluate(Sum([Linear(3.0, Chair), Linear(2.0, Table)]), lookup)
+    == Ok(4.0)
+  assert m.evaluate(Variable(Missing), lookup) == Error(m.MissingValue(Missing))
 }
 
 // Residuals
@@ -679,34 +676,32 @@ pub fn overrides_compose_with_solution_values_test() {
 pub fn residual_is_lhs_minus_rhs_for_every_relation_test() {
   let plan = dict.get(dict.from_list([#(Chair, 2.0), #(Table, 3.0)]), _)
   let both = Sum([Variable(Chair), Variable(Table)])
-  m.residual(m.LessEqual(both, Constant(4.0)), plan) |> should.equal(Ok(1.0))
-  m.residual(m.GreaterEqual(both, Constant(4.0)), plan)
-  |> should.equal(Ok(1.0))
-  m.residual(m.Equal(Variable(Chair), Constant(2.0)), plan)
-  |> should.equal(Ok(0.0))
+  assert m.residual(m.LessEqual(both, Constant(4.0)), plan) == Ok(1.0)
+  assert m.residual(m.GreaterEqual(both, Constant(4.0)), plan) == Ok(1.0)
+  assert m.residual(m.Equal(Variable(Chair), Constant(2.0)), plan) == Ok(0.0)
   // Constants and variables on both sides: 2 + 1 − (3 + 5).
-  m.residual(
-    m.LessEqual(
-      Sum([Variable(Chair), Constant(1.0)]),
-      Sum([Variable(Table), Constant(5.0)]),
-    ),
-    plan,
-  )
-  |> should.equal(Ok(-5.0))
+  assert m.residual(
+      m.LessEqual(
+        Sum([Variable(Chair), Constant(1.0)]),
+        Sum([Variable(Table), Constant(5.0)]),
+      ),
+      plan,
+    )
+    == Ok(-5.0)
 }
 
 pub fn residual_errors_test() {
   let plan = dict.get(dict.from_list([#(Chair, 1.0)]), _)
-  m.residual(m.LessEqual(Variable(Chair), Variable(Table)), plan)
-  |> should.equal(Error(m.MissingValue(Table)))
+  assert m.residual(m.LessEqual(Variable(Chair), Variable(Table)), plan)
+    == Error(m.MissingValue(Table))
   // Cancelling sides still reference their variables.
-  m.residual(m.Equal(Variable(Missing), Variable(Missing)), plan)
-  |> should.equal(Error(m.MissingValue(Missing)))
+  assert m.residual(m.Equal(Variable(Missing), Variable(Missing)), plan)
+    == Error(m.MissingValue(Missing))
   // Moving `-max·chair` across sides makes it `+max·chair`.
   let overflowing = m.LessEqual(Linear(max, Chair), Linear(0.0 -. max, Chair))
-  m.residual(overflowing, plan) |> should.equal(Error(m.NonFiniteValue))
-  m.evaluate(Difference(overflowing.lhs, overflowing.rhs), plan)
-  |> should.equal(Error(m.NonFiniteValue))
+  assert m.residual(overflowing, plan) == Error(m.NonFiniteValue)
+  assert m.evaluate(Difference(overflowing.lhs, overflowing.rhs), plan)
+    == Error(m.NonFiniteValue)
 }
 
 pub fn residual_at_a_solution_test() {
@@ -732,16 +727,23 @@ pub fn continuous_stats_test() {
     )
   let assert Ok(outcome) = m.solve(model)
   let assert m.Optimal(_, stats) = outcome
-  m.stats(outcome) |> should.equal(Some(stats))
-  stats.nodes |> should.equal(0)
-  { stats.iterations > 0 } |> should.be_true
+  assert m.stats(outcome) == Some(stats)
+  assert stats.nodes == 0
+  assert stats.iterations > 0
 }
 
 pub fn integer_stats_count_branching_test() {
-  // The relaxation optimum x + y = 1.5 is fractional, so the solver branches.
+  let assert Ok(m.Optimal(solution, stats)) = m.solve(knapsack())
+  close(m.objective(solution), 309.0)
+  assert stats.nodes > 0
+}
+
+pub fn integer_values_are_exact_test() {
+  // microlp reports integer values within its integrality tolerance (here
+  // Chair ≈ 4e-7) and can return -0.0; values come back exact and as 0.0.
   let model =
     m.Model(
-      domain: fn(_) { m.Integer(Some(0), Some(1)) },
+      domain: fn(_) { m.Binary },
       objective: m.Maximize(Sum([Variable(Chair), Variable(Table)])),
       constraints: [
         m.LessEqual(
@@ -750,108 +752,115 @@ pub fn integer_stats_count_branching_test() {
         ),
       ],
     )
-  let assert Ok(m.Optimal(solution, stats)) = m.solve(model)
-  close(m.objective(solution), 1.0)
-  { stats.nodes > 0 } |> should.be_true
+  let assert Ok(m.Optimal(solution, _)) = m.solve(model)
+  assert_binary(solution, [Chair, Table])
 }
 
 pub fn model_without_variables_has_zero_stats_test() {
   let assert Ok(m.Optimal(_, stats)) = m.solve(base())
-  stats
-  |> should.equal(m.Stats(
-    nodes: 0,
-    iterations: 0,
-    solve_time: duration.nanoseconds(0),
-    gap: Some(0.0),
-  ))
+  assert stats
+    == m.Stats(
+      nodes: 0,
+      iterations: 0,
+      solve_time: duration.nanoseconds(0),
+      gap: Some(0.0),
+    )
 }
 
 // Solve limits
 
-fn branching_model() -> m.Model(Product) {
-  m.Model(
-    domain: fn(_) { m.Binary },
-    objective: m.Maximize(Sum([Variable(Chair), Variable(Table)])),
-    constraints: [
-      m.LessEqual(Sum([Linear(2.0, Chair), Linear(2.0, Table)]), Constant(3.0)),
-    ],
-  )
-}
-
 pub fn zero_node_budget_returns_no_fractional_assignment_test() {
   let assert Ok(outcome) =
-    m.solve_with(branching_model(), m.Limits(time: None, nodes: Some(0)))
+    m.solve_with(knapsack(), m.Limits(time: None, nodes: Some(0)))
   let assert m.Limited(m.NodeLimit, primal, stats) = outcome
-  stats.nodes |> should.equal(0)
-  { stats.iterations > 0 } |> should.be_true
-  m.stats(outcome) |> should.equal(Some(stats))
+  assert stats.nodes == 0
+  assert stats.iterations > 0
+  assert m.stats(outcome) == Some(stats)
   // The root relaxation is fractional. A root heuristic may still supply an
   // integral incumbent, but never the relaxation itself.
   case primal {
-    Some(solution) -> assert_binary(solution, [Chair, Table])
-    None -> stats.gap |> should.equal(None)
+    Some(solution) -> assert_binary(solution, knapsack_keys())
+    None -> {
+      assert stats.gap == None
+    }
   }
 }
 
 fn assert_binary(solution: m.Solution(v), keys: List(v)) {
   list.each(keys, fn(key) {
     let assert Ok(value) = m.value(solution, key)
-    { value == 0.0 || value == 1.0 } |> should.be_true
+    assert value == 0.0 || value == 1.0
   })
 }
 
 pub fn zero_time_budget_has_stats_but_no_assignment_test() {
   let assert Ok(m.Limited(m.TimeLimit, None, stats)) =
     m.solve_with(
-      branching_model(),
+      knapsack(),
       m.Limits(time: Some(duration.nanoseconds(0)), nodes: None),
     )
-  stats.gap |> should.equal(None)
+  assert stats.gap == None
 }
 
 pub fn negative_limits_are_rejected_time_first_test() {
-  m.solve_with(base(), m.Limits(Some(duration.nanoseconds(-1)), None))
-  |> should.equal(Error(m.InvalidTimeLimit))
-  m.solve_with(base(), m.Limits(None, Some(-1)))
-  |> should.equal(Error(m.InvalidNodeLimit))
-  m.solve_with(base(), m.Limits(Some(duration.seconds(-1)), Some(-1)))
-  |> should.equal(Error(m.InvalidTimeLimit))
+  assert m.solve_with(base(), m.Limits(Some(duration.nanoseconds(-1)), None))
+    == Error(m.InvalidTimeLimit)
+  assert m.solve_with(base(), m.Limits(None, Some(-1)))
+    == Error(m.InvalidNodeLimit)
+  assert m.solve_with(base(), m.Limits(Some(duration.seconds(-1)), Some(-1)))
+    == Error(m.InvalidTimeLimit)
 }
 
 pub fn zero_limits_preserve_validation_and_trivial_answers_test() {
   let limits = m.Limits(Some(duration.nanoseconds(0)), Some(0))
   let assert Ok(m.Optimal(solution, stats)) = m.solve_with(base(), limits)
   close(m.objective(solution), 0.0)
-  stats.gap |> should.equal(Some(0.0))
-  stats.nodes |> should.equal(0)
+  assert stats.gap == Some(0.0)
+  assert stats.nodes == 0
   let invalid =
     m.Model(
       ..base(),
       objective: m.Minimize(Sum([Constant(max), Constant(max)])),
     )
-  m.solve_with(invalid, limits)
-  |> should.equal(Error(m.NonFinite(m.InObjective)))
-  m.solve_with(invalid, m.Limits(None, Some(-1)))
-  |> should.equal(Error(m.InvalidNodeLimit))
-  m.solve_with(
-    m.Model(..base(), constraints: [m.Equal(Constant(1.0), Constant(0.0))]),
-    limits,
-  )
-  |> should.equal(Ok(m.Infeasible))
+  assert m.solve_with(invalid, limits) == Error(m.NonFinite(m.InObjective))
+  assert m.solve_with(invalid, m.Limits(None, Some(-1)))
+    == Error(m.InvalidNodeLimit)
+  assert m.solve_with(
+      m.Model(..base(), constraints: [m.Equal(Constant(1.0), Constant(0.0))]),
+      limits,
+    )
+    == Ok(m.Infeasible)
+}
+
+// The P01 instance (optimum 309): large enough that presolve and root cuts
+// don't settle it, so the search branches and finds incumbents before the
+// proof.
+const knapsack_items = [
+  #(92.0, 23.0),
+  #(57.0, 31.0),
+  #(49.0, 29.0),
+  #(68.0, 44.0),
+  #(60.0, 53.0),
+  #(43.0, 38.0),
+  #(67.0, 63.0),
+  #(84.0, 85.0),
+  #(87.0, 89.0),
+  #(72.0, 82.0),
+]
+
+fn knapsack_keys() -> List(Int) {
+  list.index_map(knapsack_items, fn(_, i) { i })
 }
 
 fn knapsack() -> m.Model(Int) {
+  let terms = fn(pick: fn(#(Float, Float)) -> Float) {
+    list.index_map(knapsack_items, fn(item, i) { Linear(pick(item), i) })
+    |> Sum
+  }
   m.Model(
     domain: fn(_) { m.Binary },
-    objective: m.Maximize(
-      Sum([Linear(8.0, 0), Linear(11.0, 1), Linear(6.0, 2), Linear(4.0, 3)]),
-    ),
-    constraints: [
-      m.LessEqual(
-        Sum([Linear(5.0, 0), Linear(7.0, 1), Linear(4.0, 2), Linear(3.0, 3)]),
-        Constant(14.0),
-      ),
-    ],
+    objective: m.Maximize(terms(fn(item) { item.0 })),
+    constraints: [m.LessEqual(terms(fn(item) { item.1 }), Constant(165.0))],
   )
 }
 
@@ -869,17 +878,17 @@ fn incumbent_budget(model: m.Model(v), nodes: Int) -> Int {
 }
 
 pub fn explicit_unlimited_and_generous_time_match_unlimited_solve_test() {
-  let model = branching_model()
+  let model = knapsack()
   let assert Ok(m.Optimal(expected, _)) = m.solve(model)
   list.each(
     [m.Limits(None, None), m.Limits(Some(duration.seconds(60)), None)],
     fn(limits) {
       let assert Ok(outcome) = m.solve_with(model, limits)
       let assert m.Optimal(actual, stats) = outcome
-      m.values(actual) |> should.equal(m.values(expected))
-      m.objective(actual) |> should.equal(m.objective(expected))
-      stats.gap |> should.equal(Some(0.0))
-      m.stats(outcome) |> should.equal(Some(stats))
+      assert m.values(actual) == m.values(expected)
+      assert m.objective(actual) == m.objective(expected)
+      assert stats.gap == Some(0.0)
+      assert m.stats(outcome) == Some(stats)
     },
   )
 }
@@ -895,34 +904,28 @@ pub fn zero_nodes_allow_continuous_and_root_integral_optima_test() {
     let assert Ok(m.Optimal(solution, stats)) =
       m.solve_with(model, m.Limits(None, Some(0)))
     close_value(solution, Chair, 2.0)
-    stats.nodes |> should.equal(0)
-    stats.gap |> should.equal(Some(0.0))
+    assert stats.nodes == 0
+    assert stats.gap == Some(0.0)
   })
 }
 
 pub fn proof_completed_at_the_node_budget_remains_a_proof_test() {
   let model = knapsack()
   let assert Ok(m.Optimal(expected, unlimited)) = m.solve(model)
-  { unlimited.nodes > 0 } |> should.be_true
+  assert unlimited.nodes > 0
   let assert Ok(m.Optimal(solution, stats)) =
     m.solve_with(model, m.Limits(None, Some(unlimited.nodes)))
-  m.values(solution) |> should.equal(m.values(expected))
-  stats.nodes |> should.equal(unlimited.nodes)
+  assert m.values(solution) == m.values(expected)
+  assert stats.nodes == unlimited.nodes
   let assert Ok(m.Limited(m.NodeLimit, _, _)) =
     m.solve_with(model, m.Limits(None, Some(unlimited.nodes - 1)))
 }
 
 pub fn both_limits_report_the_backend_stop_reason_test() {
   let assert Ok(m.Limited(m.TimeLimit, None, _)) =
-    m.solve_with(
-      branching_model(),
-      m.Limits(Some(duration.seconds(0)), Some(100)),
-    )
+    m.solve_with(knapsack(), m.Limits(Some(duration.seconds(0)), Some(100)))
   let assert Ok(m.Limited(m.NodeLimit, _, _)) =
-    m.solve_with(
-      branching_model(),
-      m.Limits(Some(duration.seconds(60)), Some(0)),
-    )
+    m.solve_with(knapsack(), m.Limits(Some(duration.seconds(60)), Some(0)))
   Nil
 }
 
@@ -933,11 +936,10 @@ pub fn limits_preserve_infeasible_and_unbounded_answers_test() {
       domain: fn(_) { m.Real(Some(3.0), Some(2.0)) },
       objective: m.Minimize(Variable(Chair)),
     )
-  m.solve_with(infeasible, m.Limits(Some(duration.seconds(0)), Some(0)))
-  |> should.equal(Ok(m.Infeasible))
+  assert m.solve_with(infeasible, m.Limits(Some(duration.seconds(0)), Some(0)))
+    == Ok(m.Infeasible)
   let unbounded = m.Model(..base(), objective: m.Maximize(Variable(Chair)))
-  m.solve_with(unbounded, m.Limits(None, Some(0)))
-  |> should.equal(Ok(m.Unbounded))
+  assert m.solve_with(unbounded, m.Limits(None, Some(0))) == Ok(m.Unbounded)
 }
 
 // The offset never reaches the backend, so every shift of one model finds the
@@ -966,24 +968,24 @@ pub fn limited_incumbent_is_queryable_and_gap_uses_full_objective_test() {
       let assert Ok(outcome) =
         m.solve_with(shifted(offset), m.Limits(None, Some(nodes)))
       let assert m.Limited(m.NodeLimit, Some(solution), stats) = outcome
-      m.stats(outcome) |> should.equal(Some(stats))
-      { stats.nodes <= nodes } |> should.be_true
+      assert m.stats(outcome) == Some(stats)
+      assert stats.nodes <= nodes
       let assert Ok(evaluated) =
         m.evaluate_solution(expression(offset), solution)
       close(evaluated, m.objective(solution))
       #(solution, stats)
     }
     let #(unshifted, unshifted_stats) = limited(0.0)
-    assert_binary(unshifted, [0, 1, 2, 3])
+    assert_binary(unshifted, knapsack_keys())
     list.each(model.constraints, fn(constraint) {
       let assert Ok(residual) = m.residual(constraint, m.value(unshifted, _))
-      { residual <=. 0.000001 } |> should.be_true
+      assert residual <=. 0.000001
     })
     let unshifted_gap = absolute_gap(unshifted, unshifted_stats)
-    { unshifted_gap >. 0.0 } |> should.be_true
+    assert unshifted_gap >. 0.0
     list.each([-18.0, 100.0], fn(offset) {
       let #(solution, stats) = limited(offset)
-      m.values(solution) |> should.equal(m.values(unshifted))
+      assert m.values(solution) == m.values(unshifted)
       close(m.objective(solution), m.objective(unshifted) +. offset)
       close(absolute_gap(solution, stats), unshifted_gap)
     })
@@ -998,32 +1000,32 @@ pub fn rounded_zero_gap_does_not_claim_optimality_test() {
   let nodes = incumbent_budget(model, 0)
   let assert Ok(m.Limited(m.NodeLimit, Some(_), stats)) =
     m.solve_with(shifted, m.Limits(None, Some(nodes)))
-  stats.gap |> should.equal(Some(0.0))
+  assert stats.gap == Some(0.0)
 }
 
 pub fn zero_time_continuous_solve_exposes_no_partial_iterate_test() {
-  let model = m.Model(..branching_model(), domain: fn(_) { m.NonNegativeReal })
+  let model = m.Model(..knapsack(), domain: fn(_) { m.NonNegativeReal })
   let assert Ok(m.Limited(m.TimeLimit, None, stats)) =
     m.solve_with(model, m.Limits(Some(duration.nanoseconds(0)), None))
-  stats.gap |> should.equal(None)
+  assert stats.gap == None
 }
 
 pub fn oversized_limits_are_rejected_test() {
   let huge = 18_446_744_073_709_551_616
-  m.solve_with(base(), m.Limits(None, Some(huge)))
-  |> should.equal(Error(m.InvalidNodeLimit))
-  m.solve_with(base(), m.Limits(Some(duration.seconds(huge)), None))
-  |> should.equal(Error(m.InvalidTimeLimit))
+  assert m.solve_with(base(), m.Limits(None, Some(huge)))
+    == Error(m.InvalidNodeLimit)
+  assert m.solve_with(base(), m.Limits(Some(duration.seconds(huge)), None))
+    == Error(m.InvalidTimeLimit)
   // The 100-year cap is inclusive and reaches the backend without overflowing
   // its deadline.
   let cap = duration.seconds(3_153_600_000)
   let assert Ok(m.Optimal(_, _)) =
     m.solve_with(chair_and_table(), m.Limits(Some(cap), None))
-  m.solve_with(
-    chair_and_table(),
-    m.Limits(Some(duration.add(cap, duration.nanoseconds(1))), None),
-  )
-  |> should.equal(Error(m.InvalidTimeLimit))
+  assert m.solve_with(
+      chair_and_table(),
+      m.Limits(Some(duration.add(cap, duration.nanoseconds(1))), None),
+    )
+    == Error(m.InvalidTimeLimit)
   // u64::MAX is a valid node budget even though it exceeds signed i64.
   let assert Ok(m.Optimal(_, _)) =
     m.solve_with(
@@ -1054,9 +1056,9 @@ pub fn nonfinite_limited_objective_remains_a_failure_test() {
   let huge =
     m.Model(
       ..model,
-      objective: m.Maximize(Scaled(1.0e306, objective)),
+      objective: m.Maximize(Scaled(1.0e305, objective)),
       constraints: [
-        m.GreaterEqual(Sum(list.map([0, 1, 2, 3], Variable)), Constant(1.0)),
+        m.GreaterEqual(Sum(list.map(knapsack_keys(), Variable)), Constant(1.0)),
         ..model.constraints
       ],
     )
@@ -1064,7 +1066,7 @@ pub fn nonfinite_limited_objective_remains_a_failure_test() {
   let overflowing =
     m.Model(
       ..huge,
-      objective: m.Maximize(Sum([Scaled(1.0e306, objective), Constant(max)])),
+      objective: m.Maximize(Sum([Scaled(1.0e305, objective), Constant(max)])),
     )
   let assert Error(m.SolverFailure(_)) =
     m.solve_with(overflowing, m.Limits(None, Some(nodes)))
