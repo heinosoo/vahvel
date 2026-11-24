@@ -45,7 +45,8 @@ Or depend on the repository:
 `vahvel = { git = "https://github.com/heinosoo/vahvel", ref = "main" }`.
 
 Vahvel runs on the Erlang target. Building it needs
-[Rust](https://rustup.rs) with `cargo` on the `PATH` and a platform linker. The
+[Rust](https://rustup.rs) 1.91 or newer with `cargo` on the `PATH` and a
+platform linker. The
 native library is built from source the first time vahvel is loaded, or ahead
 of time with `gleam run -m vahvel/setup`. A machine that only runs a built
 release needs neither: the library ships inside it as `priv/vahvel.*`.
