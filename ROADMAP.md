@@ -1,24 +1,16 @@
 # Vahvel roadmap
 
-Next milestone: publish the library on Hex. Keep the current Gleam modeling
-API unless a concrete correctness or usability problem warrants a change.
+## Next
 
-Finished work is removed; git keeps the history. Current behavior belongs in
-[ARCHITECTURE.md](ARCHITECTURE.md), decisions (including what is out of scope)
-in [DESIGN.md](DESIGN.md), and installation instructions in
-[README.md](README.md).
+- **Test the oldest supported toolchain.** `gleam.toml` claims Gleam
+  ≥ 1.14.0, but CI only runs Gleam 1.19.2 on OTP 28, and no OTP minimum is
+  stated. Add a `consumer.yml` job on the oldest Gleam and OTP the package
+  claims, raise the floor where it fails, and state the OTP minimum in the
+  README.
 
-## First Hex release
+## Possibilities
 
-`release` and the consumer checks pass on Linux, macOS and Windows (v0.4.1).
-Remaining: make the repository public, run `release` with `publish` set, and
-check the Hex smoke test.
-
-## Conditional follow-up work
-
-Possibilities, not commitments. Promote an item when a real use case supplies
-an acceptance criterion, and judge API additions by DESIGN.md's "API
-criteria and representative models".
+Promoted when a real use case needs them.
 
 - **Checking a supplied plan.** Extend evaluation to bounds, integrality and
   constraints. Needs defined tolerances and handling of missing assignments,
@@ -36,8 +28,8 @@ criteria and representative models".
   documented until it blocks an application.
 - **Duals and quadratic objectives.** For applications needing sensitivity
   analysis or convex QP. microlp 0.8 exposes LP duals and reduced costs, so
-  duals need no second backend; for QP, Clarabel is a candidate. Solver selection only once a second backend has a purpose.
-  Quadratics need their own expression type (DESIGN.md: "Expressions are an
+  duals need no second backend; for QP, Clarabel is a candidate. Add solver
+  selection only once a second backend has a purpose. Quadratics need their own expression type (DESIGN.md: "Expressions are an
   affine tree") and convexity rules. Duals are queried by constraint value and
   need, before shipping:
   - a definition (Lagrange multipliers or right-hand-side sensitivities) with
