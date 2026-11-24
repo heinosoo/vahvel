@@ -14,6 +14,8 @@ Start here. General working rules are below; everything else lives in one place:
 
 - Use `just` recipes for development. Run `just fmt` and `just check` before committing.
 - Use conventional commit messages.
+- Add user-facing changes to `## Unreleased` in `CHANGELOG.md`, written for
+  users rather than per commit. The release workflow stamps the version.
 - Keep the docs in their lanes: behavior changes update `ARCHITECTURE.md`,
   decision changes update `DESIGN.md` in place, and finished roadmap items are
   removed from `ROADMAP.md`.

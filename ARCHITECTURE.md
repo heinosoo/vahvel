@@ -167,6 +167,9 @@ call. Timings are too noisy for CI, so nothing asserts on them.
   `publish.yml` publishes the tag to Hex and smoke-tests the download;
   `consumer.yml` installs on Linux, macOS and Windows without Nix and never
   blocks a release.
+- `CHANGELOG.md` collects entries under `## Unreleased`. `release.yml` renames
+  that heading to the new version, uses its entries as the GitHub release
+  notes, and refuses to release without any. HexDocs shows it as a page.
 - Gleam packs `priv/` regardless of `.gitignore`, so the Hex tarball is always
   exported from a fresh clone; never publish from a working copy with a built
   library.

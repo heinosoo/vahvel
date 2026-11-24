@@ -10,6 +10,11 @@ internal_modules = [
   "vahvel/internal/*",
 ]
 
+[documentation]
+pages = [
+  { title = "Changelog", path = "changelog.html", source = "./CHANGELOG.md" },
+]
+
 [dependencies]
 gleam_stdlib = ">= 1.0.0 and < 2.0.0"
 shellout = ">= 1.8.0 and < 2.0.0"

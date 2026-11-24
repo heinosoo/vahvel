@@ -1,7 +1,7 @@
 name: release
 
-# Bumps the version, checks the repository and the Hex tarball, then tags and
-# creates a GitHub release. Publishing to Hex is publish.yml; it runs here only
+# Bumps the version, stamps CHANGELOG.md, checks the repository and the Hex
+# tarball, then tags and creates a GitHub release. Publishing to Hex is publish.yml; it runs here only
 # when `publish` is set. consumer.yml is started on the tag and not awaited.
 
 on:
@@ -58,6 +58,18 @@ jobs:
           sed -i "s/^pub const package_version = \".*\"/pub const package_version = \"${TARGET}\"/" src/vahvel/internal/version.gleam
           echo "TARGET=$TARGET" >> "$GITHUB_ENV"
 
+      # The Unreleased section becomes this version's entry and the GitHub
+      # release notes; a release without notes fails here, before the tests.
+      - name: Stamp the changelog
+        run: |
+          awk '/^## Unreleased$/ { f = 1; next } /^## / { f = 0 } f' CHANGELOG.md \
+            | sed -e '/./,$!d' > "$RUNNER_TEMP/notes.md"
+          if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md"; then
+            echo "::error::CHANGELOG.md has no Unreleased entries"
+            exit 1
+          fi
+          sed -i "s/^## Unreleased$/## Unreleased\n\n## v${TARGET} - $(date -u +%F)/" CHANGELOG.md
+
       - uses: cachix/install-nix-action@v31
       - uses: nicknovitski/nix-develop@v1
       - run: just lint
@@ -99,12 +111,8 @@ jobs:
       - name: Create GitHub release and start follow-up workflows
         env:
           GH_TOKEN: ${{ github.token }}
-          NOTES: |
-            Built from source on first use: requires the Erlang target and
-            [Rust](https://rustup.rs) with `cargo` and a platform linker. See the
-            README for installation and limitations.
         run: |
-          gh release create "v${TARGET}" --title "v${TARGET}" --notes "$NOTES" --generate-notes
+          gh release create "v${TARGET}" --title "v${TARGET}" --notes-file "$RUNNER_TEMP/notes.md"
           gh workflow run consumer.yml --ref "v${TARGET}"
           if [ "${{ inputs.publish }}" = true ]; then
             gh workflow run publish.yml --ref "v${TARGET}"

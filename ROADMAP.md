@@ -1,27 +1,18 @@
 # Vahvel roadmap
 
-Next milestone: publish the existing LP/MILP library on GitHub and Hex, built
-from source with Rust. Keep the current Gleam modeling API unless a concrete
-correctness or usability problem warrants a change.
+Next milestone: publish the library on Hex. Keep the current Gleam modeling
+API unless a concrete correctness or usability problem warrants a change.
 
 Finished work is removed; git keeps the history. Current behavior belongs in
 [ARCHITECTURE.md](ARCHITECTURE.md), decisions (including what is out of scope)
 in [DESIGN.md](DESIGN.md), and installation instructions in
 [README.md](README.md).
 
-## First public release
+## First Hex release
 
-A release candidate is ready when a fresh consuming project can follow the
-README, build the native library, and solve a model from both a Git dependency
-and the prepared Hex package. Publication itself is a separate final step.
-
-### Release process
-
-The release workflows have not run on GitHub yet.
-
-- Add the `HEXPM_API_KEY` repository secret.
-- Run `release`, check the consumer results, then run `publish` on the tag.
-  Record the smoke-test result and fix what the first run turns up.
+`release` and the consumer checks pass on Linux, macOS and Windows (v0.4.1).
+Remaining: make the repository public, run `release` with `publish` set, and
+check the Hex smoke test.
 
 ## Conditional follow-up work
 
