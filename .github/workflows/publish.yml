@@ -27,9 +27,14 @@ jobs:
             echo "::error::run on tag v${VERSION}, not ${GITHUB_REF}"
             exit 1
           fi
-      - run: gleam publish --yes
+      # Below 1.0.0, gleam publish asks for this phrase even with --yes, and a
+      # missing answer exits 0 without publishing; the next step catches that.
+      - name: Publish
+        run: echo "I am not using semantic versioning" | gleam publish --yes
         env:
           HEXPM_API_KEY: ${{ secrets.HEXPM_API_KEY }}
+      - name: Check the release is on Hex
+        run: curl -sf "https://hex.pm/api/packages/vahvel/releases/${GITHUB_REF_NAME#v}" > /dev/null
 
   smoke:
     needs: publish
