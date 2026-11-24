@@ -33,8 +33,16 @@ jobs:
         run: echo "I am not using semantic versioning" | gleam publish --yes
         env:
           HEXPM_API_KEY: ${{ secrets.HEXPM_API_KEY }}
-      - name: Check the release is on Hex
-        run: curl -sf "https://hex.pm/api/packages/vahvel/releases/${GITHUB_REF_NAME#v}" > /dev/null
+      # Hex stages releases published with a key until an owner approves them
+      # with 2FA. A release that never appears times out here instead.
+      - name: Wait for approval on Hex
+        timeout-minutes: 60
+        run: |
+          echo "Approve vahvel ${GITHUB_REF_NAME#v} at https://hex.pm/dashboard/staged-releases" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          until curl -sf "https://hex.pm/api/packages/vahvel/releases/${GITHUB_REF_NAME#v}" > /dev/null; do
+            sleep 30
+          done
 
   smoke:
     needs: publish

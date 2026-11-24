@@ -164,7 +164,8 @@ call. Timings are too noisy for CI, so nothing asserts on them.
 - Releases use three manually triggered workflows, each described in its
   header: `release.yml` bumps, checks, tags and dispatches the others
   explicitly, since pushes made with `GITHUB_TOKEN` trigger no workflows;
-  `publish.yml` publishes the tag to Hex and smoke-tests the download;
+  `publish.yml` publishes the tag to Hex, waits up to an hour for an owner to
+  approve the staged release on hex.pm, and smoke-tests the download;
   `consumer.yml` installs on Linux, macOS and Windows without Nix and never
   blocks a release.
 - `CHANGELOG.md` collects entries under `## Unreleased`. `release.yml` renames
