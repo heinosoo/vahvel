@@ -5,6 +5,8 @@ User-facing changes per release. The API is unstable while the package is
 
 ## Unreleased
 
+## v0.5.0 - 2026-11-24
+
 First release on Hex.
 
 - Describe linear and mixed-integer models as plain Gleam data, with variables
