@@ -3,7 +3,7 @@
 import gleam/result
 
 /// The package version; the release workflow keeps it equal to gleam.toml's.
-pub const package_version = "0.4.0"
+pub const package_version = "0.4.1"
 
 /// Whether the loaded NIF was built from this package version. Calling it loads
 /// the NIF; `Error(Nil)` means the library could not be loaded.
