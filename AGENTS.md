@@ -44,8 +44,3 @@ Start here. General working rules are below; everything else lives in one place:
 - **Information hiding.** Expose only what callers need.
 - **Layers should reduce complexity.** Avoid modules that merely pass calls through
   without serving a clear architectural purpose.
-
-## Dependency Lookup
-
-Gleam dependency sources are in `build/packages/`; search signatures there with
-`rg` rather than reading implementations. Rust dependencies: [docs.rs](https://docs.rs).
